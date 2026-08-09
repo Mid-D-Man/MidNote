@@ -1,0 +1,22 @@
+@CONFIG(
+  version    -> "1.0.0"
+  author     -> "Mid-D-Man"
+  features   -> "data,enums"
+  debug_mode -> "off"
+)
+
+@ENUMS(
+  EntryType { REGULAR, TODO }
+)
+
+@DATA(
+  id           = "n1"
+  type<enum>   = EntryType.REGULAR
+  title        = "Grocery list"
+  content      = "Milk, eggs, bread, coffee"
+  lastModified = "2026-08-08T09:15:00Z"
+  isBookmarked = false
+
+  tags::
+    "personal"
+)

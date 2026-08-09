@@ -1,0 +1,174 @@
+/*
+  Design tokens — [[project_name]] (notes & recipes app)
+
+  Palette: deep royal-blue "ink" against a cool near-black surface in dark
+  mode, and a cool ivory "vellum" (not warm cream) in light mode — blue
+  undertone throughout so the two modes read as one identity, not a
+  default flipped in a color picker. A small champagne-gold wash is used
+  only as a rare second accent (a hairline under titles, a save/seal
+  moment) — blue does the work, gold is the seal wax, not a second
+  headline color.
+
+  Type: a serif carries titles and note/recipe headings — this is a
+  writing app, headings should look written, not dashboarded. A system
+  sans carries body copy and form UI. A monospace stack is kept only for
+  incidental data (timestamps, measurements, sync status). No CDN fonts —
+  matches mdix-cybs's local-first stance so the app renders identically
+  offline on Tauri.
+*/
+
+:root,
+[data-theme="dark"] {
+  /* Surfaces */
+  --bg: #0a0e1f;
+  --surface: #10152b;
+  --surface-raised: #171d3a;
+  --hairline: #262e52;
+
+  /* Text */
+  --text-hi: #eef0fa;
+  --text-lo: #9aa1c4;
+  --text-faint: #5b6290;
+
+  /* Signature accent — royal-blue ink */
+  --accent: #3355d1;
+  --accent-dim: #24397e;
+  --accent-wash: rgba(51, 85, 209, 0.14);
+
+  /* Secondary accent — wax-seal gold, use sparingly */
+  --accent-2: #c9a24b;
+  --accent-2-wash: rgba(201, 162, 75, 0.10);
+
+  /* Status */
+  --danger: #e5484d;
+  --danger-wash: rgba(229, 72, 77, 0.12);
+  --success: #4fae7a;
+  --success-wash: rgba(79, 174, 122, 0.12);
+}
+
+[data-theme="light"] {
+  /* Surfaces — cool vellum, not warm cream */
+  --bg: #f6f7fc;
+  --surface: #ffffff;
+  --surface-raised: #eef0fa;
+  --hairline: #dde1f2;
+
+  /* Text */
+  --text-hi: #11142b;
+  --text-lo: #4b5178;
+  --text-faint: #8a8fb0;
+
+  /* Signature accent — deepened for contrast on light surfaces */
+  --accent: #2c46b8;
+  --accent-dim: #7c8be0;
+  --accent-wash: rgba(44, 70, 184, 0.08);
+
+  --accent-2: #a9822f;
+  --accent-2-wash: rgba(169, 130, 47, 0.08);
+
+  --danger: #d13d42;
+  --danger-wash: rgba(209, 61, 66, 0.10);
+  --success: #3f9468;
+  --success-wash: rgba(63, 148, 104, 0.10);
+}
+
+:root {
+  /* Type */
+  --font-display: ui-serif, "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  --font-sans: ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Consolas, monospace;
+
+  /* Rhythm — matches mdix-cybs so shared components stay drop-in compatible */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text-hi);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+h1,
+h2,
+h3,
+.note-title,
+.recipe-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  margin: 0;
+}
+
+/* Signature touch: a thin gold rule under titles — the one place the
+   second accent is allowed to speak. Keep it to this one use. */
+.note-title,
+.recipe-title {
+  display: inline-block;
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--accent-2-wash);
+}
+
+button {
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+input,
+textarea {
+  font-family: var(--font-sans);
+  font-size: inherit;
+  color: var(--text-hi);
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+}
+
+input:focus,
+textarea:focus {
+  border-color: var(--accent-dim);
+}
+
+.timestamp,
+.sync-status,
+.measurement {
+  font-family: var(--font-mono);
+  color: var(--text-lo);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}

@@ -1,0 +1,53 @@
+@CONFIG(
+  version    -> "1.0.0"
+  author     -> "Mid-D-Man"
+  features   -> "quickfuncs,data,enums"
+  debug_mode -> "off"
+)
+
+@ENUMS(
+  EntryType { REGULAR, TODO }
+)
+
+@QUICKFUNCS(
+
+  ~step<object>(id, category, title, content) {
+    return {
+      id       = id
+      category = category
+      title    = title
+      content  = content
+    }
+  }
+
+  ~annotation<object>(id, category, title, content) {
+    return {
+      id       = id
+      category = category
+      title    = title
+      content  = content
+    }
+  }
+
+)
+
+@DATA(
+  id           = "r1"
+  type<enum>   = EntryType.TODO
+  title        = "Grandma's Chili"
+  lastModified = "2026-08-07T18:30:00Z"
+  isBookmarked = true
+
+  tags::
+    "dinner", "comfort-food"
+
+  categories::
+    "Ingredients", "Steps"
+
+  steps::
+    step("s1", "Ingredients", "Base", "2 lbs ground beef, 1 onion diced, 2 cans kidney beans"),
+    step("s2", "Steps", "Brown the meat", "Heat oil, add beef and onion, cook until browned")
+
+  annotations::
+    annotation("a1", "Tips", "Make ahead", "Tastes better the next day")
+)

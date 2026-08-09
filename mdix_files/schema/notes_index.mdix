@@ -1,0 +1,27 @@
+@CONFIG(
+  version    -> "1.0.0"
+  author     -> "Mid-D-Man"
+  features   -> "quickfuncs,data"
+  debug_mode -> "off"
+)
+
+@QUICKFUNCS(
+
+  ~note_ref<object>(id, title, tags, lastModified, isBookmarked, encrypted) {
+    return {
+      id           = id
+      title        = title
+      tags         = tags
+      lastModified = lastModified
+      isBookmarked = isBookmarked
+      encrypted    = encrypted
+    }
+  }
+
+)
+
+@DATA(
+  notes::
+    note_ref("n1", "Grocery list", ["personal"], "2026-08-08T09:15:00Z", false, false),
+    note_ref("n2", "Anniversary gift ideas", [], "2026-08-06T11:00:00Z", false, true)
+)

@@ -1,0 +1,17 @@
+@CONFIG(
+  version    -> "1.0.0"
+  author     -> "Mid-D-Man"
+  features   -> "data"
+  debug_mode -> "off"
+)
+
+@DATA(
+  notes::
+    "personal", "ideas", "journal"
+
+  todos::
+    "dinner", "comfort-food", "quick"
+
+  todo_categories::
+    "Ingredients", "Steps", "Tips"
+)

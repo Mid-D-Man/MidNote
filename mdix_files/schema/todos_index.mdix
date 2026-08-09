@@ -1,0 +1,26 @@
+@CONFIG(
+  version    -> "1.0.0"
+  author     -> "Mid-D-Man"
+  features   -> "quickfuncs,data"
+  debug_mode -> "off"
+)
+
+@QUICKFUNCS(
+
+  ~todo_ref<object>(id, title, tags, lastModified, isBookmarked, encrypted) {
+    return {
+      id           = id
+      title        = title
+      tags         = tags
+      lastModified = lastModified
+      isBookmarked = isBookmarked
+      encrypted    = encrypted
+    }
+  }
+
+)
+
+@DATA(
+  todos::
+    todo_ref("r1", "Grandma's Chili", ["dinner", "comfort-food"], "2026-08-07T18:30:00Z", true, false)
+)
