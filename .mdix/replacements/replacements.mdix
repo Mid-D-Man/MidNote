@@ -1,0 +1,18 @@
+// Brought to u by MidManStudio
+//
+// Every other file in this folder (and its subfolders) is real, verbatim
+// content — dropped into the tree at its own relative path under
+// target_root when this manifest is applied. This bundle is the entire
+// MidNote tree as of this scaffolding pass (baseline + component-driven
+// layer), so applying it against an empty repo reproduces it in one shot.
+
+@CONFIG(
+  version    -> "1.0.0"
+  author     -> "Mid-D-Man"
+  features   -> "data"
+  debug_mode -> "off"
+)
+
+@DATA(
+  target_root = "."
+)
