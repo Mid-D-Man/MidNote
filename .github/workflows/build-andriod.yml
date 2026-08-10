@@ -1,0 +1,143 @@
+name: Build Android APK (debug)
+
+# Manual trigger only — this produces a debug-signed APK for sideloading
+# onto your own device, not a Play Store release. Debug signing means no
+# keystore secrets needed; Android will happily install it once you flip
+# "install unknown apps" on for whatever app you use to open the file.
+on:
+  workflow_dispatch:
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # ubuntu-latest's default free space (~14GB after preinstalled
+      # tooling) plus four Android ABIs' worth of tauri/wry's dependency
+      # tree is what actually exhausted the disk last run. Restricting the
+      # build to one ABI only (below) should be enough on its own, but this
+      # costs a few minutes and removes a second way to hit the same wall.
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: false # we need this one
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Setup Rust + Android target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          # armv7, not aarch64: the Galaxy A13's SoC is 64-bit capable, but
+          # Samsung ships this specific model running the OS itself in
+          # 32-bit mode, so it only reports armeabi-v7a as installable
+          # (confirmed via Samsung's own community forums, including a
+          # Samsung moderator stating it directly) — regardless of what the
+          # chip underneath can actually do.
+          targets: armv7-linux-androideabi
+
+      - name: Cache Rust build artifacts
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # setup-android's own default is just `tools platform-tools` — no
+      # build-tools, meaning apksigner was never actually present in
+      # mdix-cybs's earlier runs. Pin a specific build-tools version
+      # explicitly.
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: "platform-tools build-tools;34.0.0"
+
+      # NDK 28+ is what Google now wants for the 16KB-page-size requirement
+      # on new Play Store submissions — not relevant for sideloading a debug
+      # build onto your own phone, so r26d (known-working) is fine here.
+      # Bump this if/when you start caring about Play Store submissions.
+      - name: Setup Android NDK
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r26d
+          link-to-sdk: true
+
+      - name: Install frontend deps
+        run: npm install
+
+      - name: Init Android project
+        run: npx tauri android init
+
+      # --target restricts this to the one ABI that's actually needed. The
+      # Galaxy A13's chip is 64-bit capable, but Samsung ships this model
+      # with a 32-bit OS, so it only reports armeabi-v7a as installable —
+      # hence armv7, not aarch64. Going through npx here rather than
+      # `npm run tauri -- ...` is deliberate: multiple independent bug
+      # reports (tauri-apps/tauri#11890, GH discussion #10511) show npm's
+      # own argument forwarding unreliably drops --target and silently
+      # builds all four ABIs regardless — which is what exhausted the
+      # runner's disk on an earlier mdix-cybs run (its own env dump showed
+      # all four CARGO_TARGET_*_LINUX_ANDROID* vars set). Calling the
+      # installed CLI directly avoids that layer entirely.
+      - name: Build APK
+        env:
+          NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: npx tauri android build --debug --target armv7
+
+      - name: List built APKs
+        run: find src-tauri/gen/android/app/build/outputs -name "*.apk" -exec ls -la {} \;
+
+      # Tauri's --debug flag is meant to produce an already-signed APK, but
+      # it's inconsistent in practice — upstream reports of it landing an
+      # unsigned release/ build instead regardless of the flag (see
+      # tauri-apps/tauri#11453, #6528). Rather than depend on that, sign
+      # whatever APK actually got produced ourselves: a throwaway debug-style
+      # keystore, generated fresh every run, is all sideloading onto your own
+      # device needs — there's no reason it has to persist between builds.
+      - name: Sign APK
+        run: |
+          APK=$(find src-tauri/gen/android/app/build/outputs -name "*.apk" | head -n 1)
+          if [ -z "$APK" ]; then
+            echo "No APK found under outputs/ — build step must not have produced one."
+            exit 1
+          fi
+          echo "Signing: $APK"
+
+          keytool -genkeypair -v \
+            -keystore debug.keystore -storepass android \
+            -alias androiddebugkey -keypass android \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=MidNote Debug,O=MidManStudio,C=US"
+
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/34.0.0"
+          "$BUILD_TOOLS/apksigner" sign \
+            --ks debug.keystore --ks-pass pass:android \
+            --key-pass pass:android \
+            --out MidNote-signed.apk \
+            "$APK"
+
+          "$BUILD_TOOLS/apksigner" verify MidNote-signed.apk
+
+          mkdir -p signed-output
+          mv MidNote-signed.apk signed-output/
+
+      - name: Upload signed APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: MidNote-debug-apk
+          path: signed-output/MidNote-signed.apk
+          if-no-files-found: error
