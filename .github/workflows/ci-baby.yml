@@ -1,0 +1,70 @@
+name: CI
+
+# Fast compile-check on every push/PR — catches "doesn't even build" before
+# you find out the hard way on a phone. Deliberately separate from
+# build-android.yml: this doesn't produce an APK, it just answers
+# "does this still compile" in a couple minutes instead of ~15+.
+
+on:
+  push:
+  pull_request:
+    branches: [main]
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Install deps
+        run: npm install
+
+      # svelte-kit sync + svelte-check + tsc — catches broken imports, bad
+      # props, type errors across every .svelte/.ts file. Verified this
+      # passes clean (0 errors, 0 warnings) against the current scaffold
+      # before adding this workflow.
+      - name: Type-check
+        run: npm run check
+
+      # The real vite build, same output SvelteKit would ship. Verified
+      # this succeeds locally too — catches anything svelte-check alone
+      # wouldn't (e.g. an actual bundling failure).
+      - name: Build
+        run: npm run build
+
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      # Tauri needs these system libs present to even type-check the crate
+      # on Linux — same reason build-android.yml doesn't need them (Android
+      # target doesn't link against the desktop webview).
+      - name: Install Tauri Linux deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev \
+            librsvg2-dev patchelf
+
+      # cargo check, not cargo build — same compile errors, no need to
+      # actually link a binary just to prove the code is valid. Once
+      # dixscript is added as a real dependency here (see the TODOs in
+      # src-tauri/src/data/), this step needs Rust 1.80+ — dtolnay's
+      # `stable` above tracks current stable automatically, so nothing to
+      # bump here when that happens.
+      - name: Check
+        run: cargo check --manifest-path src-tauri/Cargo.toml
