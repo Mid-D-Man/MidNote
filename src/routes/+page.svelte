@@ -1,156 +1,312 @@
 <script lang="ts">
-  import { invoke } from "@tauri-apps/api/core";
+  import { goto } from "$app/navigation";
+  import { onMount } from "svelte";
+  import LoadingScreen from "$lib/components/layout/LoadingScreen/LoadingScreen.svelte";
+  import AppHeader from "$lib/components/layout/AppHeader/AppHeader.svelte";
+  import NoteCard from "$lib/components/notes/NoteCard/NoteCard.svelte";
+  import AiNoteCreator from "$lib/components/notes/AiNoteCreator/AiNoteCreator.svelte";
+  import Button from "$lib/components/ui/Button/Button.svelte";
+  import { entries, saveEntry, toggleBookmark } from "$lib/stores/entries.svelte";
+  import type { Note, Todo } from "$lib/types/entry";
+  import { noteTags, todoTags, sync as syncTags, registerTag, unregisterTag } from "$lib/stores/tags.svelte";
+  import { createNote } from "$lib/storage";
 
-  let name = $state("");
-  let greetMsg = $state("");
+  let isLoading = $state(true);
+  let activeView = $state<"notes" | "todos">("notes");
+  let selectedTag = $state<string | null>(null);
+  let searchQuery = $state("");
+  let sortBy = $state<"recent" | "alphabetical" | "bookmarked">("recent");
 
-  async function greet(event: Event) {
-    event.preventDefault();
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    greetMsg = await invoke("greet", { name });
+  onMount(() => {
+    syncTags();
+  });
+
+  const notes = $derived(entries.filter((e): e is Note => e.type === "regular"));
+  const todos = $derived(entries.filter((e): e is Todo => e.type === "todo"));
+
+  const displayItems = $derived(activeView === "notes" ? notes : todos);
+  const tagList = $derived(activeView === "notes" ? noteTags : todoTags);
+
+  const filteredItems = $derived(
+    (selectedTag ? displayItems.filter((i) => i.tags.includes(selectedTag!)) : displayItems).filter((i) => {
+      const q = searchQuery.toLowerCase();
+      if (!q) return true;
+      const haystack = i.title + " " + (i.type === "regular" ? i.content : "");
+      return haystack.toLowerCase().includes(q);
+    })
+  );
+
+  const sortedItems = $derived(
+    [...filteredItems].sort((a, b) => {
+      if (sortBy === "recent") return new Date(b.lastModified).getTime() - new Date(a.lastModified).getTime();
+      if (sortBy === "alphabetical") return a.title.localeCompare(b.title);
+      return (b.isBookmarked ? 1 : 0) - (a.isBookmarked ? 1 : 0);
+    })
+  );
+
+  function switchView(view: "notes" | "todos") {
+    activeView = view;
+    selectedTag = null;
+    sortBy = "recent";
+  }
+
+  function handleClick(id: string) {
+    const item = [...notes, ...todos].find((i) => i.id === id);
+    goto(item?.type === "todo" ? `/todo/${id}` : `/note/${id}`);
+  }
+
+  function handleAddTag() {
+    const name = prompt("Enter tag name:");
+    if (name) registerTag(activeView === "notes" ? "notes" : "todos", name);
+  }
+
+  function handleRemoveTag(tag: string) {
+    unregisterTag(activeView === "notes" ? "notes" : "todos", tag);
+    if (selectedTag === tag) selectedTag = null;
+  }
+
+  function handleAiNoteCreated(note: { title: string; content: string }) {
+    const n = createNote();
+    n.title = note.title;
+    n.content = note.content;
+    n.tags = ["AI Generated"];
+    saveEntry(n);
+    registerTag("notes", "AI Generated");
   }
 </script>
 
-<main class="container">
-  <h1>Welcome to Tauri + Svelte</h1>
+{#if isLoading}
+  <LoadingScreen oncomplete={() => (isLoading = false)} />
+{:else}
+  <main class="page">
+    <AppHeader />
 
-  <div class="row">
-    <a href="https://vite.dev" target="_blank">
-      <img src="/vite.svg" class="logo vite" alt="Vite Logo" />
-    </a>
-    <a href="https://tauri.app" target="_blank">
-      <img src="/tauri.svg" class="logo tauri" alt="Tauri Logo" />
-    </a>
-    <a href="https://svelte.dev" target="_blank">
-      <img src="/svelte.svg" class="logo svelte-kit" alt="SvelteKit Logo" />
-    </a>
-  </div>
-  <p>Click on the Tauri, Vite, and SvelteKit logos to learn more.</p>
+    <div class="view-tabs">
+      <button class:active={activeView === "notes"} onclick={() => switchView("notes")}>Notes</button>
+      <button class:active={activeView === "todos"} onclick={() => switchView("todos")}>Todos</button>
+    </div>
 
-  <form class="row" onsubmit={greet}>
-    <input id="greet-input" placeholder="Enter a name..." bind:value={name} />
-    <button type="submit">Greet</button>
-  </form>
-  <p>{greetMsg}</p>
-</main>
+    <div class="content">
+      <div class="inner">
+        <div class="controls">
+          <input
+            class="search"
+            type="text"
+            placeholder="Search {activeView}..."
+            bind:value={searchQuery}
+          />
+          <select class="sort" bind:value={sortBy}>
+            <option value="recent">Recent</option>
+            <option value="alphabetical">A-Z</option>
+            <option value="bookmarked">Bookmarked</option>
+          </select>
+        </div>
+
+        <div class="tags-section">
+          <div class="tags-header">
+            <h3>Tags</h3>
+            <Button variant="outline" size="sm" onclick={handleAddTag}>Add Tag</Button>
+          </div>
+          <div class="tag-chips">
+            {#each tagList as tag (tag)}
+              <div class="chip" class:selected={selectedTag === tag}>
+                <button onclick={() => (selectedTag = selectedTag === tag ? null : tag)}>{tag}</button>
+                <button class="remove" onclick={() => handleRemoveTag(tag)} aria-label="Remove {tag}">×</button>
+              </div>
+            {/each}
+          </div>
+        </div>
+
+        {#if activeView === "notes"}
+          <AiNoteCreator onNoteCreated={handleAiNoteCreated} />
+        {/if}
+
+        <div class="section-header">
+          <h2>{activeView === "notes" ? "All Notes" : "All Todos"}{selectedTag ? ` — ${selectedTag}` : ""}</h2>
+          <Button onclick={() => goto(activeView === "notes" ? "/note/new" : "/todo/new")}>
+            + New {activeView === "notes" ? "Note" : "Todo"}
+          </Button>
+        </div>
+
+        {#if sortedItems.length === 0}
+          <div class="empty">
+            <p>No {activeView} found.</p>
+            <Button size="lg" onclick={() => goto(activeView === "notes" ? "/note/new" : "/todo/new")}>
+              Create {activeView === "notes" ? "Note" : "Todo"}
+            </Button>
+          </div>
+        {:else}
+          <div class="grid">
+            {#each sortedItems as item (item.id)}
+              {#if item.type === "regular"}
+                <NoteCard note={item} onToggleBookmark={toggleBookmark} onClick={handleClick} />
+              {:else}
+                <button class="todo-item" onclick={() => handleClick(item.id)}>
+                  <strong>{item.title || "Untitled"}</strong>
+                  <span class="meta">{item.steps.length} step{item.steps.length === 1 ? "" : "s"} · {new Date(item.lastModified).toLocaleDateString()}</span>
+                </button>
+              {/if}
+            {/each}
+          </div>
+        {/if}
+      </div>
+    </div>
+  </main>
+{/if}
 
 <style>
-.logo.vite:hover {
-  filter: drop-shadow(0 0 2em #747bff);
-}
-
-.logo.svelte-kit:hover {
-  filter: drop-shadow(0 0 2em #ff3e00);
-}
-
-:root {
-  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: 400;
-
-  color: #0f0f0f;
-  background-color: #f6f6f6;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  -webkit-text-size-adjust: 100%;
-}
-
-.container {
-  margin: 0;
-  padding-top: 10vh;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  text-align: center;
-}
-
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: 0.75s;
-}
-
-.logo.tauri:hover {
-  filter: drop-shadow(0 0 2em #24c8db);
-}
-
-.row {
-  display: flex;
-  justify-content: center;
-}
-
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-
-a:hover {
-  color: #535bf2;
-}
-
-h1 {
-  text-align: center;
-}
-
-input,
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  color: #0f0f0f;
-  background-color: #ffffff;
-  transition: border-color 0.25s;
-  box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2);
-}
-
-button {
-  cursor: pointer;
-}
-
-button:hover {
-  border-color: #396cd8;
-}
-button:active {
-  border-color: #396cd8;
-  background-color: #e8e8e8;
-}
-
-input,
-button {
-  outline: none;
-}
-
-#greet-input {
-  margin-right: 5px;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    color: #f6f6f6;
-    background-color: #2f2f2f;
+  .page {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    background: var(--bg);
   }
-
-  a:hover {
-    color: #24c8db;
+  .view-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--hairline);
+    background: var(--surface);
+    padding: 0 var(--space-4);
+    flex-shrink: 0;
   }
-
-  input,
-  button {
-    color: #ffffff;
-    background-color: #0f0f0f98;
+  .view-tabs button {
+    padding: var(--space-3) var(--space-4);
+    font-family: var(--font-sans);
+    font-weight: 500;
+    font-size: 14px;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--text-lo);
+    cursor: pointer;
   }
-  button:active {
-    background-color: #0f0f0f69;
+  .view-tabs button.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
   }
-}
-
+  .content {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--space-5) var(--space-4);
+  }
+  .inner {
+    max-width: 760px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-5);
+  }
+  .controls {
+    display: flex;
+    gap: var(--space-3);
+  }
+  .search {
+    flex: 1;
+    font-family: var(--font-sans);
+    font-size: 14px;
+    color: var(--text-hi);
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-sm);
+    padding: var(--space-2) var(--space-3);
+  }
+  .sort {
+    font-family: var(--font-sans);
+    font-size: 14px;
+    color: var(--text-hi);
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-sm);
+    padding: var(--space-2) var(--space-3);
+  }
+  .tags-section {
+    padding-bottom: var(--space-4);
+    border-bottom: 1px solid var(--hairline);
+  }
+  .tags-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--space-3);
+  }
+  .tags-header h3 {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-hi);
+    margin: 0;
+  }
+  .tag-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+  .chip {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    background: var(--surface-raised);
+    border-radius: 999px;
+    padding: 4px var(--space-1) 4px var(--space-3);
+    font-size: 13px;
+  }
+  .chip.selected {
+    background: var(--accent);
+  }
+  .chip.selected button {
+    color: var(--bg);
+  }
+  .chip button {
+    background: none;
+    border: none;
+    color: var(--text-hi);
+    cursor: pointer;
+    font-size: 13px;
+  }
+  .chip .remove {
+    padding: 0 var(--space-2);
+    opacity: 0.6;
+  }
+  .section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+  }
+  .section-header h2 {
+    font-family: var(--font-display);
+    font-size: 19px;
+    color: var(--text-hi);
+    margin: 0;
+  }
+  .empty {
+    text-align: center;
+    padding: var(--space-6) 0;
+  }
+  .empty p {
+    color: var(--text-lo);
+    margin: 0 0 var(--space-4);
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: var(--space-4);
+  }
+  .todo-item {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    text-align: left;
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-md);
+    padding: var(--space-4);
+    cursor: pointer;
+    color: var(--text-hi);
+  }
+  .todo-item:hover {
+    border-color: var(--accent-dim);
+  }
+  .todo-item .meta {
+    font-size: 12px;
+    color: var(--text-faint);
+  }
 </style>

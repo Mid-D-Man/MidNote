@@ -1,16 +1,20 @@
 <script lang="ts">
-  // Separator — component-driven port of ui/separator.tsx
-  // primitive
-  // TODO: port real markup/logic from SimpleNotesAndRecipies; this is a
-  // structural stub so the tree builds and imports resolve.
+  let { orientation = "horizontal" }: { orientation?: "horizontal" | "vertical" } = $props();
 </script>
 
-<div class="separator">
-  <!-- TODO: Separator -->
-</div>
+<div class="separator {orientation}"></div>
 
 <style>
   .separator {
-    color: var(--text-hi);
+    background: var(--hairline);
+    flex-shrink: 0;
+  }
+  .horizontal {
+    height: 1px;
+    width: 100%;
+  }
+  .vertical {
+    width: 1px;
+    align-self: stretch;
   }
 </style>
