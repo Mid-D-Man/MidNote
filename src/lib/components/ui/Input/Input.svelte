@@ -4,11 +4,13 @@
     placeholder = "",
     class: className = "",
     oninput,
+    onkeydown,
   }: {
     value?: string;
     placeholder?: string;
     class?: string;
     oninput?: (e: Event) => void;
+    onkeydown?: (e: KeyboardEvent) => void;
   } = $props();
 </script>
 
@@ -18,6 +20,7 @@
   {placeholder}
   class="input {className}"
   oninput={(e) => oninput?.(e)}
+  onkeydown={(e) => onkeydown?.(e)}
 />
 
 <style>
