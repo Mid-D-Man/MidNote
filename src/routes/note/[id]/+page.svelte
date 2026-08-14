@@ -114,16 +114,38 @@
   .editor-page {
     display: flex;
     flex-direction: column;
-    height: 100vh;
+    height: 100dvh;
+    max-width: 100vw;
+    overflow-x: hidden;
     background: var(--bg);
   }
   .scroll-area {
     flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
     overflow-y: auto;
+    overflow-x: hidden;
     padding: var(--space-5) var(--space-4);
+    /* Reserve room below the last line for the floating toolbar (52px
+       bar + its own bottom offset + breathing room) so it can never
+       sit on top of text being typed. */
+    padding-bottom: calc(52px + var(--space-4) + var(--space-5));
   }
   .inner {
     max-width: 680px;
+    width: 100%;
     margin: 0 auto;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  @media (max-width: 480px) {
+    .scroll-area {
+      padding-left: var(--space-3);
+      padding-right: var(--space-3);
+    }
   }
 </style>

@@ -98,6 +98,12 @@ body {
   margin: 0;
   padding: 0;
   height: 100%;
+  /* Mobile shouldn't be able to scroll sideways at all — this is the
+     single global guard; components additionally avoid causing overflow
+     in the first place (long words wrap, fixed elements stay within
+     100vw), this is the backstop. */
+  max-width: 100vw;
+  overflow-x: hidden;
 }
 
 body {
@@ -108,7 +114,20 @@ body {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   transition: background-color 0.15s ease, color 0.15s ease;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
+
+/*
+  Breakpoint convention used across every component's <style> block:
+    max-width: 480px  — phones (the primary target — mobile ships first)
+    max-width: 768px  — small tablets / large phones landscape
+    min-width: 1024px — desktop, once the web target exists
+
+  Mobile-first: base styles ARE the phone styles, @media widens up from
+  there rather than narrowing down — matches "mobile first, then desktop,
+  then web" ship order.
+*/
 
 h1,
 h2,

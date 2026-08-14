@@ -158,7 +158,9 @@
   .page {
     display: flex;
     flex-direction: column;
-    height: 100vh;
+    height: 100dvh;
+    max-width: 100vw;
+    overflow-x: hidden;
     background: var(--bg);
   }
   .view-tabs {
@@ -185,22 +187,34 @@
   }
   .content {
     flex: 1;
+    min-height: 0;
     overflow-y: auto;
+    overflow-x: hidden;
     padding: var(--space-5) var(--space-4);
   }
   .inner {
     max-width: 760px;
+    width: 100%;
     margin: 0 auto;
     display: flex;
     flex-direction: column;
     gap: var(--space-5);
+    min-width: 0;
   }
   .controls {
     display: flex;
     gap: var(--space-3);
+    min-width: 0;
   }
   .search {
+    /* min-width: 0 overrides flex's default min-width: auto, which was
+       the actual cause of the horizontal-scroll bug: a flex row's
+       children don't shrink below their own content size unless told
+       to, so this input plus the <select> next to it could together
+       demand more width than the screen has, and the row (and
+       everything above it) would rather overflow than shrink. */
     flex: 1;
+    min-width: 0;
     font-family: var(--font-sans);
     font-size: 14px;
     color: var(--text-hi);
@@ -210,6 +224,8 @@
     padding: var(--space-2) var(--space-3);
   }
   .sort {
+    flex-shrink: 0;
+    max-width: 40%;
     font-family: var(--font-sans);
     font-size: 14px;
     color: var(--text-hi);
@@ -270,12 +286,15 @@
     align-items: center;
     justify-content: space-between;
     gap: var(--space-3);
+    flex-wrap: wrap;
   }
   .section-header h2 {
     font-family: var(--font-display);
     font-size: 19px;
     color: var(--text-hi);
     margin: 0;
+    min-width: 0;
+    overflow-wrap: break-word;
   }
   .empty {
     text-align: center;
@@ -308,5 +327,29 @@
   .todo-item .meta {
     font-size: 12px;
     color: var(--text-faint);
+  }
+
+  /* Phones — single-column list instead of a grid that could still
+     tempt a wide card into forcing overflow, tighter side padding to
+     match the editor page, controls stack instead of staying in one row
+     once there isn't really room for both at a readable width. */
+  @media (max-width: 480px) {
+    .content {
+      padding-left: var(--space-3);
+      padding-right: var(--space-3);
+    }
+    .grid {
+      grid-template-columns: 1fr;
+    }
+    .controls {
+      flex-wrap: wrap;
+    }
+    .sort {
+      max-width: none;
+      flex: 1 1 auto;
+    }
+    .section-header h2 {
+      font-size: 17px;
+    }
   }
 </style>

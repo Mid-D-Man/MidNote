@@ -51,6 +51,7 @@
     padding: var(--space-3);
     z-index: 50;
     min-width: 220px;
+    max-width: calc(100vw - 2 * var(--space-4));
   }
   .popover.end {
     right: 0;

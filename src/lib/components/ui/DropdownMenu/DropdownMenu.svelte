@@ -44,6 +44,7 @@
     position: absolute;
     top: calc(100% + 4px);
     min-width: 180px;
+    max-width: calc(100vw - 2 * var(--space-4));
     background: var(--surface-raised);
     border: 1px solid var(--hairline);
     border-radius: var(--radius-sm);

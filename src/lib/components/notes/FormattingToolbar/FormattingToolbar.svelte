@@ -47,16 +47,29 @@
 
 <style>
   .toolbar {
-    height: 15vh;
-    min-height: 64px;
-    max-height: 96px;
-    border-top: 1px solid var(--hairline);
-    background: var(--surface);
-    padding: 0 var(--space-4);
+    /* Floating, not a full-width footer in normal flow — a footer that
+       sits inline with content is exactly what was rising/falling as
+       the textarea's content changed. Fixed + floating means its
+       position never depends on content at all; the editor page reserves
+       padding-bottom below to guarantee it never sits over the last
+       line of text. */
+    position: fixed;
+    left: 50%;
+    bottom: max(var(--space-4), env(safe-area-inset-bottom));
+    transform: translateX(-50%);
+    width: max-content;
+    max-width: calc(100vw - var(--space-6));
+    height: 52px;
+    border-radius: 999px;
+    border: 1px solid var(--hairline);
+    background: var(--surface-raised);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32);
+    padding: 0 var(--space-2);
     display: flex;
     align-items: center;
     gap: var(--space-1);
     overflow-x: auto;
+    z-index: 30;
   }
   .toolbar button {
     flex-shrink: 0;
