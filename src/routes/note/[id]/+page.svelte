@@ -1,15 +1,17 @@
 <script lang="ts">
   import { page } from "$app/stores";
   import { goto } from "$app/navigation";
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import NoteEditorHeader from "$lib/components/notes/NoteEditorHeader/NoteEditorHeader.svelte";
   import NoteTitle from "$lib/components/notes/NoteTitle/NoteTitle.svelte";
   import NoteContent from "$lib/components/notes/NoteContent/NoteContent.svelte";
   import FormattingToolbar from "$lib/components/notes/FormattingToolbar/FormattingToolbar.svelte";
   import { saveEntry } from "$lib/stores/entries.svelte";
   import { noteTags, sync as syncTags } from "$lib/stores/tags.svelte";
+  import { fontSize, setFontSize } from "$lib/stores/settings.svelte";
   import { createNote, getEntry } from "$lib/storage";
   import { breadcrumb } from "$lib/debug/log.svelte";
+  import { matchList, getLine, isSelectionWrapped, applyInlineWrap, applyListFormat, type ListType } from "$lib/utils/textEditing";
   import type { Note } from "$lib/types/entry";
 
   const id = $derived($page.params.id);
@@ -18,17 +20,29 @@
   let textareaEl = $state<HTMLTextAreaElement | null>(null);
   let loadError = $state<string | null>(null);
 
+  // Tracked independently of textareaEl.selectionStart/End, updated on
+  // every selectionchange WHILE the textarea is focused, and left alone
+  // once it isn't. This is the actual fix for "formatting inserts at the
+  // top of the note" — tapping a toolbar button blurs the textarea
+  // before its onclick fires, and selectionStart/End reset to 0 on blur
+  // on this webview, so reading them at click-time was always reading a
+  // stale zero, not where the cursor actually was.
+  let lastSelStart = $state(0);
+  let lastSelEnd = $state(0);
+
   onMount(() => {
     breadcrumb(`note page mounted, id=${id}`);
     syncTags();
     load();
 
-    // Auto-save "on quit" — visibilitychange fires when the app is
-    // backgrounded/switched away from/the phone is locked, which covers
-    // the mobile "quit" cases a plain route-change save wouldn't (home
-    // button, task switcher, incoming call). pagehide is the fallback for
-    // the cases visibilitychange doesn't reliably cover on some Android
-    // webviews.
+    const onSelectionChange = () => {
+      if (document.activeElement === textareaEl && textareaEl) {
+        lastSelStart = textareaEl.selectionStart;
+        lastSelEnd = textareaEl.selectionEnd;
+      }
+    };
+    document.addEventListener("selectionchange", onSelectionChange);
+
     const saveIfHidden = () => {
       if (document.visibilityState === "hidden") {
         breadcrumb("note: auto-saving on visibilitychange (hidden)");
@@ -42,6 +56,7 @@
     document.addEventListener("visibilitychange", saveIfHidden);
     window.addEventListener("pagehide", saveOnPagehide);
     return () => {
+      document.removeEventListener("selectionchange", onSelectionChange);
       document.removeEventListener("visibilitychange", saveIfHidden);
       window.removeEventListener("pagehide", saveOnPagehide);
     };
@@ -85,9 +100,7 @@
     persist();
   }
 
-  // --- Undo/redo — content only (see NoteEditorHeader), limited to a
-  // capped history of checkpoints rather than per-keystroke, so a burst
-  // of typing is one undo step, not fifty. ---
+  // --- Undo/redo — unchanged from before. ---
   const HISTORY_LIMIT = 50;
   const CHECKPOINT_DELAY = 400;
 
@@ -135,40 +148,45 @@
     lastCheckpoint = note.content;
   }
 
-  // Real markdown insertion at the current selection — see
-  // FormattingToolbar's header comment for why this replaces the
-  // original's non-functional execCommand wiring.
+  // --- Formatting: uses lastSelStart/lastSelEnd (see above), not
+  // textareaEl.selectionStart/End directly. ---
+
+  const activeFormats = $derived.by(() => {
+    const bold = isSelectionWrapped(note.content, lastSelStart, lastSelEnd, "**");
+    const italic = isSelectionWrapped(note.content, lastSelStart, lastSelEnd, "*") && !bold;
+    const underline = isSelectionWrapped(note.content, lastSelStart, lastSelEnd, "__");
+    const { line } = getLine(note.content, lastSelStart);
+    const list = matchList(line)?.type ?? null;
+    return { bold, italic, underline, list };
+  });
+
+  async function refocusAt(pos: number, endPos = pos) {
+    await tick();
+    textareaEl?.focus();
+    textareaEl?.setSelectionRange(pos, endPos);
+    lastSelStart = pos;
+    lastSelEnd = endPos;
+  }
+
   function handleFormat(format: string) {
-    if (!textareaEl) return;
-    const start = textareaEl.selectionStart;
-    const end = textareaEl.selectionEnd;
-    const selected = note.content.slice(start, end);
+    const text = note.content;
+    const start = lastSelStart;
+    const end = lastSelEnd;
 
-    const wrap = (marker: string) => {
-      note.content = note.content.slice(0, start) + marker + selected + marker + note.content.slice(end);
-    };
-    const prefixLines = (prefix: (i: number) => string) => {
-      const lines = (selected || "").split("\n");
-      const replaced = lines.map((line, i) => prefix(i) + line).join("\n");
-      note.content = note.content.slice(0, start) + replaced + note.content.slice(end);
-    };
+    if (format === "bold" || format === "italic" || format === "underline") {
+      const marker = format === "bold" ? "**" : format === "italic" ? "*" : "__";
+      const result = applyInlineWrap(text, start, end, marker);
+      note.content = result.newText;
+      refocusAt(result.newSelStart, result.newSelEnd);
+      return;
+    }
 
-    switch (format) {
-      case "bold":
-        wrap("**");
-        break;
-      case "italic":
-        wrap("*");
-        break;
-      case "underline":
-        wrap("__");
-        break;
-      case "bulletList":
-        prefixLines(() => "- ");
-        break;
-      case "orderedList":
-        prefixLines((i) => `${i + 1}. `);
-        break;
+    if (format === "bulletList" || format === "orderedList" || format === "romanList") {
+      const type: ListType = format === "bulletList" ? "bullet" : format === "orderedList" ? "decimal" : "roman";
+      const result = applyListFormat(text, start, end, type);
+      note.content = result.newText;
+      refocusAt(result.newSelEnd);
+      return;
     }
   }
 </script>
@@ -200,11 +218,16 @@
     <div class="scroll-area">
       <div class="inner">
         <NoteTitle bind:value={note.title} />
-        <NoteContent bind:value={note.content} bind:textareaEl />
+        <NoteContent bind:value={note.content} bind:textareaEl fontSize={fontSize.value} />
       </div>
     </div>
 
-    <FormattingToolbar onFormat={handleFormat} />
+    <FormattingToolbar
+      onFormat={handleFormat}
+      {activeFormats}
+      fontSize={fontSize.value}
+      onFontSizeChange={setFontSize}
+    />
   {/if}
 </main>
 
@@ -225,9 +248,6 @@
     overflow-y: auto;
     overflow-x: hidden;
     padding: var(--space-5) var(--space-4);
-    /* Reserve room below the last line for the floating toolbar (52px
-       bar + its own bottom offset + breathing room) so it can never
-       sit on top of text being typed. */
     padding-bottom: calc(52px + var(--space-4) + var(--space-5));
   }
   .inner {

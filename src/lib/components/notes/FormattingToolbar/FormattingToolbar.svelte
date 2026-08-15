@@ -1,25 +1,24 @@
 <script lang="ts">
-  // Deliberately limited scope, per direct request — bold/italic/
-  // underline (behind one "Aa" button that opens a small panel above the
-  // bar, same interaction pattern as the reference app: tap an icon, a
-  // panel appears anchored above the toolbar, not covering it) plus
-  // direct-action bullet/numbered lists. No color picker, no highlighter,
-  // no font size — those are real features of the reference app that
-  // just aren't in scope here.
   import { onMount } from "svelte";
+  import { FONT_SIZES } from "$lib/stores/settings.svelte";
 
-  let { onFormat }: { onFormat: (format: string) => void } = $props();
+  let {
+    onFormat,
+    activeFormats = { bold: false, italic: false, underline: false, list: null },
+    fontSize = 15,
+    onFontSizeChange,
+  }: {
+    onFormat: (format: string) => void;
+    activeFormats?: { bold: boolean; italic: boolean; underline: boolean; list: "bullet" | "decimal" | "roman" | null };
+    fontSize?: number;
+    onFontSizeChange?: (size: number) => void;
+  } = $props();
 
-  let stylePanelOpen = $state(false);
+  // Only one panel open at a time — opening one closes the other, rather
+  // than letting both stack up and eat half the screen.
+  let openPanel = $state<"style" | "size" | null>(null);
   let keyboardInset = $state(0);
 
-  // Keyboard-aware positioning: without this, a `position: fixed` bar
-  // sits relative to the *layout* viewport, which on some Android
-  // webviews doesn't shrink when the keyboard opens — so the bar (and
-  // its panel) end up rendered UNDER the keyboard instead of above it.
-  // VisualViewport tracks the actually-visible area and does shrink,
-  // so using its offset is what keeps this pinned just above the
-  // keyboard rather than hidden behind it.
   onMount(() => {
     const vv = window.visualViewport;
     if (!vv) return;
@@ -35,28 +34,42 @@
     };
   });
 
+  function togglePanel(panel: "style" | "size") {
+    openPanel = openPanel === panel ? null : panel;
+  }
+
   function apply(format: string) {
     onFormat(format);
   }
 </script>
 
 <div class="toolbar-wrap" style="bottom: calc(max(var(--space-4), env(safe-area-inset-bottom)) + {keyboardInset}px)">
-  {#if stylePanelOpen}
-    <div class="style-panel">
-      <button onclick={() => apply("bold")} aria-label="Bold"><strong>B</strong></button>
-      <button onclick={() => apply("italic")} aria-label="Italic"><em>I</em></button>
-      <button onclick={() => apply("underline")} aria-label="Underline"><span class="underline">U</span></button>
+  {#if openPanel === "style"}
+    <div class="panel">
+      <button class:active={activeFormats.bold} onclick={() => apply("bold")} aria-label="Bold"><strong>B</strong></button>
+      <button class:active={activeFormats.italic} onclick={() => apply("italic")} aria-label="Italic"><em>I</em></button>
+      <button class:active={activeFormats.underline} onclick={() => apply("underline")} aria-label="Underline"><span class="underline">U</span></button>
+    </div>
+  {:else if openPanel === "size"}
+    <div class="panel size-panel">
+      {#each FONT_SIZES as size (size)}
+        <button class:active={fontSize === size} onclick={() => onFontSizeChange?.(size)}>{size}</button>
+      {/each}
     </div>
   {/if}
 
   <footer class="toolbar">
-    <button class:active={stylePanelOpen} onclick={() => (stylePanelOpen = !stylePanelOpen)} aria-label="Text style">
+    <button class:active={openPanel === "style" || activeFormats.bold || activeFormats.italic || activeFormats.underline} onclick={() => togglePanel("style")} aria-label="Text style">
       <span class="aa">Aa</span>
+    </button>
+
+    <button class:active={openPanel === "size"} onclick={() => togglePanel("size")} aria-label="Text size">
+      <span class="tt">{fontSize}</span>
     </button>
 
     <div class="sep"></div>
 
-    <button onclick={() => apply("bulletList")} aria-label="Bullet list" title="Bullet list">
+    <button class:active={activeFormats.list === "bullet"} onclick={() => apply("bulletList")} aria-label="Bullet list" title="Bullet list">
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
         <circle cx="4" cy="6" r="1.2" fill="currentColor" stroke="none" />
         <circle cx="4" cy="12" r="1.2" fill="currentColor" stroke="none" />
@@ -66,7 +79,7 @@
         <line x1="9" y1="18" x2="20" y2="18" />
       </svg>
     </button>
-    <button onclick={() => apply("orderedList")} aria-label="Numbered list" title="Numbered list">
+    <button class:active={activeFormats.list === "decimal"} onclick={() => apply("orderedList")} aria-label="Numbered list" title="Numbered list">
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
         <line x1="9" y1="6" x2="20" y2="6" />
         <line x1="9" y1="12" x2="20" y2="12" />
@@ -75,6 +88,9 @@
         <text x="1" y="14" font-size="7" fill="currentColor" stroke="none">2</text>
         <text x="1" y="20" font-size="7" fill="currentColor" stroke="none">3</text>
       </svg>
+    </button>
+    <button class:active={activeFormats.list === "roman"} onclick={() => apply("romanList")} aria-label="Roman numeral list" title="Roman numeral list">
+      <span class="roman-icon">iv.</span>
     </button>
   </footer>
 </div>
@@ -130,6 +146,16 @@
     font-weight: 600;
     font-size: 14px;
   }
+  .tt {
+    font-family: var(--font-sans);
+    font-weight: 600;
+    font-size: 12px;
+  }
+  .roman-icon {
+    font-family: var(--font-display);
+    font-size: 11px;
+    font-weight: 600;
+  }
   .underline {
     text-decoration: underline;
   }
@@ -141,7 +167,7 @@
     flex-shrink: 0;
   }
 
-  .style-panel {
+  .panel {
     display: flex;
     align-items: center;
     gap: var(--space-1);
@@ -151,9 +177,12 @@
     background: var(--surface-raised);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32);
     padding: 0 var(--space-2);
+    max-width: calc(100vw - var(--space-6));
+    overflow-x: auto;
   }
-  .style-panel button {
-    width: 32px;
+  .panel button {
+    flex-shrink: 0;
+    min-width: 32px;
     height: 32px;
     display: flex;
     align-items: center;
@@ -163,9 +192,18 @@
     border-radius: var(--radius-sm);
     color: var(--text-hi);
     cursor: pointer;
-    font-size: 14px;
+    font-size: 13px;
+    padding: 0 var(--space-2);
   }
-  .style-panel button:hover {
+  .panel button:hover {
     background: var(--surface);
+  }
+  .panel button.active {
+    background: var(--accent);
+    color: var(--bg);
+  }
+  .size-panel button {
+    font-family: var(--font-sans);
+    font-weight: 500;
   }
 </style>
