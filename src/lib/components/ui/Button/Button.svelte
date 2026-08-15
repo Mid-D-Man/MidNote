@@ -16,6 +16,8 @@
     onclick?: (e: MouseEvent) => void;
     class?: string;
     children: Snippet;
+    "aria-label"?: string;
+    [key: string]: unknown;
   } = $props();
 </script>
 

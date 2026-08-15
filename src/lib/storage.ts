@@ -18,8 +18,32 @@ export function loadEntries(): Entry[] {
   if (typeof localStorage === "undefined") return [];
   try {
     const raw = localStorage.getItem(ENTRIES_KEY);
-    return raw ? (JSON.parse(raw) as Entry[]) : [];
-  } catch {
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      console.error("storage: entries in localStorage isn't an array, ignoring:", parsed);
+      return [];
+    }
+    // Defensive per-entry validation — a todo saved by an earlier build
+    // during testing (different shape) shouldn't be able to crash the
+    // whole list read, just get skipped and logged instead.
+    const valid: Entry[] = [];
+    for (const e of parsed) {
+      if (!e || typeof e !== "object" || !e.id || !e.type) {
+        console.error("storage: skipping malformed entry:", e);
+        continue;
+      }
+      if (e.type === "todo") {
+        if (!Array.isArray(e.steps)) e.steps = [];
+        if (!Array.isArray(e.annotations)) e.annotations = [];
+        if (!Array.isArray(e.categories) || e.categories.length === 0) e.categories = ["Steps"];
+      }
+      if (!Array.isArray(e.tags)) e.tags = [];
+      valid.push(e);
+    }
+    return valid;
+  } catch (err) {
+    console.error("storage: failed to load entries, treating as empty:", err);
     return [];
   }
 }

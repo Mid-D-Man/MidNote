@@ -9,33 +9,69 @@
   import { saveEntry } from "$lib/stores/entries.svelte";
   import { noteTags, sync as syncTags } from "$lib/stores/tags.svelte";
   import { createNote, getEntry } from "$lib/storage";
+  import { breadcrumb } from "$lib/debug/log.svelte";
   import type { Note } from "$lib/types/entry";
 
   const id = $derived($page.params.id);
 
   let note = $state<Note>(createNote());
   let textareaEl = $state<HTMLTextAreaElement | null>(null);
+  let loadError = $state<string | null>(null);
 
   onMount(() => {
+    breadcrumb(`note page mounted, id=${id}`);
     syncTags();
     load();
+
+    // Auto-save "on quit" — visibilitychange fires when the app is
+    // backgrounded/switched away from/the phone is locked, which covers
+    // the mobile "quit" cases a plain route-change save wouldn't (home
+    // button, task switcher, incoming call). pagehide is the fallback for
+    // the cases visibilitychange doesn't reliably cover on some Android
+    // webviews.
+    const saveIfHidden = () => {
+      if (document.visibilityState === "hidden") {
+        breadcrumb("note: auto-saving on visibilitychange (hidden)");
+        persist();
+      }
+    };
+    const saveOnPagehide = () => {
+      breadcrumb("note: auto-saving on pagehide");
+      persist();
+    };
+    document.addEventListener("visibilitychange", saveIfHidden);
+    window.addEventListener("pagehide", saveOnPagehide);
+    return () => {
+      document.removeEventListener("visibilitychange", saveIfHidden);
+      window.removeEventListener("pagehide", saveOnPagehide);
+    };
   });
 
   $effect(() => {
-    id; // re-run when navigating between notes directly
+    breadcrumb(`note page effect: id=${id}`);
     load();
   });
 
   function load() {
-    if (!id || id === "new") {
-      note = createNote();
-      return;
-    }
-    const existing = getEntry(id);
-    if (existing && existing.type === "regular") {
-      note = existing;
-    } else {
-      goto("/");
+    try {
+      loadError = null;
+      if (!id || id === "new") {
+        note = createNote();
+        resetHistory();
+        return;
+      }
+      const existing = getEntry(id);
+      if (existing && existing.type === "regular") {
+        note = existing;
+        resetHistory();
+        breadcrumb(`note: loaded ${id}`);
+      } else {
+        breadcrumb(`note: ${id} not found or wrong type, redirecting home`);
+        goto("/");
+      }
+    } catch (err) {
+      console.error("note page: load() threw:", err);
+      loadError = err instanceof Error ? err.message : String(err);
     }
   }
 
@@ -47,6 +83,56 @@
   function setTags(tags: string[]) {
     note.tags = tags;
     persist();
+  }
+
+  // --- Undo/redo — content only (see NoteEditorHeader), limited to a
+  // capped history of checkpoints rather than per-keystroke, so a burst
+  // of typing is one undo step, not fifty. ---
+  const HISTORY_LIMIT = 50;
+  const CHECKPOINT_DELAY = 400;
+
+  let undoStack = $state<string[]>([]);
+  let redoStack = $state<string[]>([]);
+  let lastCheckpoint = "";
+  let checkpointTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function resetHistory() {
+    undoStack = [];
+    redoStack = [];
+    lastCheckpoint = note.content;
+    clearTimeout(checkpointTimer);
+  }
+
+  $effect(() => {
+    note.content; // track
+    clearTimeout(checkpointTimer);
+    checkpointTimer = setTimeout(() => {
+      if (note.content !== lastCheckpoint) {
+        undoStack.push(lastCheckpoint);
+        if (undoStack.length > HISTORY_LIMIT) undoStack.shift();
+        redoStack = [];
+        lastCheckpoint = note.content;
+      }
+    }, CHECKPOINT_DELAY);
+  });
+
+  const canUndo = $derived(undoStack.length > 0);
+  const canRedo = $derived(redoStack.length > 0);
+
+  function undo() {
+    if (undoStack.length === 0) return;
+    clearTimeout(checkpointTimer);
+    redoStack.push(note.content);
+    note.content = undoStack.pop()!;
+    lastCheckpoint = note.content;
+  }
+
+  function redo() {
+    if (redoStack.length === 0) return;
+    clearTimeout(checkpointTimer);
+    undoStack.push(note.content);
+    note.content = redoStack.pop()!;
+    lastCheckpoint = note.content;
   }
 
   // Real markdown insertion at the current selection — see
@@ -92,22 +178,34 @@
 </svelte:head>
 
 <main class="editor-page">
-  <NoteEditorHeader
-    {note}
-    availableTags={noteTags}
-    onTagsChange={setTags}
-    onSave={persist}
-    onBack={() => goto("/")}
-  />
-
-  <div class="scroll-area">
-    <div class="inner">
-      <NoteTitle bind:value={note.title} />
-      <NoteContent bind:value={note.content} bind:textareaEl />
+  {#if loadError}
+    <div class="error-state">
+      <p><strong>Something went wrong opening this note.</strong></p>
+      <p class="error-detail">{loadError}</p>
+      <button onclick={() => goto("/")}>Back to MidNote</button>
     </div>
-  </div>
+  {:else}
+    <NoteEditorHeader
+      {note}
+      availableTags={noteTags}
+      onTagsChange={setTags}
+      onSave={persist}
+      onBack={() => goto("/")}
+      {canUndo}
+      {canRedo}
+      onUndo={undo}
+      onRedo={redo}
+    />
 
-  <FormattingToolbar onFormat={handleFormat} />
+    <div class="scroll-area">
+      <div class="inner">
+        <NoteTitle bind:value={note.title} />
+        <NoteContent bind:value={note.content} bind:textareaEl />
+      </div>
+    </div>
+
+    <FormattingToolbar onFormat={handleFormat} />
+  {/if}
 </main>
 
 <style>
@@ -140,6 +238,35 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
+  }
+  .error-state {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-3);
+    padding: var(--space-5);
+    text-align: center;
+  }
+  .error-state p {
+    color: var(--text-hi);
+    margin: 0;
+  }
+  .error-detail {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-lo);
+  }
+  .error-state button {
+    margin-top: var(--space-3);
+    padding: var(--space-2) var(--space-4);
+    background: var(--accent);
+    color: var(--bg);
+    border: none;
+    border-radius: var(--radius-sm);
+    font-weight: 500;
+    cursor: pointer;
   }
 
   @media (max-width: 480px) {

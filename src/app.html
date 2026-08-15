@@ -3,8 +3,13 @@
   <head>
     <meta charset="utf-8" />
     <link rel="icon" href="%sveltekit.assets%/favicon.png" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Tauri + SvelteKit + Typescript App</title>
+    <!-- interactive-widget=resizes-content: on Android/Chrome-based
+         webviews (what Tauri Android uses), this is what makes 100dvh and
+         the VisualViewport API actually shrink to the space above the
+         on-screen keyboard instead of staying full-height and letting
+         fixed-positioned elements end up hidden behind it. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content" />
+    <title>MidNote</title>
     %sveltekit.head%
   </head>
   <body data-sveltekit-preload-data="hover">

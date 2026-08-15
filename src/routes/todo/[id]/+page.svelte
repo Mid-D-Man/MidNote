@@ -9,6 +9,7 @@
   import { saveEntry } from "$lib/stores/entries.svelte";
   import { todoTags, sync as syncTags } from "$lib/stores/tags.svelte";
   import { createTodo, getEntry, generateId } from "$lib/storage";
+  import { breadcrumb } from "$lib/debug/log.svelte";
   import type { Todo } from "$lib/types/entry";
 
   const id = $derived($page.params.id);
@@ -16,29 +17,40 @@
   let todo = $state<Todo>(createTodo());
   let currentCategory = $state("Steps");
   let notesOpen = $state(false);
+  let loadError = $state<string | null>(null);
 
   onMount(() => {
+    breadcrumb(`todo page mounted, id=${id}`);
     syncTags();
     load();
   });
 
   $effect(() => {
-    id;
+    breadcrumb(`todo page effect: id=${id}`);
     load();
   });
 
   function load() {
-    if (!id || id === "new") {
-      todo = createTodo();
-      currentCategory = todo.categories[0] ?? "Steps";
-      return;
-    }
-    const existing = getEntry(id);
-    if (existing && existing.type === "todo") {
-      todo = existing;
-      currentCategory = todo.categories[0] ?? "Steps";
-    } else {
-      goto("/");
+    try {
+      loadError = null;
+      if (!id || id === "new") {
+        todo = createTodo();
+        currentCategory = todo.categories[0] ?? "Steps";
+        breadcrumb("todo: created new");
+        return;
+      }
+      const existing = getEntry(id);
+      if (existing && existing.type === "todo") {
+        todo = existing;
+        currentCategory = todo.categories[0] ?? "Steps";
+        breadcrumb(`todo: loaded ${id}, ${todo.steps.length} steps, ${todo.categories.length} categories`);
+      } else {
+        breadcrumb(`todo: ${id} not found or wrong type, redirecting home`);
+        goto("/");
+      }
+    } catch (err) {
+      console.error("todo page: load() threw:", err);
+      loadError = err instanceof Error ? err.message : String(err);
     }
   }
 
@@ -111,6 +123,13 @@
 </svelte:head>
 
 <main class="todo-page">
+  {#if loadError}
+    <div class="error-state">
+      <p><strong>Something went wrong opening this todo.</strong></p>
+      <p class="error-detail">{loadError}</p>
+      <button onclick={() => goto("/")}>Back to MidNote</button>
+    </div>
+  {:else}
   <TodoHeader
     {todo}
     availableTags={todoTags}
@@ -156,6 +175,7 @@
     onUpdateAnnotation={updateAnnotation}
     onDeleteAnnotation={deleteAnnotation}
   />
+  {/if}
 </main>
 
 <style>
@@ -194,5 +214,34 @@
     flex: 1;
     min-height: 0;
     overflow: hidden;
+  }
+  .error-state {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-3);
+    padding: var(--space-5);
+    text-align: center;
+  }
+  .error-state p {
+    color: var(--text-hi);
+    margin: 0;
+  }
+  .error-detail {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-lo);
+  }
+  .error-state button {
+    margin-top: var(--space-3);
+    padding: var(--space-2) var(--space-4);
+    background: var(--accent);
+    color: var(--bg);
+    border: none;
+    border-radius: var(--radius-sm);
+    font-weight: 500;
+    cursor: pointer;
   }
 </style>

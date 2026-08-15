@@ -17,12 +17,20 @@
     onTagsChange,
     onSave,
     onBack,
+    canUndo = false,
+    canRedo = false,
+    onUndo,
+    onRedo,
   }: {
     note: Note;
     availableTags: string[];
     onTagsChange: (tags: string[]) => void;
     onSave: () => void;
     onBack: () => void;
+    canUndo?: boolean;
+    canRedo?: boolean;
+    onUndo?: () => void;
+    onRedo?: () => void;
   } = $props();
 
   let isSaving = $state(false);
@@ -75,11 +83,26 @@
 
 <header class="editor-header">
   <div class="row">
-    <Button variant="ghost" size="icon" onclick={handleBack}>
-      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
-        <line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" />
-      </svg>
-    </Button>
+    <div class="left-group">
+      <Button variant="ghost" size="icon" onclick={handleBack}>
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" />
+        </svg>
+      </Button>
+
+      <div class="undo-redo">
+        <Button variant="ghost" size="icon" onclick={onUndo} disabled={!canUndo} aria-label="Undo">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 7v6h6" /><path d="M3 13a9 9 0 1 0 3-7" />
+          </svg>
+        </Button>
+        <Button variant="ghost" size="icon" onclick={onRedo} disabled={!canRedo} aria-label="Redo">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 7v6h-6" /><path d="M21 13a9 9 0 1 1-3-7" />
+          </svg>
+        </Button>
+      </div>
+    </div>
 
     <div class="actions">
       <Button variant="ghost" size="icon" onclick={handleShare}>
@@ -151,6 +174,22 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+  .left-group {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    min-width: 0;
+  }
+  .undo-redo {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    border-left: 1px solid var(--hairline);
+    padding-left: var(--space-1);
+    margin-left: var(--space-1);
   }
   .actions {
     display: flex;
