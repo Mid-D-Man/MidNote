@@ -1,7 +1,7 @@
 <script lang="ts">
   import { page } from "$app/stores";
   import { goto } from "$app/navigation";
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import TodoHeader from "$lib/components/todos/TodoHeader/TodoHeader.svelte";
   import TodoCategoryTabs from "$lib/components/todos/TodoCategoryTabs/TodoCategoryTabs.svelte";
   import TodoStepsSection from "$lib/components/todos/TodoStepsSection/TodoStepsSection.svelte";
@@ -35,15 +35,26 @@
       loadError = null;
       if (!id || id === "new") {
         todo = createTodo();
-        currentCategory = todo.categories[0] ?? "Steps";
+        // untrack is load-bearing here, not cosmetic — this is the exact
+        // bug that caused the hang. load() runs inside the $effect below,
+        // which also WRITES `todo` (the reassignment above). Reading
+        // todo.categories right after, untracked, makes `todo` a
+        // dependency of that same effect — an effect that both reads and
+        // writes what it depends on re-triggers itself forever in
+        // Svelte 5. Reproduced this exact shape against the real Svelte
+        // runtime: unfixed throws effect_update_depth_exceeded within
+        // milliseconds, fixed settles after one run.
+        currentCategory = untrack(() => todo.categories[0]) ?? "Steps";
         breadcrumb("todo: created new");
         return;
       }
       const existing = getEntry(id);
       if (existing && existing.type === "todo") {
         todo = existing;
-        currentCategory = todo.categories[0] ?? "Steps";
-        breadcrumb(`todo: loaded ${id}, ${todo.steps.length} steps, ${todo.categories.length} categories`);
+        currentCategory = untrack(() => todo.categories[0]) ?? "Steps";
+        breadcrumb(
+          `todo: loaded ${id}, ${untrack(() => todo.steps.length)} steps, ${untrack(() => todo.categories.length)} categories`
+        );
       } else {
         breadcrumb(`todo: ${id} not found or wrong type, redirecting home`);
         goto("/");

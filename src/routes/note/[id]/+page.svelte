@@ -1,7 +1,7 @@
 <script lang="ts">
   import { page } from "$app/stores";
   import { goto } from "$app/navigation";
-  import { onMount, tick } from "svelte";
+  import { onMount, tick, untrack } from "svelte";
   import NoteEditorHeader from "$lib/components/notes/NoteEditorHeader/NoteEditorHeader.svelte";
   import NoteTitle from "$lib/components/notes/NoteTitle/NoteTitle.svelte";
   import NoteContent from "$lib/components/notes/NoteContent/NoteContent.svelte";
@@ -112,7 +112,17 @@
   function resetHistory() {
     undoStack = [];
     redoStack = [];
-    lastCheckpoint = note.content;
+    // untrack is load-bearing here, not cosmetic: this function is called
+    // from load(), which is called from the $effect below that also
+    // WRITES `note` (via `note = createNote()` / `note = existing`).
+    // Reading note.content without untrack makes `note` a dependency of
+    // that same effect — an effect that both reads and writes the same
+    // state re-triggers itself, which is a genuine infinite loop in
+    // Svelte 5, not just a lint nitpick. Reproduced this exact shape
+    // against the real Svelte runtime before and after this fix to
+    // confirm: unfixed throws effect_update_depth_exceeded, fixed
+    // settles after one run.
+    lastCheckpoint = untrack(() => note.content);
     clearTimeout(checkpointTimer);
   }
 
