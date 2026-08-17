@@ -8,7 +8,7 @@
     children,
   }: {
     open?: boolean;
-    side?: "left" | "right";
+    side?: "left" | "right" | "bottom";
     title?: string;
     children: Snippet;
   } = $props();
@@ -17,6 +17,9 @@
 {#if open}
   <div class="scrim" onclick={() => (open = false)} role="presentation"></div>
   <div class="sheet {side}">
+    {#if side === "bottom"}
+      <div class="drag-handle"></div>
+    {/if}
     {#if title}
       <div class="sheet-header">
         <h2>{title}</h2>
@@ -37,16 +40,19 @@
   }
   .sheet {
     position: fixed;
-    top: 0;
-    bottom: 0;
-    width: 280px;
-    max-width: 84vw;
     background: var(--surface);
     border-color: var(--hairline);
     z-index: 50;
     display: flex;
     flex-direction: column;
     box-shadow: 0 0 32px rgba(0, 0, 0, 0.4);
+  }
+  .sheet.left,
+  .sheet.right {
+    top: 0;
+    bottom: 0;
+    width: 280px;
+    max-width: 84vw;
   }
   .sheet.left {
     left: 0;
@@ -56,6 +62,38 @@
     right: 0;
     border-left: 1px solid var(--hairline);
   }
+
+  /* Bottom — modeled on the Notion reference: rises from the bottom
+     edge, rounded top corners, a drag handle, max height rather than a
+     fixed one so short action lists don't leave a huge empty sheet. */
+  .sheet.bottom {
+    left: 0;
+    right: 0;
+    bottom: 0;
+    max-height: 80dvh;
+    border-top-left-radius: var(--radius-md);
+    border-top-right-radius: var(--radius-md);
+    border-top: 1px solid var(--hairline);
+    padding-bottom: env(safe-area-inset-bottom);
+    animation: rise 0.18s ease-out;
+  }
+  @keyframes rise {
+    from {
+      transform: translateY(100%);
+    }
+    to {
+      transform: translateY(0);
+    }
+  }
+  .drag-handle {
+    width: 36px;
+    height: 4px;
+    border-radius: 999px;
+    background: var(--hairline);
+    margin: var(--space-3) auto 0;
+    flex-shrink: 0;
+  }
+
   .sheet-header {
     padding: var(--space-4);
     border-bottom: 1px solid var(--hairline);

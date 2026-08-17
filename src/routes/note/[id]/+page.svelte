@@ -219,10 +219,6 @@
       onTagsChange={setTags}
       onSave={persist}
       onBack={() => goto("/")}
-      {canUndo}
-      {canRedo}
-      onUndo={undo}
-      onRedo={redo}
     />
 
     <div class="scroll-area">
@@ -237,6 +233,10 @@
       {activeFormats}
       fontSize={fontSize.value}
       onFontSizeChange={setFontSize}
+      {canUndo}
+      {canRedo}
+      onUndo={undo}
+      onRedo={redo}
     />
   {/if}
 </main>

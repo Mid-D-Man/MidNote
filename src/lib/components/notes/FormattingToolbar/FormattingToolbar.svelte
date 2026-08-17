@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onMount } from "svelte";
   import { FONT_SIZES } from "$lib/stores/settings.svelte";
 
   let {
@@ -7,32 +6,34 @@
     activeFormats = { bold: false, italic: false, underline: false, list: null },
     fontSize = 15,
     onFontSizeChange,
+    canUndo = false,
+    canRedo = false,
+    onUndo,
+    onRedo,
   }: {
     onFormat: (format: string) => void;
     activeFormats?: { bold: boolean; italic: boolean; underline: boolean; list: "bullet" | "decimal" | "roman" | null };
     fontSize?: number;
     onFontSizeChange?: (size: number) => void;
+    canUndo?: boolean;
+    canRedo?: boolean;
+    onUndo?: () => void;
+    onRedo?: () => void;
   } = $props();
 
-  // Only one panel open at a time — opening one closes the other, rather
-  // than letting both stack up and eat half the screen.
+  // Only one panel open at a time.
   let openPanel = $state<"style" | "size" | null>(null);
-  let keyboardInset = $state(0);
 
-  onMount(() => {
-    const vv = window.visualViewport;
-    if (!vv) return;
-    const update = () => {
-      keyboardInset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
-    };
-    update();
-    vv.addEventListener("resize", update);
-    vv.addEventListener("scroll", update);
-    return () => {
-      vv.removeEventListener("resize", update);
-      vv.removeEventListener("scroll", update);
-    };
-  });
+  // No JS-driven keyboard-avoidance here anymore — removed a
+  // window.visualViewport listener that was supposed to lift this bar
+  // above the on-screen keyboard but, per real-device testing, didn't
+  // actually work and was one more moving part while chasing the hang
+  // bug. `position: fixed` + `bottom: env(safe-area-inset-bottom)`
+  // combined with app.html's `interactive-widget=resizes-content` should
+  // handle this at the browser/webview level without needing JS to track
+  // and react to viewport changes at all — that meta tag is specifically
+  // what makes the *layout* viewport itself shrink when the keyboard
+  // opens, which fixed positioning already respects on its own.
 
   function togglePanel(panel: "style" | "size") {
     openPanel = openPanel === panel ? null : panel;
@@ -43,7 +44,7 @@
   }
 </script>
 
-<div class="toolbar-wrap" style="bottom: calc(max(var(--space-4), env(safe-area-inset-bottom)) + {keyboardInset}px)">
+<div class="toolbar-wrap">
   {#if openPanel === "style"}
     <div class="panel">
       <button class:active={activeFormats.bold} onclick={() => apply("bold")} aria-label="Bold"><strong>B</strong></button>
@@ -92,6 +93,19 @@
     <button class:active={activeFormats.list === "roman"} onclick={() => apply("romanList")} aria-label="Roman numeral list" title="Roman numeral list">
       <span class="roman-icon">iv.</span>
     </button>
+
+    <div class="sep"></div>
+
+    <button onclick={onUndo} disabled={!canUndo} aria-label="Undo">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M3 7v6h6" /><path d="M3 13a9 9 0 1 0 3-7" />
+      </svg>
+    </button>
+    <button onclick={onRedo} disabled={!canRedo} aria-label="Redo">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M21 7v6h-6" /><path d="M21 13a9 9 0 1 1-3-7" />
+      </svg>
+    </button>
   </footer>
 </div>
 
@@ -99,6 +113,7 @@
   .toolbar-wrap {
     position: fixed;
     left: 50%;
+    bottom: max(var(--space-4), env(safe-area-inset-bottom));
     transform: translateX(-50%);
     z-index: 30;
     display: flex;
@@ -136,6 +151,10 @@
   }
   .toolbar button:hover {
     background: var(--surface);
+  }
+  .toolbar button:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
   }
   .toolbar button.active {
     background: var(--accent);
