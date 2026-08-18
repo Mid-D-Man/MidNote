@@ -8,6 +8,7 @@ export interface LogEntry {
   time: string;
   level: "log" | "warn" | "error";
   message: string;
+  count: number;
 }
 
 const MAX_ENTRIES = 300;
@@ -31,7 +32,20 @@ export function addLog(level: LogEntry["level"], ...args: unknown[]) {
     })
     .join(" ");
 
-  logs.push({ id: nextId++, time: new Date().toLocaleTimeString(), level, message });
+  // Collapse immediate repeats instead of pushing a new entry each time —
+  // a runaway effect loop calling breadcrumb() on every iteration would
+  // otherwise fill the entire 300-entry cap with one repeated line and
+  // evict every bit of context from before the loop started, which is
+  // exactly the case this log exists to catch.
+  const last = logs[logs.length - 1];
+  if (last && last.level === level && last.message === message) {
+    last.count = (last.count ?? 1) + 1;
+    last.time = new Date().toLocaleTimeString();
+    if (level !== "log") hasUnread.value = true;
+    return;
+  }
+
+  logs.push({ id: nextId++, time: new Date().toLocaleTimeString(), level, message, count: 1 });
   if (logs.length > MAX_ENTRIES) logs.splice(0, logs.length - MAX_ENTRIES);
   if (level !== "log") hasUnread.value = true;
 }

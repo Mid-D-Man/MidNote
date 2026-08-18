@@ -15,7 +15,7 @@
 
   async function copyAll() {
     const text = logs
-      .map((l) => `[${l.time}] ${l.level.toUpperCase()}: ${l.message}`)
+      .map((l) => `[${l.time}]${l.count > 1 ? ` (×${l.count})` : ""} ${l.level.toUpperCase()}: ${l.message}`)
       .join("\n");
     try {
       await navigator.clipboard.writeText(text || "(no logs captured)");
@@ -55,6 +55,7 @@
         {#each [...logs].reverse() as entry (entry.id)}
           <div class="entry {entry.level}">
             <span class="time">{entry.time}</span>
+            {#if entry.count > 1}<span class="repeat">×{entry.count}</span>{/if}
             <span class="msg">{entry.message}</span>
           </div>
         {/each}
@@ -177,6 +178,11 @@
   }
   .time {
     color: var(--text-faint);
+    margin-right: var(--space-2);
+  }
+  .repeat {
+    color: var(--accent-2);
+    font-weight: 600;
     margin-right: var(--space-2);
   }
   .msg {
