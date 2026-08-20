@@ -1,5 +1,6 @@
 <script lang="ts">
   import { FONT_SIZES } from "$lib/stores/settings.svelte";
+  import { breadcrumb } from "$lib/debug/log.svelte";
 
   let {
     onFormat,
@@ -36,10 +37,12 @@
   // opens, which fixed positioning already respects on its own.
 
   function togglePanel(panel: "style" | "size") {
+    breadcrumb(`toolbar: ${panel} panel toggled`);
     openPanel = openPanel === panel ? null : panel;
   }
 
   function apply(format: string) {
+    breadcrumb(`toolbar: ${format} tapped`);
     onFormat(format);
   }
 </script>
@@ -96,12 +99,12 @@
 
     <div class="sep"></div>
 
-    <button onclick={onUndo} disabled={!canUndo} aria-label="Undo">
+    <button onclick={() => { breadcrumb("toolbar: Undo tapped"); onUndo?.(); }} disabled={!canUndo} aria-label="Undo">
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M3 7v6h6" /><path d="M3 13a9 9 0 1 0 3-7" />
       </svg>
     </button>
-    <button onclick={onRedo} disabled={!canRedo} aria-label="Redo">
+    <button onclick={() => { breadcrumb("toolbar: Redo tapped"); onRedo?.(); }} disabled={!canRedo} aria-label="Redo">
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M21 7v6h-6" /><path d="M21 13a9 9 0 1 1-3-7" />
       </svg>

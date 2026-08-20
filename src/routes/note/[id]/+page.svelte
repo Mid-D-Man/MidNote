@@ -35,11 +35,21 @@
     syncTags();
     load();
 
+    // requestAnimationFrame-coalesced rather than firing on every raw
+    // event — selectionchange is documented to fire very frequently on
+    // some webviews (multiple times per keystroke or touch), and there's
+    // no reason to write two $state values that often when once per
+    // frame is plenty for tracking where the cursor is.
+    let selectionRaf: number | null = null;
     const onSelectionChange = () => {
-      if (document.activeElement === textareaEl && textareaEl) {
-        lastSelStart = textareaEl.selectionStart;
-        lastSelEnd = textareaEl.selectionEnd;
-      }
+      if (selectionRaf !== null) return;
+      selectionRaf = requestAnimationFrame(() => {
+        selectionRaf = null;
+        if (document.activeElement === textareaEl && textareaEl) {
+          lastSelStart = textareaEl.selectionStart;
+          lastSelEnd = textareaEl.selectionEnd;
+        }
+      });
     };
     document.addEventListener("selectionchange", onSelectionChange);
 
@@ -59,6 +69,7 @@
       document.removeEventListener("selectionchange", onSelectionChange);
       document.removeEventListener("visibilitychange", saveIfHidden);
       window.removeEventListener("pagehide", saveOnPagehide);
+      if (selectionRaf !== null) cancelAnimationFrame(selectionRaf);
     };
   });
 

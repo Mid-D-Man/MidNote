@@ -8,6 +8,7 @@
   import { pushToast } from "$lib/stores/toast.svelte";
   import { removeEntry, saveEntry } from "$lib/stores/entries.svelte";
   import { createNote } from "$lib/storage";
+  import { breadcrumb } from "$lib/debug/log.svelte";
   import type { Note } from "$lib/types/entry";
 
   // Undo/redo moved to the bottom formatting toolbar — reversed from
@@ -34,6 +35,7 @@
   let moreOpen = $state(false);
 
   async function handleSave() {
+    breadcrumb("note header: Save tapped");
     isSaving = true;
     onSave();
     pushToast({ title: "Note saved", description: "Your note has been saved successfully." });
@@ -41,17 +43,20 @@
   }
 
   function handleBack() {
+    breadcrumb("note header: Back tapped");
     onSave();
     onBack();
   }
 
   function handleDelete() {
+    breadcrumb("note header: Delete tapped");
     removeEntry(note.id);
     pushToast({ title: "Note deleted", description: "Your note has been deleted.", variant: "destructive" });
     goto("/");
   }
 
   function handleDuplicate() {
+    breadcrumb("note header: Duplicate tapped");
     moreOpen = false;
     const copy = createNote();
     copy.title = `${note.title} (Copy)`;
@@ -66,6 +71,7 @@
   // + native share sheet) — this is last turn's single-format download,
   // just relocated, not rebuilt yet.
   function handleDownload() {
+    breadcrumb("note header: Export tapped");
     const blob = new Blob([`${note.title}\n\n${note.content}`], { type: "text/plain" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
@@ -78,6 +84,7 @@
   }
 
   function handleShare() {
+    breadcrumb("note header: Share tapped");
     moreOpen = false;
     pushToast({ title: "Share note", description: "Share functionality coming soon." });
   }
@@ -92,7 +99,7 @@
     </Button>
 
     <div class="actions">
-      <Button variant="ghost" size="icon" onclick={() => (showDeleteConfirm = true)} aria-label="Delete">
+      <Button variant="ghost" size="icon" onclick={() => { breadcrumb("note header: Delete icon tapped (confirm dialog opening)"); showDeleteConfirm = true; }} aria-label="Delete">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
           <polyline points="3 6 5 6 21 6" />
           <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
@@ -116,7 +123,7 @@
         </svg>
       </Button>
 
-      <Button variant="ghost" size="icon" onclick={() => (moreOpen = true)} aria-label="More">
+      <Button variant="ghost" size="icon" onclick={() => { breadcrumb("note header: More (...) tapped"); moreOpen = true; }} aria-label="More">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="12" cy="5" r="1.5" fill="currentColor" /><circle cx="12" cy="12" r="1.5" fill="currentColor" /><circle cx="12" cy="19" r="1.5" fill="currentColor" />
         </svg>
