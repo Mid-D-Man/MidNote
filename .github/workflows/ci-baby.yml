@@ -26,9 +26,15 @@ jobs:
         run: npm install
 
       # svelte-kit sync + svelte-check + tsc — catches broken imports, bad
-      # props, type errors across every .svelte/.ts file. Verified this
-      # passes clean (0 errors, 0 warnings) against the current scaffold
-      # before adding this workflow.
+      # props, type errors, AND markup mistakes like an unclosed tag
+      # (package.json's check script now runs svelte-check with
+      # --fail-on-warnings). Without that flag this step is misleading:
+      # tested it directly by deliberately breaking a component with an
+      # unclosed <a> tag — svelte-check reported it but still exited 0,
+      # and `vite build` also succeeded anyway, so neither step would
+      # have failed CI on it. --fail-on-warnings turns that same warning
+      # into a real exit 1. Re-ran against the actual current codebase
+      # with the flag on afterward — still 0 errors, 0 warnings.
       - name: Type-check
         run: npm run check
 
