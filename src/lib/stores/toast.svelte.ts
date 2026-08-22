@@ -9,6 +9,8 @@ export interface ToastMsg {
   variant?: "default" | "destructive";
 }
 
+import { untrack } from "svelte";
+
 export const toasts = $state<ToastMsg[]>([]);
 
 export function pushToast(t: Omit<ToastMsg, "id">) {
@@ -18,6 +20,13 @@ export function pushToast(t: Omit<ToastMsg, "id">) {
 }
 
 export function dismissToast(id: string) {
-  const i = toasts.findIndex((t) => t.id === id);
-  if (i !== -1) toasts.splice(i, 1);
-}
+  // Same defensive fix as the other stores — findIndex reads `toasts`,
+  // splice writes it. Currently only reached via setTimeout (untracked)
+  // or direct event-handler calls, but closed here too so a future
+  // effect-driven toast (e.g. "show a toast when a background sync
+  // fails") can't reintroduce this bug class.
+  untrack(() => {
+    const i = toasts.findIndex((t) => t.id === id);
+    if (i !== -1) toasts.splice(i, 1);
+  });
+                             }
