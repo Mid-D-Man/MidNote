@@ -3,6 +3,7 @@
 // directly; see that file's header for why.
 import type { Entry, Note, Todo } from "$lib/types/entry";
 import * as storage from "$lib/storage";
+import { untrack } from "svelte";
 
 function seedIfEmpty(): Entry[] {
   const loaded = storage.loadEntries();
@@ -49,7 +50,19 @@ export function getTodos(): Todo[] {
 }
 
 export function refresh() {
-  entries.splice(0, entries.length, ...storage.loadEntries());
+  // Not currently called from inside an $effect anywhere in this codebase
+  // (verified — saveEntry/removeEntry are only reached from onClick
+  // handlers and the visibilitychange/pagehide listeners in the note/todo
+  // pages, none of which are tracked contexts). Fixed preemptively anyway:
+  // this is the identical read-then-write-same-state shape as the
+  // log.svelte.ts bug (reads entries.length, then writes entries via
+  // splice), and the most likely next feature on this codebase —
+  // autosave-on-content-change via an $effect, replacing the current
+  // visibilitychange-only autosave — would call saveEntry() -> refresh()
+  // from directly inside an effect and reintroduce this exact bug class.
+  untrack(() => {
+    entries.splice(0, entries.length, ...storage.loadEntries());
+  });
 }
 
 export function saveEntry(entry: Entry) {
