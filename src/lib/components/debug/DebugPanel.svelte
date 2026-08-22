@@ -5,6 +5,7 @@
   // a look without having to remember to check.
   import { page } from "$app/stores";
   import { logs, hasUnread, clearLogs } from "$lib/debug/log.svelte";
+  import { BUILD_SHA, BUILD_TIME } from "$lib/build-info";
 
   let manualOpen = $state(false);
   let copied = $state(false);
@@ -32,11 +33,12 @@
   }
 
   async function copyAll() {
+    const header = `Build ${BUILD_SHA.slice(0, 7)} · ${BUILD_TIME}\n\n`;
     const text = logs
       .map((l) => `[${l.time}]${l.count > 1 ? ` (×${l.count})` : ""} ${l.level.toUpperCase()}: ${l.message}`)
       .join("\n");
     try {
-      await navigator.clipboard.writeText(text || "(no logs captured)");
+      await navigator.clipboard.writeText(header + (text || "(no logs captured)"));
       copied = true;
       setTimeout(() => (copied = false), 1500);
     } catch {
@@ -87,6 +89,9 @@
         <button onclick={clearLogs}>Clear</button>
         <button onclick={toggle} aria-label="Close">×</button>
       </div>
+    </div>
+    <div class="build-id">
+      Build <strong>{BUILD_SHA.slice(0, 7)}</strong> · {BUILD_TIME}
     </div>
     <div class="panel-body">
       {#if logs.length === 0}
@@ -236,6 +241,17 @@
   .count {
     color: var(--text-faint);
     font-weight: 400;
+  }
+  .build-id {
+    flex-shrink: 0;
+    padding: var(--space-2) var(--space-4);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-faint);
+    border-bottom: 1px solid var(--hairline);
+  }
+  .build-id strong {
+    color: var(--accent-2);
   }
   .panel-actions {
     display: flex;
