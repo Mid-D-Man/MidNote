@@ -93,9 +93,20 @@ jobs:
       # runner's disk on an earlier mdix-cybs run (its own env dump showed
       # all four CARGO_TARGET_*_LINUX_ANDROID* vars set). Calling the
       # installed CLI directly avoids that layer entirely.
+      - name: Capture build timestamp
+        id: buildtime
+        run: echo "value=$(date -u +'%Y-%m-%d %H:%M UTC')" >> "$GITHUB_OUTPUT"
+
+      # Build identity, baked in at build time — src/lib/build-info.ts
+      # picks these up via import.meta.env, and the debug panel shows
+      # them front and center. Exists specifically so "is this actually
+      # the build with the fix" never has to be inferred from workflow
+      # run timestamps again — the app just says so.
       - name: Build APK
         env:
           NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          VITE_BUILD_SHA: ${{ github.sha }}
+          VITE_BUILD_TIME: ${{ steps.buildtime.outputs.value }}
         run: npx tauri android build --debug --target armv7
 
       - name: List built APKs
