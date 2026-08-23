@@ -43,5 +43,5 @@
     target("2026-08-22-effect-update-depth-exceeded.md", "docs/incidents/2026-08-22-effect-update-depth-exceeded.md")
     target("smoke-test.mjs", "scripts/smoke-test.mjs")
     target("smoke-test-worker.mjs", "scripts/smoke-test-worker.mjs")
-    target("ci-baby.yml", ".github/workflows/ci-baby.yml")
+    
 )
