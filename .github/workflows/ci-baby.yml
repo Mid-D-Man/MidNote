@@ -3,7 +3,16 @@ name: CI
 # Fast compile-check on every push/PR — catches "doesn't even build" before
 # you find out the hard way on a phone. Deliberately separate from
 # build-android.yml: this doesn't produce an APK, it just answers
-# "does this still compile" in a couple minutes instead of ~15+.
+# "does this still compile, and does it actually run" in a couple minutes
+# instead of ~15+.
+#
+# Type-check + Build catch "doesn't compile". Neither one ever executes a
+# component, so neither catches code that builds clean but throws the
+# instant it actually mounts — that gap is exactly how the
+# effect_update_depth_exceeded incident (2026-08-22) got all the way to a
+# phone before anyone saw it. Smoke test closes that gap: see
+# docs/incidents/2026-08-22-effect-update-depth-exceeded.md and
+# docs/svelte5-effect-safety.md.
 
 on:
   push:
@@ -43,6 +52,15 @@ jobs:
       # wouldn't (e.g. an actual bundling failure).
       - name: Build
         run: npm run build
+
+      # Actually boots that build/ output — home, note (new + existing),
+      # todo (new + existing) — in a headless DOM and fails if any of them
+      # throw while mounting/settling. This is the step that would have
+      # caught the effect_update_depth_exceeded incident: svelte-check and
+      # Build both passed clean on the code that crashed on-device. See
+      # scripts/smoke-test.mjs and docs/svelte5-effect-safety.md.
+      - name: Smoke test
+        run: npm run smoke
 
   backend:
     runs-on: ubuntu-latest
