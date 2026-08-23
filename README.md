@@ -72,6 +72,15 @@ tree is right before code fills it in. Not yet implemented: actual
 component markup/logic (ported from the original TSX), the `data/`
 DixScript read/write layer, AI backend, sync.
 
+## Docs
+
+`docs/` — incident postmortems (`docs/incidents/`) and living rules learned
+from them. Currently just one of each:
+[`svelte5-effect-safety.md`](docs/svelte5-effect-safety.md) (the rule),
+[`incidents/2026-08-22-effect-update-depth-exceeded.md`](docs/incidents/2026-08-22-effect-update-depth-exceeded.md)
+(the incident that produced it). Read the rule doc before adding any new
+`$effect` or `.svelte.ts` store function.
+
 ## Recommended IDE Setup
 
 [VS Code](https://code.visualstudio.com/) + [Svelte](https://marketplace.visualstudio.com/items?itemName=svelte.svelte-vscode) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer).
