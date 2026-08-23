@@ -1,18 +1,47 @@
 // Brought to u by MidManStudio
 //
-// Every other file in this folder (and its subfolders) is real, verbatim
-// content — dropped into the tree at its own relative path under
-// target_root when this manifest is applied. This bundle is the entire
-// MidNote tree as of this scaffolding pass (baseline + component-driven
-// layer), so applying it against an empty repo reproduces it in one shot.
+// Ships the effect_update_depth_exceeded fix (2026-08-22): the real root
+// cause (addLog()'s read-then-write dedupe check in
+// src/lib/debug/log.svelte.ts, not the note/todo page effects — those
+// were already fixed and are untouched here), the same defensive
+// untrack() hardening in entries/tags/toast stores, the incident
+// postmortem + the svelte5-effect-safety.md rule doc, the
+// scripts/smoke-test(-worker).mjs regression check that boots the real
+// production build headlessly, ci-baby.yml wiring that in as a "Smoke
+// test" CI step, and package.json/package-lock.json (adds jsdom as a
+// devDependency + the `smoke` script).
+//
+// Every other file next to this manifest is real, verbatim content,
+// delivered as one .tar.gz (mobile-friendly — nothing else to stage by
+// hand). Every entry inside that archive sits FLAT at the archive's own
+// top level, not nested in subfolders, and every one of them is pinned
+// to its real destination below via overrides:: — this also sidesteps
+// stage_replacements_dir()/collect_candidates() pruning dot-directories
+// (os.walk dirnames filtered with `not d.startswith(".")`) during
+// candidate collection, which would otherwise silently drop anything
+// nested under a literal .github/ folder inside the archive.
 
 @CONFIG(
   version    -> "1.0.0"
   author     -> "Mid-D-Man"
-  features   -> "data"
+  features   -> "quickfuncs,data"
   debug_mode -> "off"
+)
+
+@QUICKFUNCS(
+  ~target<object>(name, path) { return { name = name, path = path } }
 )
 
 @DATA(
   target_root = "."
+
+  overrides::
+    target("README.md", "README.md")
+    target("package.json", "package.json")
+    target("package-lock.json", "package-lock.json")
+    target("svelte5-effect-safety.md", "docs/svelte5-effect-safety.md")
+    target("2026-08-22-effect-update-depth-exceeded.md", "docs/incidents/2026-08-22-effect-update-depth-exceeded.md")
+    target("smoke-test.mjs", "scripts/smoke-test.mjs")
+    target("smoke-test-worker.mjs", "scripts/smoke-test-worker.mjs")
+    target("ci-baby.yml", ".github/workflows/ci-baby.yml")
 )
