@@ -1,5 +1,6 @@
 <script lang="ts">
   import Card from "$lib/components/ui/Card/Card.svelte";
+  import { stripHtml } from "$lib/utils/richText";
   import type { Note } from "$lib/types/entry";
 
   let {
@@ -12,7 +13,9 @@
     onClick: (id: string) => void;
   } = $props();
 
-  const preview = $derived(note.content.slice(0, 120));
+  // note.content is HTML now (see NoteContent.svelte) — strip tags for
+  // the plain-text card preview rather than showing raw markup.
+  const preview = $derived(stripHtml(note.content).slice(0, 120));
   const dateLabel = $derived(new Date(note.lastModified).toLocaleDateString());
 </script>
 

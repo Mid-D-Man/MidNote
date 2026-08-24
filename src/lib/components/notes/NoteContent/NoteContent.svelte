@@ -1,50 +1,52 @@
 <script lang="ts">
-  // Deliberately NOT auto-growing to fit content anymore — see the
-  // reasoning below and the note in +page.svelte's editor layout. A
-  // large paste taking minutes to land was almost certainly this
-  // element's height ballooning to match huge content (thousands of
-  // lines = tens of thousands of px tall), forcing an expensive
-  // synchronous reflow via scrollHeight on every change, on top of a
-  // repeating-gradient background that then had to paint across that
-  // entire height. Fixed height + internal scroll avoids both: the
-  // element's size no longer depends on content length at all.
-  import { tick } from "svelte";
-  import { handleEnter } from "$lib/utils/textEditing";
+  // Real contenteditable now, not a <textarea> — a textarea has exactly
+  // one font/weight/style for its entire content, so "make bold/italic/
+  // underline actually render, and make font size apply only to a
+  // selection or from the cursor forward" was never achievable with one.
+  // note.content is now an HTML string instead of plain text (still just
+  // a `string` field — no schema change needed, see mdix_files/schema).
+  //
+  // Deliberately NOT auto-growing to fit content, same reasoning as
+  // before this rewrite: a large paste taking minutes to land was almost
+  // certainly this element's height ballooning to match huge content,
+  // forcing an expensive synchronous reflow on every change. Fixed
+  // height + internal scroll avoids that regardless of what's inside.
+  import { insertPlainText } from "$lib/utils/richText";
 
   let {
     value = $bindable(""),
-    textareaEl = $bindable(null),
-    fontSize = 15,
+    contentEl = $bindable(null),
+    baseFontSize = 15,
   }: {
     value?: string;
-    textareaEl?: HTMLTextAreaElement | null;
-    fontSize?: number;
+    contentEl?: HTMLDivElement | null;
+    baseFontSize?: number;
   } = $props();
-  let el: HTMLTextAreaElement;
 
-  $effect(() => {
-    textareaEl = el;
-  });
-
-  async function onkeydown(e: KeyboardEvent) {
-    if (e.key !== "Enter") return;
-    const result = handleEnter(value, el.selectionStart);
-    if (!result) return; // not a list line — let Enter behave normally
+  // Pasting from another app (Chrome, WhatsApp, Google Keep, ...) would
+  // otherwise drag in arbitrary nested spans/colors/fonts that live in
+  // note.content forever. Force plain text only, formatted fresh with
+  // this editor's own toolbar if wanted.
+  function onpaste(e: ClipboardEvent) {
     e.preventDefault();
-    value = result.newText;
-    await tick();
-    el.setSelectionRange(result.newCursorPos, result.newCursorPos);
+    const text = e.clipboardData?.getData("text/plain") ?? "";
+    insertPlainText(text);
   }
 </script>
 
-<textarea
-  bind:this={el}
-  bind:value
-  {onkeydown}
-  placeholder="Start typing..."
+<div
+  bind:this={contentEl}
+  bind:innerHTML={value}
+  contenteditable="true"
+  {onpaste}
+  role="textbox"
+  aria-multiline="true"
+  aria-label="Note content"
+  data-placeholder="Start typing..."
   class="note-content"
-  style="font-size: {fontSize}px; line-height: {Math.round(fontSize * 1.7)}px"
-></textarea>
+  class:empty={value.length === 0}
+  style="font-size: {baseFontSize}px; line-height: {Math.round(baseFontSize * 1.7)}px"
+></div>
 
 <style>
   .note-content {
@@ -59,7 +61,6 @@
     outline: none;
     border: none;
     background: transparent;
-    resize: none;
     overflow-y: auto;
     overflow-wrap: break-word;
     word-break: break-word;
@@ -67,7 +68,20 @@
     font-family: var(--font-sans);
     padding: var(--space-2) 0 var(--space-6);
   }
-  .note-content::placeholder {
+  .note-content.empty::before {
+    content: attr(data-placeholder);
     color: var(--text-faint);
+    pointer-events: none;
+  }
+  /* Native list rendering for the bullet/numbered/roman toolbar buttons
+     — roman gets its list-style-type set inline by richText.ts's
+     applyListFormat, this just gives all three sane spacing/indent. */
+  .note-content :global(ul),
+  .note-content :global(ol) {
+    margin: 0 0 var(--space-2);
+    padding-left: 1.4em;
+  }
+  .note-content :global(li) {
+    margin: 2px 0;
   }
 </style>

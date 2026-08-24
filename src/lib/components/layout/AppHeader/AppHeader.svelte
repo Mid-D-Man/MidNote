@@ -2,10 +2,12 @@
   import Button from "$lib/components/ui/Button/Button.svelte";
   import Sheet from "$lib/components/ui/Sheet/Sheet.svelte";
   import AuthDialog from "$lib/components/layout/AuthDialog/AuthDialog.svelte";
+  import SettingsSheet from "$lib/components/layout/SettingsSheet/SettingsSheet.svelte";
   import { pushToast } from "$lib/stores/toast.svelte";
 
   let menuOpen = $state(false);
   let authOpen = $state(false);
+  let settingsOpen = $state(false);
 
   // TODO: real Supabase auth + the Storage-bucket sync described in the
   // sync-architecture discussion — this just tells the user honestly that
@@ -44,10 +46,14 @@
     <Button variant="ghost" onclick={() => { menuOpen = false; authOpen = true; }}>
       Sign Up
     </Button>
+    <Button variant="ghost" onclick={() => { menuOpen = false; settingsOpen = true; }}>
+      Settings
+    </Button>
   </nav>
 </Sheet>
 
 <AuthDialog bind:open={authOpen} />
+<SettingsSheet bind:open={settingsOpen} />
 
 <style>
   .app-header {

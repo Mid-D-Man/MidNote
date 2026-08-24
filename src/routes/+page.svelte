@@ -10,6 +10,7 @@
   import type { Note, Todo } from "$lib/types/entry";
   import { noteTags, todoTags, sync as syncTags, registerTag, unregisterTag } from "$lib/stores/tags.svelte";
   import { createNote } from "$lib/storage";
+  import { stripHtml, plainTextToHtml } from "$lib/utils/richText";
 
   let isLoading = $state(true);
   let activeView = $state<"notes" | "todos">("notes");
@@ -31,7 +32,10 @@
     (selectedTag ? displayItems.filter((i) => i.tags.includes(selectedTag!)) : displayItems).filter((i) => {
       const q = searchQuery.toLowerCase();
       if (!q) return true;
-      const haystack = i.title + " " + (i.type === "regular" ? i.content : "");
+      // note.content is HTML now (see NoteContent.svelte) — strip tags
+      // before searching, or e.g. searching "strong" would false-match
+      // every bolded note.
+      const haystack = i.title + " " + (i.type === "regular" ? stripHtml(i.content) : "");
       return haystack.toLowerCase().includes(q);
     })
   );
@@ -68,7 +72,11 @@
   function handleAiNoteCreated(note: { title: string; content: string }) {
     const n = createNote();
     n.title = note.title;
-    n.content = note.content;
+    // note.content is stored as HTML now (see NoteContent.svelte) — the
+    // AI creator hands back plain text, so it needs escaping rather
+    // than being written straight in, or a "<" in the generated text
+    // would get parsed as a tag instead of displayed literally.
+    n.content = plainTextToHtml(note.content);
     n.tags = ["AI Generated"];
     saveEntry(n);
     registerTag("notes", "AI Generated");

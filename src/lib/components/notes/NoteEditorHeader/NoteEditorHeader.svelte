@@ -9,6 +9,7 @@
   import { removeEntry, saveEntry } from "$lib/stores/entries.svelte";
   import { createNote } from "$lib/storage";
   import { breadcrumb } from "$lib/debug/log.svelte";
+  import { htmlToPlainText } from "$lib/utils/richText";
   import type { Note } from "$lib/types/entry";
 
   // Undo/redo moved to the bottom formatting toolbar — reversed from
@@ -72,7 +73,10 @@
   // just relocated, not rebuilt yet.
   function handleDownload() {
     breadcrumb("note header: Export tapped");
-    const blob = new Blob([`${note.title}\n\n${note.content}`], { type: "text/plain" });
+    // note.content is HTML now (see NoteContent.svelte) — convert back
+    // to plain text for the .txt export, or this would download raw
+    // markup instead of readable text.
+    const blob = new Blob([`${note.title}\n\n${htmlToPlainText(note.content)}`], { type: "text/plain" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = `${note.title || "note"}.txt`;

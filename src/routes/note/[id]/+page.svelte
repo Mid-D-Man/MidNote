@@ -1,34 +1,76 @@
 <script lang="ts">
   import { page } from "$app/stores";
   import { goto } from "$app/navigation";
-  import { onMount, tick, untrack } from "svelte";
+  import { onMount, untrack } from "svelte";
   import NoteEditorHeader from "$lib/components/notes/NoteEditorHeader/NoteEditorHeader.svelte";
   import NoteTitle from "$lib/components/notes/NoteTitle/NoteTitle.svelte";
   import NoteContent from "$lib/components/notes/NoteContent/NoteContent.svelte";
   import FormattingToolbar from "$lib/components/notes/FormattingToolbar/FormattingToolbar.svelte";
   import { saveEntry } from "$lib/stores/entries.svelte";
   import { noteTags, sync as syncTags } from "$lib/stores/tags.svelte";
-  import { fontSize, setFontSize } from "$lib/stores/settings.svelte";
+  import { fontSize } from "$lib/stores/settings.svelte";
   import { createNote, getEntry } from "$lib/storage";
   import { breadcrumb } from "$lib/debug/log.svelte";
-  import { matchList, getLine, isSelectionWrapped, applyInlineWrap, applyListFormat, type ListType } from "$lib/utils/textEditing";
+  import {
+    applyInlineFormat,
+    queryActiveFormats,
+    applyListFormat,
+    queryActiveList,
+    applyFontSize,
+    getCurrentFontSize,
+    readSelectionState,
+    type InlineFormat,
+    type ListKind,
+  } from "$lib/utils/richText";
   import type { Note } from "$lib/types/entry";
 
   const id = $derived($page.params.id);
 
   let note = $state<Note>(createNote());
-  let textareaEl = $state<HTMLTextAreaElement | null>(null);
+  let contentEl = $state<HTMLDivElement | null>(null);
   let loadError = $state<string | null>(null);
 
-  // Tracked independently of textareaEl.selectionStart/End, updated on
-  // every selectionchange WHILE the textarea is focused, and left alone
-  // once it isn't. This is the actual fix for "formatting inserts at the
-  // top of the note" — tapping a toolbar button blurs the textarea
-  // before its onclick fires, and selectionStart/End reset to 0 on blur
-  // on this webview, so reading them at click-time was always reading a
-  // stale zero, not where the cursor actually was.
-  let lastSelStart = $state(0);
-  let lastSelEnd = $state(0);
+  // Live formatting/selection state for the toolbar — read straight from
+  // the DOM Selection API, not derived from note.content. The Selection
+  // API isn't something Svelte's reactivity tracks, so unlike the old
+  // textarea-offset version this can't be a $derived — it's plain
+  // $state, imperatively refreshed on selectionchange (RAF-coalesced,
+  // same pattern as the old lastSelStart/lastSelEnd tracking used) and
+  // right after applying a command. None of the refresh call sites below
+  // are inside an $effect (onMount setup, a DOM event listener, plain
+  // onclick-driven functions) — see docs/svelte5-effect-safety.md. This
+  // sidesteps that bug class by construction rather than by care.
+  let hasSelection = $state(false);
+  let activeFormats = $state({
+    bold: false,
+    italic: false,
+    underline: false,
+    strikethrough: false,
+    list: null as ListKind | null,
+  });
+  let currentFontSize = $state(fontSize.value);
+
+  function resetFormatState() {
+    hasSelection = false;
+    activeFormats = { bold: false, italic: false, underline: false, strikethrough: false, list: null };
+    currentFontSize = fontSize.value;
+  }
+
+  function refreshFormatState() {
+    if (!contentEl) {
+      resetFormatState();
+      return;
+    }
+    const state = readSelectionState(contentEl);
+    hasSelection = state.hasSelection;
+    if (!state.within) {
+      activeFormats = { bold: false, italic: false, underline: false, strikethrough: false, list: null };
+      currentFontSize = fontSize.value;
+      return;
+    }
+    activeFormats = { ...queryActiveFormats(), list: queryActiveList(contentEl) };
+    currentFontSize = getCurrentFontSize(contentEl, fontSize.value);
+  }
 
   onMount(() => {
     breadcrumb(`note page mounted, id=${id}`);
@@ -38,17 +80,14 @@
     // requestAnimationFrame-coalesced rather than firing on every raw
     // event — selectionchange is documented to fire very frequently on
     // some webviews (multiple times per keystroke or touch), and there's
-    // no reason to write two $state values that often when once per
-    // frame is plenty for tracking where the cursor is.
+    // no reason to refresh formatting state that often when once per
+    // frame is plenty for tracking where the cursor/selection is.
     let selectionRaf: number | null = null;
     const onSelectionChange = () => {
       if (selectionRaf !== null) return;
       selectionRaf = requestAnimationFrame(() => {
         selectionRaf = null;
-        if (document.activeElement === textareaEl && textareaEl) {
-          lastSelStart = textareaEl.selectionStart;
-          lastSelEnd = textareaEl.selectionEnd;
-        }
+        refreshFormatState();
       });
     };
     document.addEventListener("selectionchange", onSelectionChange);
@@ -84,12 +123,14 @@
       if (!id || id === "new") {
         note = createNote();
         resetHistory();
+        resetFormatState();
         return;
       }
       const existing = getEntry(id);
       if (existing && existing.type === "regular") {
         note = existing;
         resetHistory();
+        resetFormatState();
         breadcrumb(`note: loaded ${id}`);
       } else {
         breadcrumb(`note: ${id} not found or wrong type, redirecting home`);
@@ -111,7 +152,10 @@
     persist();
   }
 
-  // --- Undo/redo — unchanged from before. ---
+  // --- Undo/redo — unchanged mechanism from before. note.content is an
+  // HTML string now instead of plain text, but this just snapshots and
+  // restores whatever string it currently is, so nothing else here
+  // needed to change. ---
   const HISTORY_LIMIT = 50;
   const CHECKPOINT_DELAY = 400;
 
@@ -123,16 +167,13 @@
   function resetHistory() {
     undoStack = [];
     redoStack = [];
-    // untrack is load-bearing here, not cosmetic: this function is called
-    // from load(), which is called from the $effect below that also
+    // untrack is load-bearing here, not cosmetic — this function is called
+    // from load(), which is called from the $effect above that also
     // WRITES `note` (via `note = createNote()` / `note = existing`).
     // Reading note.content without untrack makes `note` a dependency of
     // that same effect — an effect that both reads and writes the same
-    // state re-triggers itself, which is a genuine infinite loop in
-    // Svelte 5, not just a lint nitpick. Reproduced this exact shape
-    // against the real Svelte runtime before and after this fix to
-    // confirm: unfixed throws effect_update_depth_exceeded, fixed
-    // settles after one run.
+    // state re-triggers itself, a genuine infinite loop in Svelte 5. See
+    // docs/svelte5-effect-safety.md for the full incident writeup.
     lastCheckpoint = untrack(() => note.content);
     clearTimeout(checkpointTimer);
   }
@@ -169,46 +210,55 @@
     lastCheckpoint = note.content;
   }
 
-  // --- Formatting: uses lastSelStart/lastSelEnd (see above), not
-  // textareaEl.selectionStart/End directly. ---
+  // --- Formatting: acts on the live contenteditable DOM/Selection
+  // directly via execCommand (richText.ts), not on note.content string
+  // offsets — that's what makes "applies to the selection if there is
+  // one, otherwise sets sticky state for whatever's typed next" work
+  // without hand-rolling either half of it. ---
 
-  const activeFormats = $derived.by(() => {
-    const bold = isSelectionWrapped(note.content, lastSelStart, lastSelEnd, "**");
-    const italic = isSelectionWrapped(note.content, lastSelStart, lastSelEnd, "*") && !bold;
-    const underline = isSelectionWrapped(note.content, lastSelStart, lastSelEnd, "__");
-    const { line } = getLine(note.content, lastSelStart);
-    const list = matchList(line)?.type ?? null;
-    return { bold, italic, underline, list };
-  });
-
-  async function refocusAt(pos: number, endPos = pos) {
-    await tick();
-    textareaEl?.focus();
-    textareaEl?.setSelectionRange(pos, endPos);
-    lastSelStart = pos;
-    lastSelEnd = endPos;
+  function syncContentFromDom() {
+    // execCommand mutates the DOM directly. Modern webviews fire a
+    // native `input` event afterward, which NoteContent's bind:innerHTML
+    // would pick up on its own — but relying on that alone, unverified,
+    // on this specific WebView is exactly the kind of assumption this
+    // project has been burned by before. Setting it explicitly here
+    // costs nothing and removes the assumption.
+    if (contentEl) note.content = contentEl.innerHTML;
   }
 
+  const INLINE_FORMATS = new Set(["bold", "italic", "underline", "strikethrough"]);
+  const LIST_FORMATS: Record<string, ListKind> = {
+    bulletList: "bullet",
+    orderedList: "decimal",
+    romanList: "roman",
+  };
+
   function handleFormat(format: string) {
-    const text = note.content;
-    const start = lastSelStart;
-    const end = lastSelEnd;
+    if (!contentEl) return;
+    // Defensive backstop, not the actual fix — the toolbar's
+    // mousedown.preventDefault() is what actually keeps contentEl
+    // focused (and its Selection live) when a button is tapped. Calling
+    // .focus() on an element that's already focused is a harmless no-op.
+    contentEl.focus();
 
-    if (format === "bold" || format === "italic" || format === "underline") {
-      const marker = format === "bold" ? "**" : format === "italic" ? "*" : "__";
-      const result = applyInlineWrap(text, start, end, marker);
-      note.content = result.newText;
-      refocusAt(result.newSelStart, result.newSelEnd);
+    if (INLINE_FORMATS.has(format)) {
+      applyInlineFormat(format as InlineFormat);
+    } else if (format in LIST_FORMATS) {
+      applyListFormat(LIST_FORMATS[format], contentEl);
+    } else {
       return;
     }
 
-    if (format === "bulletList" || format === "orderedList" || format === "romanList") {
-      const type: ListType = format === "bulletList" ? "bullet" : format === "orderedList" ? "decimal" : "roman";
-      const result = applyListFormat(text, start, end, type);
-      note.content = result.newText;
-      refocusAt(result.newSelEnd);
-      return;
-    }
+    refreshFormatState();
+    syncContentFromDom();
+  }
+
+  function handleFontSizeChange(size: number) {
+    if (!contentEl) return;
+    contentEl.focus();
+    applyFontSize(contentEl, size);
+    refreshFormatState();
+    syncContentFromDom();
   }
 </script>
 
@@ -235,15 +285,16 @@
     <div class="scroll-area">
       <div class="inner">
         <NoteTitle bind:value={note.title} />
-        <NoteContent bind:value={note.content} bind:textareaEl fontSize={fontSize.value} />
+        <NoteContent bind:value={note.content} bind:contentEl baseFontSize={fontSize.value} />
       </div>
     </div>
 
     <FormattingToolbar
       onFormat={handleFormat}
       {activeFormats}
-      fontSize={fontSize.value}
-      onFontSizeChange={setFontSize}
+      {hasSelection}
+      fontSize={currentFontSize}
+      onFontSizeChange={handleFontSizeChange}
       {canUndo}
       {canRedo}
       onUndo={undo}
