@@ -7,7 +7,8 @@
 
 @QUICKFUNCS(
 
-  ~todo_ref<object>(id, title, tags, lastModified, isBookmarked, encrypted) {
+  // See notes_index.mdix's comment on the same two added fields.
+  ~todo_ref<object>(id, title, tags, lastModified, isBookmarked, encrypted, theme, reminder) {
     return {
       id           = id
       title        = title
@@ -15,6 +16,8 @@
       lastModified = lastModified
       isBookmarked = isBookmarked
       encrypted    = encrypted
+      theme        = theme
+      reminder     = reminder
     }
   }
 
@@ -22,5 +25,5 @@
 
 @DATA(
   todos::
-    todo_ref("r1", "Grandma's Chili", ["dinner", "comfort-food"], "2026-08-07T18:30:00Z", true, false)
+    todo_ref("r1", "Grandma's Chili", ["dinner", "comfort-food"], "2026-08-07T18:30:00Z", true, false, "none", "")
 )

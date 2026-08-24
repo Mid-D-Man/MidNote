@@ -2,12 +2,36 @@
   import { FONT_SIZES } from "$lib/stores/settings.svelte";
   import { breadcrumb } from "$lib/debug/log.svelte";
 
+  // value: null means "no override" / the clear swatch.
+  const TEXT_COLORS: { label: string; value: string | null }[] = [
+    { label: "Default", value: null },
+    { label: "Red", value: "#ef4444" },
+    { label: "Orange", value: "#f97316" },
+    { label: "Yellow", value: "#eab308" },
+    { label: "Green", value: "#22c55e" },
+    { label: "Teal", value: "#14b8a6" },
+    { label: "Blue", value: "#3b82f6" },
+    { label: "Purple", value: "#a855f7" },
+  ];
+  const BG_COLORS: { label: string; value: string | null }[] = [
+    { label: "None", value: null },
+    { label: "Red", value: "#fecaca" },
+    { label: "Orange", value: "#fed7aa" },
+    { label: "Yellow", value: "#fef08a" },
+    { label: "Green", value: "#bbf7d0" },
+    { label: "Teal", value: "#99f6e4" },
+    { label: "Blue", value: "#bfdbfe" },
+    { label: "Purple", value: "#e9d5ff" },
+  ];
+
   let {
     onFormat,
-    activeFormats = { bold: false, italic: false, underline: false, strikethrough: false, list: null },
+    activeFormats = { bold: false, italic: false, underline: false, strikethrough: false, list: null, color: null, backgroundColor: null },
     hasSelection = false,
     fontSize = 15,
     onFontSizeChange,
+    onColorChange,
+    onBackgroundColorChange,
     canUndo = false,
     canRedo = false,
     onUndo,
@@ -20,21 +44,22 @@
       underline: boolean;
       strikethrough: boolean;
       list: "bullet" | "decimal" | "roman" | null;
+      color: string | null;
+      backgroundColor: string | null;
     };
     // Whether the note body currently has a real (non-collapsed) text
     // selection. Drives which row layout renders below — matches the
-    // reference behavior (FlyNote screenshots): selected text gets
-    // direct one-tap B/I/U/S buttons in the main row; nothing selected
-    // shows the structural tools (Aa submenu, lists, undo/redo)
-    // instead. The actual "applies to selection vs. sets sticky state
-    // for future typing" behavior isn't decided here at all — that's
-    // native execCommand behavior triggered from the page's
-    // handleFormat(), based on the real live selection at the moment
-    // the command runs. This prop only controls which buttons are
-    // visible, not what they do.
+    // reference: selected text gets direct one-tap B/I/U/S buttons in
+    // the main row; nothing selected shows the structural tools (Aa
+    // submenu, lists, undo/redo) instead. The actual "applies to
+    // selection vs. sets sticky state for future typing" behavior isn't
+    // decided here — that's the page's handleFormat(). This prop only
+    // controls which buttons are visible, not what they do.
     hasSelection?: boolean;
     fontSize?: number;
     onFontSizeChange?: (size: number) => void;
+    onColorChange?: (color: string | null) => void;
+    onBackgroundColorChange?: (color: string | null) => void;
     canUndo?: boolean;
     canRedo?: boolean;
     onUndo?: () => void;
@@ -42,7 +67,7 @@
   } = $props();
 
   // Only one panel open at a time.
-  let openPanel = $state<"style" | "size" | null>(null);
+  let openPanel = $state<"style" | "size" | "color" | "bgColor" | null>(null);
 
   // Selecting/deselecting text swaps which row of buttons is shown below
   // — close whatever submenu was open rather than leave it floating
@@ -56,31 +81,16 @@
     openPanel = null;
   });
 
-  // No JS-driven keyboard-avoidance here anymore — removed a
-  // window.visualViewport listener that was supposed to lift this bar
-  // above the on-screen keyboard but, per real-device testing, didn't
-  // actually work and was one more moving part while chasing the hang
-  // bug. `position: fixed` + `bottom: env(safe-area-inset-bottom)`
-  // combined with app.html's `interactive-widget=resizes-content` should
-  // handle this at the browser/webview level without needing JS to track
-  // and react to viewport changes at all — that meta tag is specifically
-  // what makes the *layout* viewport itself shrink when the keyboard
-  // opens, which fixed positioning already respects on its own.
-
   // Stops a toolbar button from ever taking focus, so the contenteditable
   // note body never loses its live Selection when a button is tapped.
-  // Without this, the execCommand/queryCommandState calls in the page's
-  // handleFormat() would have nothing to act on — the contenteditable-era
-  // equivalent of the lastSelStart/lastSelEnd tracking the old textarea
-  // toolbar needed, except here the fix is preventing the blur outright
-  // rather than tracking around it after the fact. mousedown.preventDefault()
-  // suppresses only the focus-stealing default action — the click event
-  // (and this component's onclick handlers) still fire normally.
+  // mousedown.preventDefault() suppresses only the focus-stealing default
+  // action — the click event (and this component's onclick handlers)
+  // still fire normally.
   function guardFocus(e: MouseEvent) {
     e.preventDefault();
   }
 
-  function togglePanel(panel: "style" | "size") {
+  function togglePanel(panel: "style" | "size" | "color" | "bgColor") {
     breadcrumb(`toolbar: ${panel} panel toggled`);
     openPanel = openPanel === panel ? null : panel;
   }
@@ -88,6 +98,16 @@
   function apply(format: string) {
     breadcrumb(`toolbar: ${format} tapped`);
     onFormat(format);
+  }
+
+  function pickColor(value: string | null) {
+    breadcrumb(`toolbar: text color -> ${value ?? "default"}`);
+    onColorChange?.(value);
+  }
+
+  function pickBackgroundColor(value: string | null) {
+    breadcrumb(`toolbar: background color -> ${value ?? "none"}`);
+    onBackgroundColorChange?.(value);
   }
 </script>
 
@@ -105,6 +125,34 @@
         <button class:active={fontSize === size} onclick={() => onFontSizeChange?.(size)}>{size}</button>
       {/each}
     </div>
+  {:else if openPanel === "color"}
+    <div class="panel swatch-panel" role="toolbar" aria-label="Text color" tabindex="-1" onmousedown={guardFocus}>
+      {#each TEXT_COLORS as c (c.label)}
+        <button
+          class="swatch"
+          class:active={activeFormats.color === c.value}
+          class:none-swatch={c.value === null}
+          style={c.value ? `background:${c.value}` : ""}
+          onclick={() => pickColor(c.value)}
+          aria-label={c.label}
+          title={c.label}
+        ></button>
+      {/each}
+    </div>
+  {:else if openPanel === "bgColor"}
+    <div class="panel swatch-panel" role="toolbar" aria-label="Background color" tabindex="-1" onmousedown={guardFocus}>
+      {#each BG_COLORS as c (c.label)}
+        <button
+          class="swatch"
+          class:active={activeFormats.backgroundColor === c.value}
+          class:none-swatch={c.value === null}
+          style={c.value ? `background:${c.value}` : ""}
+          onclick={() => pickBackgroundColor(c.value)}
+          aria-label={c.label}
+          title={c.label}
+        ></button>
+      {/each}
+    </div>
   {/if}
 
   <div class="toolbar" role="toolbar" aria-label="Note formatting" tabindex="-1" onmousedown={guardFocus}>
@@ -118,6 +166,16 @@
 
       <button class:active={openPanel === "size"} onclick={() => togglePanel("size")} aria-label="Text size">
         <span class="tt">{fontSize}</span>
+      </button>
+      <button class:active={openPanel === "color"} onclick={() => togglePanel("color")} aria-label="Text color">
+        <span class="a-swatch" style={activeFormats.color ? `color:${activeFormats.color}` : ""}>A</span>
+      </button>
+      <button class:active={openPanel === "bgColor"} onclick={() => togglePanel("bgColor")} aria-label="Background color">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="m9 11 6-6 5 5-6 6z" />
+          <path d="m2 22 5-5" />
+          <path d="M13 5 9 1l-6 6 4 4" fill={activeFormats.backgroundColor ?? "none"} />
+        </svg>
       </button>
     {:else}
       <button class:active={openPanel === "style" || activeFormats.bold || activeFormats.italic || activeFormats.underline || activeFormats.strikethrough} onclick={() => togglePanel("style")} aria-label="Text style">
@@ -152,6 +210,19 @@
       </button>
       <button class:active={activeFormats.list === "roman"} onclick={() => apply("romanList")} aria-label="Roman numeral list" title="Roman numeral list">
         <span class="roman-icon">iv.</span>
+      </button>
+
+      <div class="sep"></div>
+
+      <button class:active={openPanel === "color"} onclick={() => togglePanel("color")} aria-label="Text color">
+        <span class="a-swatch" style={activeFormats.color ? `color:${activeFormats.color}` : ""}>A</span>
+      </button>
+      <button class:active={openPanel === "bgColor"} onclick={() => togglePanel("bgColor")} aria-label="Background color">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="m9 11 6-6 5 5-6 6z" />
+          <path d="m2 22 5-5" />
+          <path d="M13 5 9 1l-6 6 4 4" fill={activeFormats.backgroundColor ?? "none"} />
+        </svg>
       </button>
 
       <div class="sep"></div>
@@ -231,6 +302,11 @@
     font-weight: 600;
     font-size: 12px;
   }
+  .a-swatch {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 15px;
+  }
   .roman-icon {
     font-family: var(--font-display);
     font-size: 11px;
@@ -288,5 +364,33 @@
   .size-panel button {
     font-family: var(--font-sans);
     font-weight: 500;
+  }
+
+  .swatch-panel {
+    padding: 0 var(--space-3);
+    gap: var(--space-2);
+  }
+  .swatch {
+    flex-shrink: 0;
+    width: 26px;
+    height: 26px;
+    min-width: 26px;
+    padding: 0;
+    border-radius: 50%;
+    border: 2px solid var(--hairline);
+    background: var(--surface);
+  }
+  .swatch.active {
+    border-color: var(--text-hi);
+    box-shadow: 0 0 0 2px var(--surface-raised), 0 0 0 3px var(--accent);
+  }
+  .swatch.none-swatch {
+    background: repeating-linear-gradient(
+      45deg,
+      var(--surface),
+      var(--surface) 4px,
+      var(--hairline) 4px,
+      var(--hairline) 5px
+    );
   }
 </style>

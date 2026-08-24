@@ -75,7 +75,13 @@ export function createNote(): Note {
     id: generateId(),
     type: "regular",
     title: "",
-    content: "",
+    // Not truly empty — a single empty <div> — so the very first line
+    // is structurally consistent with every subsequent Enter-created
+    // line (also a <div>). Matters for the ruled-lines feature: each
+    // line's rule attaches to its own <div>'s border-bottom, and
+    // without this the first line would be the one exception with
+    // nothing to attach a rule to. See NoteContent.svelte.
+    content: "<div><br></div>",
     tags: [],
     lastModified: new Date().toISOString(),
     isBookmarked: false,

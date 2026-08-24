@@ -51,3 +51,21 @@ export function setDebugPanelVisible(visible: boolean) {
   debugPanelVisible.value = visible;
   if (typeof localStorage !== "undefined") localStorage.setItem(DEBUG_PANEL_KEY, String(visible));
 }
+
+// Ruled-paper background lines in the note editor (see NoteContent.svelte).
+// Defaults OFF: it's a new, real-device-unverified visual change, safer
+// to let people opt in from Settings than to change everyone's editor
+// look by default.
+const NOTE_LINES_KEY = "midnote:note-lines";
+
+function loadNoteLinesEnabled(): boolean {
+  if (typeof localStorage === "undefined") return false;
+  return localStorage.getItem(NOTE_LINES_KEY) === "true";
+}
+
+export const noteLinesEnabled = $state({ value: loadNoteLinesEnabled() });
+
+export function setNoteLinesEnabled(enabled: boolean) {
+  noteLinesEnabled.value = enabled;
+  if (typeof localStorage !== "undefined") localStorage.setItem(NOTE_LINES_KEY, String(enabled));
+}

@@ -16,11 +16,17 @@
     queryActiveFormats,
     applyListFormat,
     queryActiveList,
-    applyFontSize,
+    applyValueStyleToSelection,
+    clearValueStyleFromSelection,
     getCurrentFontSize,
+    getCurrentColor,
+    getCurrentBackgroundColor,
     readSelectionState,
+    emptyPendingFormats,
+    stripHtml,
     type InlineFormat,
     type ListKind,
+    type PendingFormats,
   } from "$lib/utils/richText";
   import type { Note } from "$lib/types/entry";
 
@@ -32,14 +38,11 @@
 
   // Live formatting/selection state for the toolbar — read straight from
   // the DOM Selection API, not derived from note.content. The Selection
-  // API isn't something Svelte's reactivity tracks, so unlike the old
-  // textarea-offset version this can't be a $derived — it's plain
-  // $state, imperatively refreshed on selectionchange (RAF-coalesced,
-  // same pattern as the old lastSelStart/lastSelEnd tracking used) and
-  // right after applying a command. None of the refresh call sites below
-  // are inside an $effect (onMount setup, a DOM event listener, plain
-  // onclick-driven functions) — see docs/svelte5-effect-safety.md. This
-  // sidesteps that bug class by construction rather than by care.
+  // API isn't something Svelte's reactivity tracks, so this is plain
+  // $state, imperatively refreshed on selectionchange (RAF-coalesced)
+  // and right after applying a command. None of the refresh call sites
+  // below are inside an $effect (onMount setup, a DOM event listener,
+  // plain onclick-driven functions) — see docs/svelte5-effect-safety.md.
   let hasSelection = $state(false);
   let activeFormats = $state({
     bold: false,
@@ -47,13 +50,38 @@
     underline: false,
     strikethrough: false,
     list: null as ListKind | null,
+    color: null as string | null,
+    backgroundColor: null as string | null,
   });
   let currentFontSize = $state(fontSize.value);
 
+  // Bold/italic/underline/strikethrough/fontSize/color/backgroundColor
+  // toggled on with NO selection — i.e. "apply this to whatever gets
+  // typed next." Explicit, page-owned state, fully reset on every note
+  // load. NOT the same thing as execCommand's own built-in "sticky
+  // typing style" tracking, deliberately — see richText.ts's header
+  // comment for the on-device bug that caused the switch: that
+  // browser-internal state couldn't reliably be toggled back off, and
+  // leaked between notes because this is an SPA (no full page reload
+  // between them, so nothing was ever forcing it to clear).
+  let pendingFormats = $state<PendingFormats>(emptyPendingFormats());
+  // The caret position our own last auto-format wrap left things in —
+  // lets refreshFormatState tell "the selection changed because I just
+  // wrapped a typed character" apart from "the selection changed because
+  // the user tapped or arrow-keyed somewhere else," and only reset
+  // pendingFormats for the latter.
+  let lastAutoFormatPos: { node: Node; offset: number } | null = null;
+
+  function resetPendingFormats() {
+    pendingFormats = emptyPendingFormats();
+  }
+
   function resetFormatState() {
     hasSelection = false;
-    activeFormats = { bold: false, italic: false, underline: false, strikethrough: false, list: null };
+    activeFormats = { bold: false, italic: false, underline: false, strikethrough: false, list: null, color: null, backgroundColor: null };
     currentFontSize = fontSize.value;
+    resetPendingFormats();
+    lastAutoFormatPos = null;
   }
 
   function refreshFormatState() {
@@ -63,13 +91,43 @@
     }
     const state = readSelectionState(contentEl);
     hasSelection = state.hasSelection;
+
     if (!state.within) {
-      activeFormats = { bold: false, italic: false, underline: false, strikethrough: false, list: null };
+      activeFormats = { bold: false, italic: false, underline: false, strikethrough: false, list: null, color: null, backgroundColor: null };
       currentFontSize = fontSize.value;
+      resetPendingFormats();
+      lastAutoFormatPos = null;
       return;
     }
-    activeFormats = { ...queryActiveFormats(), list: queryActiveList(contentEl) };
+
     currentFontSize = getCurrentFontSize(contentEl, fontSize.value);
+
+    if (hasSelection) {
+      activeFormats = {
+        ...queryActiveFormats(),
+        list: queryActiveList(contentEl),
+        color: getCurrentColor(contentEl),
+        backgroundColor: getCurrentBackgroundColor(contentEl),
+      };
+      resetPendingFormats();
+      lastAutoFormatPos = null;
+      return;
+    }
+
+    // Collapsed caret: the toolbar reflects OUR pending state here, not
+    // whatever the DOM/queryCommandState happens to say at this exact
+    // point — see the pendingFormats comment above for why.
+    activeFormats = { ...pendingFormats, list: queryActiveList(contentEl) };
+    const sel = window.getSelection();
+    const node = sel?.anchorNode ?? null;
+    const offset = sel?.anchorOffset ?? -1;
+    const isEcho = !!lastAutoFormatPos && node === lastAutoFormatPos.node && offset === lastAutoFormatPos.offset;
+    if (!isEcho) resetPendingFormats();
+    lastAutoFormatPos = null;
+  }
+
+  function handleAutoFormatApplied(node: Node, offset: number) {
+    lastAutoFormatPos = { node, offset };
   }
 
   onMount(() => {
@@ -77,11 +135,6 @@
     syncTags();
     load();
 
-    // requestAnimationFrame-coalesced rather than firing on every raw
-    // event — selectionchange is documented to fire very frequently on
-    // some webviews (multiple times per keystroke or touch), and there's
-    // no reason to refresh formatting state that often when once per
-    // frame is plenty for tracking where the cursor/selection is.
     let selectionRaf: number | null = null;
     const onSelectionChange = () => {
       if (selectionRaf !== null) return;
@@ -143,7 +196,10 @@
   }
 
   function persist() {
-    if (!note.title.trim() && !note.content.trim()) return;
+    // note.content's default is "<div><br></div>" now, not "" (see
+    // storage.ts) — stripHtml it before checking emptiness, or a
+    // never-touched new note would look non-empty and get saved anyway.
+    if (!note.title.trim() && !stripHtml(note.content)) return;
     saveEntry(note);
   }
 
@@ -152,10 +208,7 @@
     persist();
   }
 
-  // --- Undo/redo — unchanged mechanism from before. note.content is an
-  // HTML string now instead of plain text, but this just snapshots and
-  // restores whatever string it currently is, so nothing else here
-  // needed to change. ---
+  // --- Undo/redo — unchanged mechanism from before. ---
   const HISTORY_LIMIT = 50;
   const CHECKPOINT_DELAY = 400;
 
@@ -167,13 +220,6 @@
   function resetHistory() {
     undoStack = [];
     redoStack = [];
-    // untrack is load-bearing here, not cosmetic — this function is called
-    // from load(), which is called from the $effect above that also
-    // WRITES `note` (via `note = createNote()` / `note = existing`).
-    // Reading note.content without untrack makes `note` a dependency of
-    // that same effect — an effect that both reads and writes the same
-    // state re-triggers itself, a genuine infinite loop in Svelte 5. See
-    // docs/svelte5-effect-safety.md for the full incident writeup.
     lastCheckpoint = untrack(() => note.content);
     clearTimeout(checkpointTimer);
   }
@@ -210,19 +256,9 @@
     lastCheckpoint = note.content;
   }
 
-  // --- Formatting: acts on the live contenteditable DOM/Selection
-  // directly via execCommand (richText.ts), not on note.content string
-  // offsets — that's what makes "applies to the selection if there is
-  // one, otherwise sets sticky state for whatever's typed next" work
-  // without hand-rolling either half of it. ---
+  // --- Formatting ---
 
   function syncContentFromDom() {
-    // execCommand mutates the DOM directly. Modern webviews fire a
-    // native `input` event afterward, which NoteContent's bind:innerHTML
-    // would pick up on its own — but relying on that alone, unverified,
-    // on this specific WebView is exactly the kind of assumption this
-    // project has been burned by before. Setting it explicitly here
-    // costs nothing and removes the assumption.
     if (contentEl) note.content = contentEl.innerHTML;
   }
 
@@ -235,30 +271,70 @@
 
   function handleFormat(format: string) {
     if (!contentEl) return;
-    // Defensive backstop, not the actual fix — the toolbar's
-    // mousedown.preventDefault() is what actually keeps contentEl
-    // focused (and its Selection live) when a button is tapped. Calling
-    // .focus() on an element that's already focused is a harmless no-op.
-    contentEl.focus();
 
     if (INLINE_FORMATS.has(format)) {
-      applyInlineFormat(format as InlineFormat);
-    } else if (format in LIST_FORMATS) {
-      applyListFormat(LIST_FORMATS[format], contentEl);
-    } else {
+      if (hasSelection) {
+        contentEl.focus();
+        applyInlineFormat(format as InlineFormat);
+        refreshFormatState();
+        syncContentFromDom();
+      } else {
+        // No DOM/execCommand touched at all here — just our own boolean
+        // flip. See the pendingFormats comment above for why.
+        const key = format as keyof Pick<PendingFormats, "bold" | "italic" | "underline" | "strikethrough">;
+        pendingFormats = { ...pendingFormats, [key]: !pendingFormats[key] };
+        activeFormats = { ...activeFormats, [key]: pendingFormats[key] };
+      }
       return;
     }
 
-    refreshFormatState();
-    syncContentFromDom();
+    if (format in LIST_FORMATS) {
+      contentEl.focus();
+      applyListFormat(LIST_FORMATS[format], contentEl);
+      refreshFormatState();
+      syncContentFromDom();
+    }
   }
 
   function handleFontSizeChange(size: number) {
     if (!contentEl) return;
-    contentEl.focus();
-    applyFontSize(contentEl, size);
-    refreshFormatState();
-    syncContentFromDom();
+    if (hasSelection) {
+      contentEl.focus();
+      applyValueStyleToSelection({ fontSize: size });
+      refreshFormatState();
+      syncContentFromDom();
+    } else {
+      pendingFormats = { ...pendingFormats, fontSize: size };
+      currentFontSize = size;
+    }
+  }
+
+  function handleColorChange(color: string | null) {
+    if (!contentEl) return;
+    if (hasSelection) {
+      contentEl.focus();
+      if (color) applyValueStyleToSelection({ color });
+      else clearValueStyleFromSelection(["color"]);
+      refreshFormatState();
+      syncContentFromDom();
+    } else {
+      pendingFormats = { ...pendingFormats, color };
+      activeFormats = { ...activeFormats, color };
+    }
+  }
+
+  function handleBackgroundColorChange(color: string | null) {
+    if (!contentEl) return;
+    if (hasSelection) {
+      contentEl.focus();
+      if (color) applyValueStyleToSelection({ backgroundColor: color });
+      else clearValueStyleFromSelection(["backgroundColor"]);
+      refreshFormatState();
+      syncContentFromDom();
+    } else {
+      pendingFormats = { ...pendingFormats, backgroundColor: color };
+      activeFormats = { ...activeFormats, backgroundColor: color };
+    }
   }
 </script>
 
@@ -285,7 +361,13 @@
     <div class="scroll-area">
       <div class="inner">
         <NoteTitle bind:value={note.title} />
-        <NoteContent bind:value={note.content} bind:contentEl baseFontSize={fontSize.value} />
+        <NoteContent
+          bind:value={note.content}
+          bind:contentEl
+          baseFontSize={fontSize.value}
+          {pendingFormats}
+          onAutoFormatApplied={handleAutoFormatApplied}
+        />
       </div>
     </div>
 
@@ -295,6 +377,8 @@
       {hasSelection}
       fontSize={currentFontSize}
       onFontSizeChange={handleFontSizeChange}
+      onColorChange={handleColorChange}
+      onBackgroundColorChange={handleBackgroundColorChange}
       {canUndo}
       {canRedo}
       onUndo={undo}

@@ -1,7 +1,7 @@
 <script lang="ts">
   import Sheet from "$lib/components/ui/Sheet/Sheet.svelte";
   import Switch from "$lib/components/ui/Switch/Switch.svelte";
-  import { debugPanelVisible, setDebugPanelVisible } from "$lib/stores/settings.svelte";
+  import { debugPanelVisible, setDebugPanelVisible, noteLinesEnabled, setNoteLinesEnabled } from "$lib/stores/settings.svelte";
   import { breadcrumb } from "$lib/debug/log.svelte";
 
   let { open = $bindable(false) }: { open?: boolean } = $props();
@@ -20,6 +20,20 @@
         onCheckedChange={(v) => {
           breadcrumb(`settings: debug panel ${v ? "enabled" : "disabled"}`);
           setDebugPanelVisible(v);
+        }}
+      />
+    </div>
+    <div class="settings-row">
+      <div class="row-text">
+        <span class="row-label">Note lines</span>
+        <span class="row-desc">Ruled-paper lines under each line in the note editor.</span>
+      </div>
+      <Switch
+        checked={noteLinesEnabled.value}
+        aria-label="Show note lines"
+        onCheckedChange={(v) => {
+          breadcrumb(`settings: note lines ${v ? "enabled" : "disabled"}`);
+          setNoteLinesEnabled(v);
         }}
       />
     </div>

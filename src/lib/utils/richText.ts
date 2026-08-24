@@ -1,32 +1,37 @@
-// DOM-facing helpers for the contenteditable note body. Everything in
-// here leans on document.execCommand and the live Selection API rather
-// than the plain-text-offset approach the old <textarea> toolbar used —
-// see NoteContent.svelte and note/[id]/+page.svelte for why that
-// changed (short version: a <textarea> cannot render mixed formatting
-// at all, so "make the toolbar actually apply real bold/italic instead
-// of inserting ** characters" was never solvable without moving to a
-// real editable element).
+// DOM-facing helpers for the contenteditable note body.
 //
-// IMPORTANT CAVEAT, stated plainly rather than buried: document.execCommand
-// is a deprecated web API. It is used here deliberately — for bold/
-// italic/underline/strikethrough it is still the only thing that gives
-// "applies to the selection if there is one, otherwise sets a sticky
-// style for whatever gets typed next" for free, which is exactly the
-// two-state behavior asked for (compare: FlyNote's own reference
-// screenshots showing a different toolbar row depending on whether text
-// is selected). It remains implemented in Chromium (and so in Android's
-// System WebView, which is what Tauri's Android build actually runs in)
-// as of this writing, but "deprecated" means it could change. This is a
-// real, named trade-off, not a hidden one.
+// REVISION NOTE (this file previously relied on execCommand's own
+// internal "sticky typing style" for the no-selection case — toggle
+// bold/underline/etc with a collapsed caret and the browser remembers
+// to apply it to whatever gets typed next, no extra code needed). That
+// turned out to be broken on real-device testing: underline and
+// strikethrough could be toggled ON but not back OFF, and — worse —
+// the stuck state would resurface in an *unrelated* note later, because
+// MidNote is an SPA (client-side routing, no full page reload between
+// notes) and that browser-internal state is scoped to the document/
+// frame, not to any particular note or contenteditable element. It
+// doesn't get cleared just by navigating away.
 //
-// The other important caveat: NONE of this can be exercised by
-// scripts/smoke-test.mjs. jsdom does not implement execCommand or
-// realistic contenteditable typing/selection behavior at all — calling
-// document.execCommand under jsdom is a no-op at best. The smoke test
-// still catches "does the note page mount without throwing," which is
-// what actually caused the last incident, but the rich-text behavior
-// itself needs a real on-device check. Flagging that here so it isn't a
-// silent gap.
+// Fix: for the no-selection case, this file no longer touches
+// execCommand's sticky state AT ALL. Instead, the page keeps its own
+// explicit `PendingFormats` state (see note/[id]/+page.svelte), fully
+// reset on every note load. When a character is then typed, this file
+// selects *just that character* after the fact and applies formatting
+// to it directly — reusing the exact same selection-based execCommand
+// path that was already confirmed working for real (non-collapsed)
+// selections, rather than the collapsed-selection path that wasn't.
+// Net effect: less reliance on execCommand's own state tracking than
+// before, not more.
+//
+// Still an open, honestly-stated caveat: this can't be exercised by
+// scripts/smoke-test.mjs (jsdom has no execCommand at all — confirmed
+// empirically, not assumed), and creating-then-collapsing a real
+// Selection on every keystroke is a new interaction with the WebView
+// that wasn't there before; it's not expected to show any UI (native
+// selection handles/context menus are normally tied to a longer-lived,
+// gesture-driven selection, not a same-tick programmatic one) but that
+// expectation is web-platform knowledge, not an on-device confirmation.
+// Worth an eye on the actual device after this build, same as before.
 
 export type InlineFormat = "bold" | "italic" | "underline" | "strikethrough";
 
@@ -37,11 +42,12 @@ const INLINE_COMMAND: Record<InlineFormat, string> = {
   strikethrough: "strikeThrough",
 };
 
-export function applyInlineFormat(format: InlineFormat): void {
+function safeExec(cmd: string, value?: string): boolean {
   try {
-    document.execCommand(INLINE_COMMAND[format], false);
+    return document.execCommand(cmd, false, value);
   } catch (err) {
-    console.error("richText: execCommand failed for", format, err);
+    console.error("richText: execCommand failed for", cmd, err);
+    return false;
   }
 }
 
@@ -51,6 +57,13 @@ function safeQueryState(cmd: string): boolean {
   } catch {
     return false;
   }
+}
+
+// Used for the HAS-a-real-selection case only — tapping B/I/U/S in the
+// toolbar's selection row, acting on the live selection immediately.
+// This is the path real-device testing confirmed works correctly.
+export function applyInlineFormat(format: InlineFormat): void {
+  safeExec(INLINE_COMMAND[format]);
 }
 
 export interface ActiveFormats {
@@ -70,28 +83,12 @@ export function queryActiveFormats(): ActiveFormats {
 }
 
 // --- Lists ---
-// Native contenteditable list commands replace the old regex-based
-// plain-text list logic (matchList/applyListFormat/handleEnter in the
-// now-deleted textEditing.ts) — that logic depended entirely on
-// textarea.selectionStart, a property a contenteditable div doesn't
-// have, and on `note.content` being plain text, which it no longer is.
-// Enter-to-continue-a-list is no longer hand-rolled either: native
-// contenteditable already continues <li> items on Enter and exits an
-// empty trailing one, which is what that custom code was replicating.
 
 export type ListKind = "bullet" | "decimal" | "roman";
 
 export function applyListFormat(kind: ListKind, root: HTMLElement): void {
-  try {
-    document.execCommand(kind === "bullet" ? "insertUnorderedList" : "insertOrderedList", false);
-  } catch (err) {
-    console.error("richText: execCommand failed for list", kind, err);
-    return;
-  }
+  if (!safeExec(kind === "bullet" ? "insertUnorderedList" : "insertOrderedList")) return;
   if (kind !== "roman") return;
-  // insertOrderedList only ever produces a plain decimal <ol> — roman
-  // numerals aren't a native list type, so force it with CSS on
-  // whichever <ol> the selection now sits inside.
   const list = closestList(root);
   if (list) list.style.listStyleType = "lower-roman";
 }
@@ -103,8 +100,7 @@ function closestList(root: HTMLElement): HTMLOListElement | HTMLUListElement | n
   const el = anchor instanceof Element ? anchor : anchor.parentElement;
   const li = el?.closest("li");
   if (!li || !root.contains(li)) return null;
-  const list = li.closest("ol,ul");
-  return list as HTMLOListElement | HTMLUListElement | null;
+  return li.closest("ol,ul") as HTMLOListElement | HTMLUListElement | null;
 }
 
 export function queryActiveList(root: HTMLElement): ListKind | null {
@@ -116,71 +112,197 @@ export function queryActiveList(root: HTMLElement): ListKind | null {
   return null;
 }
 
-// --- Font size ---
-// execCommand has no "set this exact CSS px value" command. The
-// standard workaround (predates this project by a couple of decades —
-// it's how execCommand-based editors have always done arbitrary font
-// sizes): ask for a *legacy* HTML size via the "fontSize" command,
-// which marks the selection (or the caret, if nothing's selected) with
-// a <font size="7">, then immediately swap every one of those for a
-// <span style="font-size:Npx"> with the real value. Using the browser's
-// own command to do the marking is what makes the "sticky when nothing
-// is selected" behavior come along for free — same mechanism as bold.
+// --- Value-style formatting (font size / text color / background
+// color) for a REAL selection — used by the toolbar's size/color
+// pickers when text is selected. No execCommand at all: just wraps the
+// selected range in a <span style="..."> directly. Simpler and more
+// predictable than execCommand's own font-size/color workarounds, and
+// after today there's no reason to add a second execCommand-based
+// mechanism when a plain DOM wrap does the same job with fewer moving
+// parts.
 
-const FONT_SIZE_MARKER = "7";
+export interface ValueStyle {
+  fontSize?: number;
+  color?: string;
+  backgroundColor?: string;
+}
 
-export function applyFontSize(root: HTMLElement, sizePx: number): void {
+function wrapRangeInStyledSpan(range: Range, apply: (span: HTMLSpanElement) => void): Range {
+  const span = document.createElement("span");
+  apply(span);
   try {
-    document.execCommand("fontSize", false, FONT_SIZE_MARKER);
-  } catch (err) {
-    console.error("richText: execCommand failed for fontSize", err);
-    return;
+    range.surroundContents(span);
+  } catch {
+    // surroundContents throws if the range's boundaries don't nest
+    // cleanly inside one parent (e.g. it partially overlaps two
+    // sibling elements) — extract-then-wrap handles that case too.
+    const frag = range.extractContents();
+    span.appendChild(frag);
+    range.insertNode(span);
   }
+  const result = document.createRange();
+  result.selectNodeContents(span);
+  return result;
+}
 
-  const fonts = root.querySelectorAll(`font[size="${FONT_SIZE_MARKER}"]`);
-  if (fonts.length === 0) return;
-
-  let lastSpan: HTMLSpanElement | null = null;
-  let lastWasEmpty = false;
-  fonts.forEach((font) => {
-    const span = document.createElement("span");
-    span.style.fontSize = `${sizePx}px`;
-    lastWasEmpty = font.childNodes.length === 0;
-    while (font.firstChild) span.appendChild(font.firstChild);
-    font.replaceWith(span);
-    lastSpan = span;
+export function applyValueStyleToSelection(style: ValueStyle): void {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
+  const range = wrapRangeInStyledSpan(sel.getRangeAt(0), (span) => {
+    if (style.fontSize) span.style.fontSize = `${style.fontSize}px`;
+    if (style.color) span.style.color = style.color;
+    if (style.backgroundColor) span.style.backgroundColor = style.backgroundColor;
   });
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
 
-  // Nothing was selected when this ran — execCommand marked the bare
-  // caret position with an empty <font>, now an empty <span>. The caret
-  // needs to land back inside that span, or the "whatever's typed next
-  // inherits this size" half of the feature doesn't happen.
-  if (lastSpan && lastWasEmpty) {
-    const sel = window.getSelection();
-    if (sel) {
-      const range = document.createRange();
-      range.selectNodeContents(lastSpan);
-      range.collapse(true);
-      sel.removeAllRanges();
-      sel.addRange(range);
-    }
-  }
+// "None" swatch — clears color/background from a selection. Only
+// strips inline style already sitting on elements *inside* the
+// selection, plus wraps in an explicit reset span for the common case;
+// it will not perfectly un-color text nested inside a still-colored
+// ancestor that extends outside the selected range — a known, stated
+// limitation rather than a silent gap.
+export function clearValueStyleFromSelection(props: ("color" | "backgroundColor")[]): void {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
+  const range = sel.getRangeAt(0);
+  const container = range.commonAncestorContainer;
+  const scope = container.nodeType === Node.ELEMENT_NODE ? (container as Element) : container.parentElement;
+  scope?.querySelectorAll("[style]").forEach((el) => {
+    if (!range.intersectsNode(el)) return;
+    props.forEach((p) => {
+      (el as HTMLElement).style[p] = "";
+    });
+  });
+  const reset = wrapRangeInStyledSpan(range, (span) => {
+    props.forEach((p) => {
+      span.style[p] = p === "color" ? "var(--text-hi)" : "transparent";
+    });
+  });
+  sel.removeAllRanges();
+  sel.addRange(reset);
 }
 
 export function getCurrentFontSize(root: HTMLElement, fallbackPx: number): number {
+  const raw = getCurrentStyleProp(root, "fontSize");
+  if (!raw) return fallbackPx;
+  const n = parseFloat(raw);
+  return Number.isNaN(n) ? fallbackPx : Math.round(n);
+}
+
+export function getCurrentColor(root: HTMLElement): string | null {
+  return getCurrentStyleProp(root, "color");
+}
+
+export function getCurrentBackgroundColor(root: HTMLElement): string | null {
+  return getCurrentStyleProp(root, "backgroundColor");
+}
+
+function getCurrentStyleProp(root: HTMLElement, prop: "fontSize" | "color" | "backgroundColor"): string | null {
   const sel = window.getSelection();
   const anchor = sel?.anchorNode;
-  if (!anchor || !root.contains(anchor)) return fallbackPx;
+  if (!anchor || !root.contains(anchor)) return null;
   let el: Element | null = anchor instanceof Element ? anchor : anchor.parentElement;
   while (el && el !== root) {
-    const inline = el instanceof HTMLElement ? el.style.fontSize : "";
-    if (inline) {
-      const n = parseFloat(inline);
-      if (!Number.isNaN(n)) return Math.round(n);
-    }
+    const inline = el instanceof HTMLElement ? el.style[prop] : "";
+    if (inline) return inline;
     el = el.parentElement;
   }
-  return fallbackPx;
+  return null;
+}
+
+// --- Pending formats: the no-selection / "sticky for next keystroke"
+// case. Owned as explicit page-level state (see note/[id]/+page.svelte)
+// rather than left to the browser, for the reasons in this file's
+// header comment.
+
+export interface PendingFormats {
+  bold: boolean;
+  italic: boolean;
+  underline: boolean;
+  strikethrough: boolean;
+  fontSize: number | null;
+  color: string | null;
+  backgroundColor: string | null;
+}
+
+export function emptyPendingFormats(): PendingFormats {
+  return {
+    bold: false,
+    italic: false,
+    underline: false,
+    strikethrough: false,
+    fontSize: null,
+    color: null,
+    backgroundColor: null,
+  };
+}
+
+export function hasPendingFormats(f: PendingFormats): boolean {
+  return f.bold || f.italic || f.underline || f.strikethrough || f.fontSize !== null || f.color !== null || f.backgroundColor !== null;
+}
+
+// Applies every currently-pending format to one Range in one pass:
+// toggle formats first via execCommand on a real (if momentary)
+// selection — the confirmed-working mechanism — then wraps whatever
+// that leaves in a styled span for the value formats. Returns the
+// resulting collapsed caret position so the caller can recognize its
+// own follow-up selectionchange event and not mistake it for the user
+// having tapped/arrowed somewhere else (see refreshFormatState in
+// note/[id]/+page.svelte).
+export function applyPendingFormatsToRange(range: Range, formats: PendingFormats): { node: Node; offset: number } | null {
+  const sel = window.getSelection();
+  if (!sel) return null;
+
+  let working = range;
+
+  if (formats.bold || formats.italic || formats.underline || formats.strikethrough) {
+    sel.removeAllRanges();
+    sel.addRange(working);
+    if (formats.bold) safeExec("bold");
+    if (formats.italic) safeExec("italic");
+    if (formats.underline) safeExec("underline");
+    if (formats.strikethrough) safeExec("strikeThrough");
+    if (sel.rangeCount > 0) working = sel.getRangeAt(0);
+  }
+
+  if (formats.fontSize || formats.color || formats.backgroundColor) {
+    working = wrapRangeInStyledSpan(working, (span) => {
+      if (formats.fontSize) span.style.fontSize = `${formats.fontSize}px`;
+      if (formats.color) span.style.color = formats.color;
+      if (formats.backgroundColor) span.style.backgroundColor = formats.backgroundColor;
+    });
+  }
+
+  sel.removeAllRanges();
+  sel.addRange(working);
+  sel.collapseToEnd();
+  if (sel.rangeCount === 0) return null;
+  const final = sel.getRangeAt(0);
+  return { node: final.startContainer, offset: final.startOffset };
+}
+
+// Called from NoteContent's oninput after a keystroke lands, while any
+// format is pending — selects just the characters that were just typed
+// and runs them through applyPendingFormatsToRange.
+export function wrapLastInsertedText(
+  root: HTMLElement,
+  insertedLength: number,
+  formats: PendingFormats,
+): { node: Node; offset: number } | null {
+  if (!hasPendingFormats(formats)) return null;
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0 || !sel.isCollapsed) return null;
+  const node = sel.anchorNode;
+  if (!node || node.nodeType !== Node.TEXT_NODE || !root.contains(node)) return null;
+  const offset = sel.anchorOffset;
+  const start = Math.max(0, offset - insertedLength);
+  if (start >= offset) return null;
+  const range = document.createRange();
+  range.setStart(node, start);
+  range.setEnd(node, offset);
+  return applyPendingFormatsToRange(range, formats);
 }
 
 // --- Selection state ---
@@ -194,36 +316,48 @@ export function readSelectionState(root: HTMLElement): { within: boolean; hasSel
 }
 
 // --- Paste ---
-// Forces paste to plain text only. Without this, pasting from another
-// app (Chrome, WhatsApp, Google Keep, ...) drags in arbitrary nested
-// spans/colors/fonts that would otherwise live in note.content forever.
-// Keeps the stored HTML to only the tags this editor itself produces.
+// Forces paste to plain text only — pasting from another app would
+// otherwise drag in arbitrary nested spans/colors/fonts that live in
+// note.content forever. Also applies whatever's currently pending, so
+// pasting while a format is toggled on doesn't feel like it silently
+// ignored it.
 
-export function insertPlainText(text: string): void {
-  try {
-    if (document.execCommand("insertText", false, text)) return;
-  } catch {
-    // fall through to manual Range insertion below
-  }
+export function insertPlainText(text: string, formats?: PendingFormats): void {
   const sel = window.getSelection();
-  if (!sel || sel.rangeCount === 0) return;
-  const range = sel.getRangeAt(0);
-  range.deleteContents();
-  const node = document.createTextNode(text);
-  range.insertNode(node);
-  range.setStartAfter(node);
-  range.setEndAfter(node);
-  sel.removeAllRanges();
-  sel.addRange(range);
+  let inserted = false;
+  try {
+    inserted = document.execCommand("insertText", false, text);
+  } catch {
+    inserted = false;
+  }
+  if (!inserted) {
+    if (!sel || sel.rangeCount === 0) return;
+    const range = sel.getRangeAt(0);
+    range.deleteContents();
+    const node = document.createTextNode(text);
+    range.insertNode(node);
+    range.setStartAfter(node);
+    range.setEndAfter(node);
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+  if (formats && hasPendingFormats(formats) && sel && sel.rangeCount > 0 && sel.isCollapsed) {
+    const node = sel.anchorNode;
+    if (node && node.nodeType === Node.TEXT_NODE) {
+      const offset = sel.anchorOffset;
+      const start = Math.max(0, offset - text.length);
+      if (start < offset) {
+        const range = document.createRange();
+        range.setStart(node, start);
+        range.setEnd(node, offset);
+        applyPendingFormatsToRange(range, formats);
+      }
+    }
+  }
 }
 
 // --- HTML <-> plain text ---
 
-// Card previews, search, and the .txt export all need plain text, not
-// raw markup. Building a detached element and reading .textContent back
-// is the standard safe way to do this — setting innerHTML never
-// executes any <script> content regardless of whether the element is
-// attached to the document, and this element never gets attached.
 export function stripHtml(html: string): string {
   if (typeof document === "undefined") {
     return html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
@@ -233,9 +367,6 @@ export function stripHtml(html: string): string {
   return (el.textContent ?? "").replace(/\s+/g, " ").trim();
 }
 
-// For turning plain text (e.g. the AI note creator's stub output) into
-// safe content for the contenteditable body — escapes the characters
-// that would otherwise be parsed as markup and preserves line breaks.
 export function plainTextToHtml(text: string): string {
   return text
     .replace(/&/g, "&amp;")
@@ -244,9 +375,6 @@ export function plainTextToHtml(text: string): string {
     .replace(/\n/g, "<br>");
 }
 
-// Readable plain text for the .txt export — like stripHtml, but keeps
-// line breaks instead of collapsing them to spaces, since a downloaded
-// note should still read as one item per line.
 export function htmlToPlainText(html: string): string {
   if (typeof document === "undefined") {
     return html.replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]*>/g, "").trim();

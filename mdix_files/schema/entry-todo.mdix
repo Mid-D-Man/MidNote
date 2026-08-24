@@ -38,6 +38,11 @@
   lastModified = "2026-08-07T18:30:00Z"
   isBookmarked = true
 
+  // Not wired up yet — see entry-note.mdix's comment on this same pair
+  // of fields; identical shape and identical reasoning here.
+  theme        = "none"
+  reminder     = ""
+
   tags::
     "dinner", "comfort-food"
 

@@ -7,7 +7,12 @@
 
 @QUICKFUNCS(
 
-  ~note_ref<object>(id, title, tags, lastModified, isBookmarked, encrypted) {
+  // theme/reminder included here (not just in the full entry schema)
+  // because both are things the list view would plausibly want to show
+  // without loading the full entry — a themed card's color, or a bell
+  // icon for an upcoming reminder. Not wired up yet, same as the full
+  // entry schema — see entry-note.mdix's comment.
+  ~note_ref<object>(id, title, tags, lastModified, isBookmarked, encrypted, theme, reminder) {
     return {
       id           = id
       title        = title
@@ -15,6 +20,8 @@
       lastModified = lastModified
       isBookmarked = isBookmarked
       encrypted    = encrypted
+      theme        = theme
+      reminder     = reminder
     }
   }
 
@@ -22,6 +29,6 @@
 
 @DATA(
   notes::
-    note_ref("n1", "Grocery list", ["personal"], "2026-08-08T09:15:00Z", false, false),
-    note_ref("n2", "Anniversary gift ideas", [], "2026-08-06T11:00:00Z", false, true)
+    note_ref("n1", "Grocery list", ["personal"], "2026-08-08T09:15:00Z", false, false, "none", ""),
+    note_ref("n2", "Anniversary gift ideas", [], "2026-08-06T11:00:00Z", false, true, "none", "")
 )
