@@ -1,47 +1,53 @@
 // Brought to u by MidManStudio
 //
-// Ships the effect_update_depth_exceeded fix (2026-08-22): the real root
-// cause (addLog()'s read-then-write dedupe check in
-// src/lib/debug/log.svelte.ts, not the note/todo page effects — those
-// were already fixed and are untouched here), the same defensive
-// untrack() hardening in entries/tags/toast stores, the incident
-// postmortem + the svelte5-effect-safety.md rule doc, the
-// scripts/smoke-test(-worker).mjs regression check that boots the real
-// production build headlessly, ci-baby.yml wiring that in as a "Smoke
-// test" CI step, and package.json/package-lock.json (adds jsdom as a
-// devDependency + the `smoke` script).
+// Ships: the burger-menu Settings sheet (one toggle: show/hide the
+// debug panel), and the note editor's real bold/italic/underline/
+// strikethrough/font-size — previously the toolbar just inserted literal
+// **/__ characters because the editor was a plain <textarea>, which
+// cannot render mixed formatting at all regardless of what the toolbar
+// logic did. NoteContent is now a real contenteditable div; formatting
+// runs through the browser's native Selection/execCommand API, which is
+// what makes "applies to the selection if one exists, otherwise sets
+// sticky style for whatever's typed next" work without hand-rolling
+// either half of it — see src/lib/utils/richText.ts's own header
+// comment for the full rationale and the honest caveats (execCommand is
+// deprecated-but-still-implemented in Chromium/Android WebView; none of
+// this can be exercised by scripts/smoke-test.mjs since jsdom doesn't
+// implement execCommand at all — confirmed empirically, not assumed).
+// note.content is HTML now instead of markdown-ish plain text (still
+// just a `string` field — no schema change). Ripple-effect fixes
+// included so nothing silently regressed: NoteCard's preview and the
+// landing page's search now strip HTML tags, the AI note creator
+// escapes its plain-text output into safe HTML, and the .txt export
+// converts back to plain text instead of dumping raw markup.
 //
 // Every other file next to this manifest is real, verbatim content,
-// delivered as one .tar.gz (mobile-friendly — nothing else to stage by
-// hand). Every entry inside that archive sits FLAT at the archive's own
-// top level, not nested in subfolders, and every one of them is pinned
-// to its real destination below via overrides:: — this also sidesteps
-// stage_replacements_dir()/collect_candidates() pruning dot-directories
-// (os.walk dirnames filtered with `not d.startswith(".")`) during
-// candidate collection, which would otherwise silently drop anything
-// nested under a literal .github/ folder inside the archive.
+// delivered as one .tar.gz. This time every entry sits NESTED inside
+// the archive at its real path under src/ (not flat + overrides, unlike
+// the previous effect-fix bundle) — none of these paths have a
+// dot-prefixed directory component, so the stage_replacements_dir()/
+// collect_candidates() dot-directory pruning issue that forced the flat
+// + overrides:: workaround for .github/workflows/ci-baby.yml last time
+// simply doesn't apply here. Nested resolution pins each file to its
+// real destination directly, no overrides:: needed.
+//
+// NOT included in this bundle, and not something the replacements
+// system does at all (it's additive/overwrite-only — no delete
+// mechanism in the flow this manifest uses): src/lib/utils/textEditing.ts
+// and src/lib/utils/roman.ts are now dead code (their entire reason
+// to exist — plain-text markdown-marker wrapping and regex-based list
+// handling — is replaced by native contenteditable + execCommand) and
+// need a manual `git rm src/lib/utils/textEditing.ts src/lib/utils/roman.ts`
+// after this lands. Confirmed via grep against the whole src/ tree that
+// nothing else imports from either file before recommending the delete.
 
 @CONFIG(
   version    -> "1.0.0"
   author     -> "Mid-D-Man"
-  features   -> "quickfuncs,data"
+  features   -> "data"
   debug_mode -> "off"
-)
-
-@QUICKFUNCS(
-  ~target<object>(name, path) { return { name = name, path = path } }
 )
 
 @DATA(
   target_root = "."
-
-  overrides::
-    target("README.md", "README.md")
-    target("package.json", "package.json")
-    target("package-lock.json", "package-lock.json")
-    target("svelte5-effect-safety.md", "docs/svelte5-effect-safety.md")
-    target("2026-08-22-effect-update-depth-exceeded.md", "docs/incidents/2026-08-22-effect-update-depth-exceeded.md")
-    target("smoke-test.mjs", "scripts/smoke-test.mjs")
-    target("smoke-test-worker.mjs", "scripts/smoke-test-worker.mjs")
-    
 )
