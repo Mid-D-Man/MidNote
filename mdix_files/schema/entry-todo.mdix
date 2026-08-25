@@ -1,7 +1,9 @@
+// Brought to u by MidManStudio
+
 @CONFIG(
   version    -> "1.0.0"
   author     -> "Mid-D-Man"
-  features   -> "quickfuncs,data,enums"
+  features   -> "quickfuncs,data,enums,imports"
   debug_mode -> "off"
 )
 
@@ -9,23 +11,27 @@
   EntryType { REGULAR, TODO }
 )
 
+@IMPORTS(
+  Themes from "themes.mdix"
+)
+
 @QUICKFUNCS(
 
-  ~step<object>(id, category, title, content) {
+  ~step<object>(_id, _category, _title, _content) {
     return {
-      id       = id
-      category = category
-      title    = title
-      content  = content
+      id       = _id
+      category = _category
+      title    = _title
+      content  = _content
     }
   }
 
-  ~annotation<object>(id, category, title, content) {
+  ~annotation<object>(_id, _category, _title, _content) {
     return {
-      id       = id
-      category = category
-      title    = title
-      content  = content
+      id       = _id
+      category = _category
+      title    = _title
+      content  = _content
     }
   }
 
@@ -35,13 +41,13 @@
   id           = "r1"
   type<enum>   = EntryType.TODO
   title        = "Grandma's Chili"
-  lastModified = "2026-08-07T18:30:00Z"
+  lastModified = 2026-08-07T18:30:00Z
   isBookmarked = true
 
   // Not wired up yet — see entry-note.mdix's comment on this same pair
   // of fields; identical shape and identical reasoning here.
-  theme        = "none"
-  reminder     = ""
+  theme        = Themes.theme_preset("sunset")
+  reminder     = null
 
   tags::
     "dinner", "comfort-food"

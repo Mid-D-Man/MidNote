@@ -1,0 +1,44 @@
+// Brought to u by MidManStudio
+//
+// Registry of user-uploaded custom theme images, kept separate from
+// individual notes/todos on purpose: a custom theme can be applied to
+// more than one note, and embedding the blob directly on every note
+// that uses it would duplicate potentially-large image data across all
+// of them. Notes/todos reference a custom theme by id instead — see
+// themes.mdix's theme_custom() — never carrying the blob themselves.
+//
+// width/height record what the app validated at upload time. DixScript
+// has no way to declaratively enforce "this blob must decode to exactly
+// WxH pixels" — that check has to happen in application code before a
+// custom_theme() entry is ever written here. This schema can describe
+// that the constraint exists and record the result of having checked
+// it; it can't enforce it on its own. The actual required dimensions
+// are a real design decision for whoever builds the upload flow, not
+// something to lock in from a schema-only pass — the 1080x1920 below is
+// a placeholder, not a recommendation.
+
+@CONFIG(
+  version    -> "1.0.0"
+  author     -> "Mid-D-Man"
+  features   -> "quickfuncs,data"
+  debug_mode -> "off"
+)
+
+@QUICKFUNCS(
+
+  ~custom_theme<object>(_id, _data<blob>, _width<int>, _height<int>, _createdAt) {
+    return {
+      id        = _id
+      data      = _data
+      width     = _width
+      height    = _height
+      createdAt = _createdAt
+    }
+  }
+
+)
+
+@DATA(
+  customThemes::
+    custom_theme("ct1", b:("aGVsbG8gd29ybGQ="), 1080, 1920, 2026-08-20T10:00:00Z)
+)

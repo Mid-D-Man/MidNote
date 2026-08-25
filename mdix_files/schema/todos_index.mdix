@@ -1,23 +1,29 @@
+// Brought to u by MidManStudio
+
 @CONFIG(
   version    -> "1.0.0"
   author     -> "Mid-D-Man"
-  features   -> "quickfuncs,data"
+  features   -> "quickfuncs,data,imports"
   debug_mode -> "off"
+)
+
+@IMPORTS(
+  Themes from "themes.mdix"
 )
 
 @QUICKFUNCS(
 
   // See notes_index.mdix's comment on the same two added fields.
-  ~todo_ref<object>(id, title, tags, lastModified, isBookmarked, encrypted, theme, reminder) {
+  ~todo_ref<object>(_id, _title, _tags, _lastModified, _isBookmarked, _encrypted, _theme<object>, _reminder) {
     return {
-      id           = id
-      title        = title
-      tags         = tags
-      lastModified = lastModified
-      isBookmarked = isBookmarked
-      encrypted    = encrypted
-      theme        = theme
-      reminder     = reminder
+      id           = _id
+      title        = _title
+      tags         = _tags
+      lastModified = _lastModified
+      isBookmarked = _isBookmarked
+      encrypted    = _encrypted
+      theme        = _theme
+      reminder     = _reminder
     }
   }
 
@@ -25,5 +31,5 @@
 
 @DATA(
   todos::
-    todo_ref("r1", "Grandma's Chili", ["dinner", "comfort-food"], "2026-08-07T18:30:00Z", true, false, "none", "")
+    todo_ref("r1", "Grandma's Chili", ["dinner", "comfort-food"], 2026-08-07T18:30:00Z, true, false, Themes.theme_preset("sunset"), null)
 )

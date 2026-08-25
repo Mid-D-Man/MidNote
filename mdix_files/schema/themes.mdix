@@ -1,0 +1,45 @@
+// Brought to u by MidManStudio
+//
+// Shared theme-reference constructors — imported by entry-note.mdix,
+// entry-todo.mdix, notes_index.mdix, and todos_index.mdix rather than
+// each defining its own copy. @QUICKFUNCS are file-scoped in DixScript,
+// so without this, the same theme_preset/theme_custom logic would need
+// duplicating in all four places with the drift risk that implies
+// (verified against the real parser — cross-file QuickFunc calls via
+// @IMPORTS work, and a QUICKFUNCS-only library file with no @DATA
+// section at all is valid).
+//
+// Both return the same small {kind, name, customThemeId} shape —
+// exactly one of name/customThemeId is non-null depending on kind. This
+// is a pointer, never the actual image: theme_preset resolves by name
+// against assets bundled in the app itself (nothing about a preset's
+// colors/image lives in DixScript); theme_custom references an entry in
+// custom-themes.mdix by id, so an uploaded image is stored once even if
+// applied to many notes.
+
+@CONFIG(
+  version    -> "1.0.0"
+  author     -> "Mid-D-Man"
+  features   -> "quickfuncs"
+  debug_mode -> "off"
+)
+
+@QUICKFUNCS(
+
+  ~theme_preset<object>(_name) {
+    return {
+      kind          = "preset"
+      name          = _name
+      customThemeId = null
+    }
+  }
+
+  ~theme_custom<object>(_customThemeId) {
+    return {
+      kind          = "custom"
+      name          = null
+      customThemeId = _customThemeId
+    }
+  }
+
+)

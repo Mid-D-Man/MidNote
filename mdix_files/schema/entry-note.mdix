@@ -1,7 +1,9 @@
+// Brought to u by MidManStudio
+
 @CONFIG(
   version    -> "1.0.0"
   author     -> "Mid-D-Man"
-  features   -> "data,enums"
+  features   -> "data,enums,imports,quickfuncs"
   debug_mode -> "off"
 )
 
@@ -9,26 +11,26 @@
   EntryType { REGULAR, TODO }
 )
 
+@IMPORTS(
+  Themes from "themes.mdix"
+)
+
 @DATA(
   id           = "n1"
   type<enum>   = EntryType.REGULAR
   title        = "Grocery list"
   content      = "Milk, eggs, bread, coffee"
-  lastModified = "2026-08-08T09:15:00Z"
+  lastModified = 2026-08-08T09:15:00Z
   isBookmarked = false
 
   // Not wired up yet — schema-only placeholders for the future actions
   // menu (theme/favorite/lock/reminder). Favorite and lock already have
   // homes above (isBookmarked, encrypted); theme and reminder are the
-  // two genuinely new fields. theme is a loose string identifier rather
-  // than a defined @ENUMS set on purpose — the actual palette/categories
-  // (see the Theme & Color reference material) are a real design
-  // decision for whoever builds the actions menu, not something to lock
-  // in from a schema pass alone. reminder is an empty string for "none
-  // set," otherwise an ISO 8601 datetime — same shape as lastModified,
-  // so no separate "hasReminder" flag is needed.
-  theme        = "none"
-  reminder     = ""
+  // two genuinely new fields. reminder is null for "none set," otherwise
+  // a real timestamp literal — same shape as lastModified, so no
+  // separate "hasReminder" flag is needed.
+  theme        = Themes.theme_preset("sunset")
+  reminder     = null
 
   tags::
     "personal"

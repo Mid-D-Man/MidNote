@@ -1,8 +1,14 @@
+// Brought to u by MidManStudio
+
 @CONFIG(
   version    -> "1.0.0"
   author     -> "Mid-D-Man"
-  features   -> "quickfuncs,data"
+  features   -> "quickfuncs,data,imports"
   debug_mode -> "off"
+)
+
+@IMPORTS(
+  Themes from "themes.mdix"
 )
 
 @QUICKFUNCS(
@@ -10,18 +16,19 @@
   // theme/reminder included here (not just in the full entry schema)
   // because both are things the list view would plausibly want to show
   // without loading the full entry — a themed card's color, or a bell
-  // icon for an upcoming reminder. Not wired up yet, same as the full
-  // entry schema — see entry-note.mdix's comment.
-  ~note_ref<object>(id, title, tags, lastModified, isBookmarked, encrypted, theme, reminder) {
+  // icon for an upcoming reminder. Safe to include theme in full here:
+  // this is the small {kind, name, customThemeId} pointer object, never
+  // the uploaded image blob itself — see custom-themes.mdix.
+  ~note_ref<object>(_id, _title, _tags, _lastModified, _isBookmarked, _encrypted, _theme<object>, _reminder) {
     return {
-      id           = id
-      title        = title
-      tags         = tags
-      lastModified = lastModified
-      isBookmarked = isBookmarked
-      encrypted    = encrypted
-      theme        = theme
-      reminder     = reminder
+      id           = _id
+      title        = _title
+      tags         = _tags
+      lastModified = _lastModified
+      isBookmarked = _isBookmarked
+      encrypted    = _encrypted
+      theme        = _theme
+      reminder     = _reminder
     }
   }
 
@@ -29,6 +36,6 @@
 
 @DATA(
   notes::
-    note_ref("n1", "Grocery list", ["personal"], "2026-08-08T09:15:00Z", false, false, "none", ""),
-    note_ref("n2", "Anniversary gift ideas", [], "2026-08-06T11:00:00Z", false, true, "none", "")
+    note_ref("n1", "Grocery list", ["personal"], 2026-08-08T09:15:00Z, false, false, Themes.theme_preset("sunset"), null),
+    note_ref("n2", "Anniversary gift ideas", [], 2026-08-06T11:00:00Z, false, true, Themes.theme_preset("none"), null)
 )
