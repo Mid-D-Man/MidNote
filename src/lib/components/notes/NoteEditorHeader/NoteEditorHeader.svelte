@@ -10,6 +10,7 @@
   import { createNote } from "$lib/storage";
   import { breadcrumb } from "$lib/debug/log.svelte";
   import { htmlToPlainText } from "$lib/utils/richText";
+  import { shareFiles } from "$lib/utils/share";
   import type { Note } from "$lib/types/entry";
 
   // Undo/redo moved to the bottom formatting toolbar — reversed from
@@ -68,15 +69,21 @@
     pushToast({ title: "Note duplicated", description: "Your note has been duplicated." });
   }
 
-  // Export/share are still the paused work (real Tauri fs + multi-format
-  // + native share sheet) — this is last turn's single-format download,
-  // just relocated, not rebuilt yet.
+  // Export/share: Export downloads a .txt of this note; Share hands the
+  // exact same file to navigator.share (see share.ts's header comment
+  // for the real, stated platform uncertainty around file-sharing
+  // support on this specific WebView — feature-detected with a
+  // text-only fallback, not assumed to just work).
+  function buildExportBlob(): Blob {
+    // note.content is HTML now (see NoteContent.svelte) — convert back
+    // to plain text for export, or this would produce raw markup
+    // instead of readable text.
+    return new Blob([`${note.title}\n\n${htmlToPlainText(note.content)}`], { type: "text/plain" });
+  }
+
   function handleDownload() {
     breadcrumb("note header: Export tapped");
-    // note.content is HTML now (see NoteContent.svelte) — convert back
-    // to plain text for the .txt export, or this would download raw
-    // markup instead of readable text.
-    const blob = new Blob([`${note.title}\n\n${htmlToPlainText(note.content)}`], { type: "text/plain" });
+    const blob = buildExportBlob();
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = `${note.title || "note"}.txt`;
@@ -87,10 +94,16 @@
     pushToast({ title: "Note downloaded", description: "Your note has been downloaded as a text file." });
   }
 
-  function handleShare() {
+  async function handleShare() {
     breadcrumb("note header: Share tapped");
     moreOpen = false;
-    pushToast({ title: "Share note", description: "Share functionality coming soon." });
+    const name = `${note.title || "note"}.txt`;
+    const result = await shareFiles([{ name, blob: buildExportBlob() }], { title: note.title || "Note" });
+    if (result === "shared") {
+      pushToast({ title: "Shared" });
+    } else if (result !== "cancelled") {
+      pushToast({ title: "Sharing isn't available here", description: "Try Export instead." });
+    }
   }
 </script>
 

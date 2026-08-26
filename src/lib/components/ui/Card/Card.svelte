@@ -5,10 +5,22 @@
     onclick,
     class: className = "",
     children,
+    onpointerdown,
+    onpointermove,
+    onpointerup,
+    onpointercancel,
   }: {
     onclick?: (e: MouseEvent) => void;
     class?: string;
     children: Snippet;
+    // Optional passthrough for gesture handling (long-press-to-select —
+    // see longPress.ts) without every Card usage needing it. Card stays
+    // a plain generic surface; callers that need the gesture just pass
+    // these, callers that don't are completely unaffected.
+    onpointerdown?: (e: PointerEvent) => void;
+    onpointermove?: (e: PointerEvent) => void;
+    onpointerup?: (e: PointerEvent) => void;
+    onpointercancel?: (e: PointerEvent) => void;
   } = $props();
 </script>
 
@@ -18,6 +30,10 @@
   class:clickable={!!onclick}
   onclick={(e) => onclick?.(e)}
   onkeydown={(e) => e.key === "Enter" && onclick?.(e as unknown as MouseEvent)}
+  {onpointerdown}
+  {onpointermove}
+  {onpointerup}
+  {onpointercancel}
   role={onclick ? "button" : undefined}
   tabindex={onclick ? 0 : undefined}
 >

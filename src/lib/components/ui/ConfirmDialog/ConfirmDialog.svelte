@@ -6,6 +6,7 @@
     confirmLabel = "Confirm",
     danger = false,
     onconfirm,
+    oncancel,
   }: {
     open?: boolean;
     title?: string;
@@ -13,23 +14,36 @@
     confirmLabel?: string;
     danger?: boolean;
     onconfirm?: () => void;
+    // Optional — most callers don't need to react to a dismissal, only
+    // to a confirm. Cancelling via the Cancel button and via tapping the
+    // scrim both count as the same "cancel" outcome.
+    oncancel?: () => void;
   } = $props();
 
   function confirm() {
     onconfirm?.();
     open = false;
   }
+
+  function cancel() {
+    oncancel?.();
+    open = false;
+  }
+
+  function onScrimClick() {
+    cancel();
+  }
 </script>
 
 {#if open}
-  <div class="scrim" onclick={() => (open = false)} role="presentation"></div>
+  <div class="scrim" onclick={onScrimClick} role="presentation"></div>
   <div class="dialog" role="alertdialog" aria-modal="true">
     <h2>{title}</h2>
     {#if description}
       <p>{description}</p>
     {/if}
     <div class="actions">
-      <button class="cancel" onclick={() => (open = false)}>Cancel</button>
+      <button class="cancel" onclick={cancel}>Cancel</button>
       <button class="confirm" class:danger onclick={confirm}>{confirmLabel}</button>
     </div>
   </div>
