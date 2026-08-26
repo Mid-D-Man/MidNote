@@ -1,53 +1,87 @@
 // Brought to u by MidManStudio
 //
-// Ships: the burger-menu Settings sheet (one toggle: show/hide the
-// debug panel), and the note editor's real bold/italic/underline/
-// strikethrough/font-size — previously the toolbar just inserted literal
-// **/__ characters because the editor was a plain <textarea>, which
-// cannot render mixed formatting at all regardless of what the toolbar
-// logic did. NoteContent is now a real contenteditable div; formatting
-// runs through the browser's native Selection/execCommand API, which is
-// what makes "applies to the selection if one exists, otherwise sets
-// sticky style for whatever's typed next" work without hand-rolling
-// either half of it — see src/lib/utils/richText.ts's own header
-// comment for the full rationale and the honest caveats (execCommand is
-// deprecated-but-still-implemented in Chromium/Android WebView; none of
-// this can be exercised by scripts/smoke-test.mjs since jsdom doesn't
-// implement execCommand at all — confirmed empirically, not assumed).
-// note.content is HTML now instead of markdown-ish plain text (still
-// just a `string` field — no schema change). Ripple-effect fixes
-// included so nothing silently regressed: NoteCard's preview and the
-// landing page's search now strip HTML tags, the AI note creator
-// escapes its plain-text output into safe HTML, and the .txt export
-// converts back to plain text instead of dumping raw markup.
+// DEPENDS ON THE PREVIOUS TWO BUNDLES ALREADY BEING APPLIED, IN ORDER:
+//   1. midnote-format-fix-and-features.tar.gz (the underline/strikethrough
+//      toggle fix + contenteditable NoteContent + settings + colors)
+//   2. midnote-schema-corrections.tar.gz (the .mdix schema fixes)
+// This bundle's new/changed files call stripHtml()/htmlToPlainText() from
+// richText.ts and assume NoteContent is already the contenteditable
+// version — both only exist because of bundle 1. If those two haven't
+// landed yet, apply them first (in that order), then this one. Not
+// re-bundling their files here on purpose — same files, re-shipped a
+// third time, would just be noise, and re-applying them (--file-strategy
+// overwrite) is a harmless no-op once they're already there anyway.
 //
-// Every other file next to this manifest is real, verbatim content,
-// delivered as one .tar.gz. This time every entry sits NESTED inside
-// the archive at its real path under src/ (not flat + overrides, unlike
-// the previous effect-fix bundle) — none of these paths have a
-// dot-prefixed directory component, so the stage_replacements_dir()/
-// collect_candidates() dot-directory pruning issue that forced the flat
-// + overrides:: workaround for .github/workflows/ci-baby.yml last time
-// simply doesn't apply here. Nested resolution pins each file to its
-// real destination directly, no overrides:: needed.
+// Multi-select: long-press a note/todo card to enter selection mode
+// (haptic feedback where the WebView supports it), tap any card to
+// toggle it, bottom action bar for Delete (confirmed)/Send/Merge/Export.
 //
-// NOT included in this bundle, and not something the replacements
-// system does at all (it's additive/overwrite-only — no delete
-// mechanism in the flow this manifest uses): src/lib/utils/textEditing.ts
-// and src/lib/utils/roman.ts are now dead code (their entire reason
-// to exist — plain-text markdown-marker wrapping and regex-based list
-// handling — is replaced by native contenteditable + execCommand) and
-// need a manual `git rm src/lib/utils/textEditing.ts src/lib/utils/roman.ts`
-// after this lands. Confirmed via grep against the whole src/ tree that
-// nothing else imports from either file before recommending the delete.
+// A few things worth flagging plainly rather than letting them sit
+// implicit in the code:
+//
+// - Merge is same-type only (notes with notes, todos with todos), per
+//   the discussion on why: combining a todo's steps into a note's prose
+//   doesn't have an obvious "right" behavior. It's also NOT calling
+//   DixScript's real MdixMerger — checked that API directly
+//   (with_strategy/with_array_strategy) before writing this, and it
+//   merges *structured* fields across .mdix documents (scalars via
+//   priority, arrays via concat+dedup), not prose. The app's entries
+//   don't go through DixScript at runtime at all yet anyway (still
+//   localStorage), so there's no live engine to hand this to regardless.
+//   What's here is hand-written TypeScript; the tag/category merging
+//   deliberately mirrors concat_dedup's actual behavior (union, no
+//   duplicates) since that part of the idea does genuinely carry over.
+// - A real, caught-before-shipping bug: merged todos regenerate fresh
+//   ids for every merged step/annotation rather than keeping the
+//   originals — two source todos can each independently have a step
+//   "s1", and blindly concatenating would silently collide. Verified
+//   this matters and that the fix works via an actual merge + zip
+//   round-trip test (build → zip → unzip → compare), not just review.
+// - A real gesture bug caught the same way, in longPress.ts: the first
+//   version fired the tap handler after a big scroll-drag over a card,
+//   which would have meant scrolling the list could accidentally
+//   navigate into whatever note was under the finger when it lifted.
+//   Simulated the exact pointerdown → 150px move → pointerup sequence,
+//   confirmed it actually happened, then fixed it (a `moved` flag now
+//   suppresses tap the same way it already suppressed long-press) and
+//   re-confirmed with the same simulation plus the original tap/long-
+//   press cases, so the fix didn't just trade one bug for another.
+// - Send/Share uses the real (non-deprecated) Web Share API, not a stub —
+//   also quietly fixed the single-note editor's own "Share" button while
+//   touching this, since it was still a "coming soon" placeholder before
+//   this. Same honest caveat as execCommand had: this can't be verified
+//   in this sandbox at all, and specifically whether *file* sharing
+//   (not just text) is supported depends on this Android WebView build,
+//   not just the API's existence. Feature-detected with a text-only
+//   fallback, then a download-instead fallback if navigator.share isn't
+//   there at all — layered, not assumed to just work.
+// - Export added a new dependency, fflate (~8kb, zero deps, pure JS —
+//   picked over hand-rolling the ZIP binary format under time pressure,
+//   given everything else already in flight this session). package.json
+//   and package-lock.json are both in this bundle for that reason — sit
+//   flat at the archive's own top level with explicit overrides:: below,
+//   same pattern (and same reason) as the very first replacements bundle
+//   this project shipped.
+//
+// Every other file sits nested under src/ at its real path — no
+// dot-directories in this batch, so plain nested resolution applies to
+// all of them, no overrides:: needed beyond the two root files.
 
 @CONFIG(
   version    -> "1.0.0"
   author     -> "Mid-D-Man"
-  features   -> "data"
+  features   -> "data,quickfuncs"
   debug_mode -> "off"
+)
+
+@QUICKFUNCS(
+  ~target<object>(name, path) { return { name = name, path = path } }
 )
 
 @DATA(
   target_root = "."
+
+  overrides::
+    target("package.json", "package.json")
+    target("package-lock.json", "package-lock.json")
 )
