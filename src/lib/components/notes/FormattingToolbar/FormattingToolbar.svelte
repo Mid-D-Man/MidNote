@@ -168,14 +168,13 @@
         <span class="tt">{fontSize}</span>
       </button>
       <button class:active={openPanel === "color"} onclick={() => togglePanel("color")} aria-label="Text color">
-        <span class="a-swatch" style={activeFormats.color ? `color:${activeFormats.color}` : ""}>A</span>
+        <span class="color-icon">
+          <span class="letter">A</span>
+          <span class="bar" style="background:{activeFormats.color ?? 'currentColor'}"></span>
+        </span>
       </button>
       <button class:active={openPanel === "bgColor"} onclick={() => togglePanel("bgColor")} aria-label="Background color">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="m9 11 6-6 5 5-6 6z" />
-          <path d="m2 22 5-5" />
-          <path d="M13 5 9 1l-6 6 4 4" fill={activeFormats.backgroundColor ?? "none"} />
-        </svg>
+        <span class="bg-icon" style="background:{activeFormats.backgroundColor ?? 'transparent'}">A</span>
       </button>
     {:else}
       <button class:active={openPanel === "style" || activeFormats.bold || activeFormats.italic || activeFormats.underline || activeFormats.strikethrough} onclick={() => togglePanel("style")} aria-label="Text style">
@@ -215,14 +214,13 @@
       <div class="sep"></div>
 
       <button class:active={openPanel === "color"} onclick={() => togglePanel("color")} aria-label="Text color">
-        <span class="a-swatch" style={activeFormats.color ? `color:${activeFormats.color}` : ""}>A</span>
+        <span class="color-icon">
+          <span class="letter">A</span>
+          <span class="bar" style="background:{activeFormats.color ?? 'currentColor'}"></span>
+        </span>
       </button>
       <button class:active={openPanel === "bgColor"} onclick={() => togglePanel("bgColor")} aria-label="Background color">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="m9 11 6-6 5 5-6 6z" />
-          <path d="m2 22 5-5" />
-          <path d="M13 5 9 1l-6 6 4 4" fill={activeFormats.backgroundColor ?? "none"} />
-        </svg>
+        <span class="bg-icon" style="background:{activeFormats.backgroundColor ?? 'transparent'}">A</span>
       </button>
 
       <div class="sep"></div>
@@ -302,10 +300,35 @@
     font-weight: 600;
     font-size: 12px;
   }
-  .a-swatch {
+  .color-icon {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1px;
+  }
+  .color-icon .letter {
     font-family: var(--font-display);
     font-weight: 700;
-    font-size: 15px;
+    font-size: 14px;
+    line-height: 1;
+  }
+  .color-icon .bar {
+    width: 16px;
+    height: 3px;
+    border-radius: 2px;
+    flex-shrink: 0;
+  }
+  .bg-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    border: 1.5px solid var(--hairline);
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 12px;
   }
   .roman-icon {
     font-family: var(--font-display);

@@ -275,7 +275,7 @@
     if (INLINE_FORMATS.has(format)) {
       if (hasSelection) {
         contentEl.focus();
-        applyInlineFormat(format as InlineFormat);
+        applyInlineFormat(format as InlineFormat, contentEl);
         refreshFormatState();
         syncContentFromDom();
       } else {
@@ -300,7 +300,7 @@
     if (!contentEl) return;
     if (hasSelection) {
       contentEl.focus();
-      applyValueStyleToSelection({ fontSize: size });
+      applyValueStyleToSelection(contentEl, { fontSize: size });
       refreshFormatState();
       syncContentFromDom();
     } else {
@@ -313,8 +313,8 @@
     if (!contentEl) return;
     if (hasSelection) {
       contentEl.focus();
-      if (color) applyValueStyleToSelection({ color });
-      else clearValueStyleFromSelection(["color"]);
+      if (color) applyValueStyleToSelection(contentEl, { color });
+      else clearValueStyleFromSelection(contentEl, ["color"]);
       refreshFormatState();
       syncContentFromDom();
     } else {
@@ -327,8 +327,8 @@
     if (!contentEl) return;
     if (hasSelection) {
       contentEl.focus();
-      if (color) applyValueStyleToSelection({ backgroundColor: color });
-      else clearValueStyleFromSelection(["backgroundColor"]);
+      if (color) applyValueStyleToSelection(contentEl, { backgroundColor: color });
+      else clearValueStyleFromSelection(contentEl, ["backgroundColor"]);
       refreshFormatState();
       syncContentFromDom();
     } else {

@@ -61,9 +61,65 @@ function safeQueryState(cmd: string): boolean {
 
 // Used for the HAS-a-real-selection case only — tapping B/I/U/S in the
 // toolbar's selection row, acting on the live selection immediately.
-// This is the path real-device testing confirmed works correctly.
-export function applyInlineFormat(format: InlineFormat): void {
+//
+// REVISION NOTE: this used to just call execCommand and stop. Real bug,
+// confirmed by reproducing it (not just reasoned about): execCommand
+// does NOT collapse the selection after formatting it — the same text
+// stays actively selected/highlighted. If someone keeps typing right
+// after applying a format (an extremely normal thing to do — select a
+// word, bold it, keep typing the sentence), the browser's default
+// "type over a selection" behavior replaces that selected content, and
+// since it was just wrapped in e.g. <strong>, the replacement text
+// often lands inside that same tag — so the format silently continues
+// into everything typed next, governed by nothing at all. That's what
+// "applying to a selection isn't a one-off, it never turns off" was:
+// not pendingFormats misbehaving, but this never having been addressed
+// in the first place. Fixed by explicitly walking the caret out of the
+// formatting element's boundary after applying, into the parent's flow
+// — a real DOM reposition, not another appeal to execCommand's own
+// state tracking.
+export function applyInlineFormat(format: InlineFormat, root: HTMLElement): void {
   safeExec(INLINE_COMMAND[format]);
+  collapseOutsideFormatting(root);
+}
+
+const FORMATTING_TAGS = new Set(["STRONG", "B", "EM", "I", "U", "S", "STRIKE", "SPAN"]);
+
+// Walks up from wherever the selection currently ends, through any
+// chain of the formatting elements execCommand/applyValueStyleToSelection
+// just created (handles multiple formats stacked in one go — e.g. bold
+// AND colored), and returns a position in the OUTERMOST one's parent,
+// immediately after it. That position is structurally outside all of
+// the formatting that was just applied, so continued typing there
+// starts fresh rather than extending it.
+function collapseOutsideFormatting(root: HTMLElement): void {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return;
+  const current = sel.getRangeAt(0);
+
+  let node: Node = current.endContainer;
+  let el: Element | null = node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as Element);
+  let outermost: Element | null = null;
+  while (el && el !== root && FORMATTING_TAGS.has(el.tagName)) {
+    outermost = el;
+    el = el.parentElement;
+  }
+
+  if (!outermost || !outermost.parentNode) {
+    // Nothing to escape (e.g. execCommand toggled formatting OFF rather
+    // than on, so there's no wrapper left at all) — just collapse in
+    // place, the original behavior.
+    sel.collapseToEnd();
+    return;
+  }
+
+  const parent = outermost.parentNode;
+  const idx = Array.prototype.indexOf.call(parent.childNodes, outermost);
+  const range = document.createRange();
+  range.setStart(parent, idx + 1);
+  range.collapse(true);
+  sel.removeAllRanges();
+  sel.addRange(range);
 }
 
 export interface ActiveFormats {
@@ -145,7 +201,7 @@ function wrapRangeInStyledSpan(range: Range, apply: (span: HTMLSpanElement) => v
   return result;
 }
 
-export function applyValueStyleToSelection(style: ValueStyle): void {
+export function applyValueStyleToSelection(root: HTMLElement, style: ValueStyle): void {
   const sel = window.getSelection();
   if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
   const range = wrapRangeInStyledSpan(sel.getRangeAt(0), (span) => {
@@ -155,6 +211,8 @@ export function applyValueStyleToSelection(style: ValueStyle): void {
   });
   sel.removeAllRanges();
   sel.addRange(range);
+  // Same fix as applyInlineFormat, same bug otherwise — see its comment.
+  collapseOutsideFormatting(root);
 }
 
 // "None" swatch — clears color/background from a selection. Only
@@ -163,7 +221,7 @@ export function applyValueStyleToSelection(style: ValueStyle): void {
 // it will not perfectly un-color text nested inside a still-colored
 // ancestor that extends outside the selected range — a known, stated
 // limitation rather than a silent gap.
-export function clearValueStyleFromSelection(props: ("color" | "backgroundColor")[]): void {
+export function clearValueStyleFromSelection(root: HTMLElement, props: ("color" | "backgroundColor")[]): void {
   const sel = window.getSelection();
   if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
   const range = sel.getRangeAt(0);
@@ -182,6 +240,7 @@ export function clearValueStyleFromSelection(props: ("color" | "backgroundColor"
   });
   sel.removeAllRanges();
   sel.addRange(reset);
+  collapseOutsideFormatting(root);
 }
 
 export function getCurrentFontSize(root: HTMLElement, fallbackPx: number): number {
