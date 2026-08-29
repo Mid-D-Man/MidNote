@@ -82,6 +82,56 @@ jobs:
       - name: Init Android project
         run: npx tauri android init
 
+      # Default-generated manifest doesn't set windowSoftInputMode, which
+      # leaves the soft keyboard free to overlay fixed-bottom UI (the
+      # formatting toolbar) instead of the window resizing to make room
+      # for it. adjustResize is the standard native-level fix — it
+      # resizes the actual Android window, independent of whatever the
+      # WebView does or doesn't propagate through dvh/visualViewport to
+      # the web content (Tauri has a confirmed open issue, tauri-apps/
+      # tauri#10631, where visualViewport doesn't reliably reflect
+      # keyboard height changes on Android — so the app.html viewport
+      # meta / 100dvh CSS alone can't be trusted to cover this). Runs
+      # here, after init, because gen/android isn't committed — every
+      # build regenerates a fresh manifest with none of this applied,
+      # so it has to be patched every run rather than once. Uses
+      # ElementTree instead of sed/grep: this is real XML with a
+      # namespaced attribute, and a text-based edit risks corrupting it
+      # depending on how Tauri wraps the <activity> tag's other
+      # attributes across lines. Not verified on this exact WebView —
+      # same honest caveat as everything else this session: adjustResize
+      # is the textbook-standard fix for this symptom, but confirming it
+      # actually keeps the toolbar visible with the keyboard up still
+      # needs an on-device check after this build installs.
+      - name: Patch AndroidManifest for keyboard resize
+        run: |
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+
+          path = "src-tauri/gen/android/app/src/main/AndroidManifest.xml"
+          ns = "http://schemas.android.com/apk/res/android"
+          ET.register_namespace("android", ns)
+          # Tauri's generated manifest also declares xmlns:tools (used for
+          # things like tools:node merge hints). Registering it too is
+          # just to stop ElementTree renaming it to an auto ns0: prefix
+          # on write-back — cosmetic, but no reason to leave it ugly.
+          ET.register_namespace("tools", "http://schemas.android.com/tools")
+
+          tree = ET.parse(path)
+          root = tree.getroot()
+
+          activities = root.findall(".//activity")
+          if not activities:
+              raise SystemExit(f"No <activity> element found in {path}")
+
+          attr = f"{{{ns}}}windowSoftInputMode"
+          for activity in activities:
+              activity.set(attr, "adjustResize")
+
+          tree.write(path, encoding="utf-8", xml_declaration=True)
+          print(f"Patched {len(activities)} <activity> element(s) with windowSoftInputMode=adjustResize")
+          PY
+
       # --target restricts this to the one ABI that's actually needed. The
       # Galaxy A13's chip is 64-bit capable, but Samsung ships this model
       # with a 32-bit OS, so it only reports armeabi-v7a as installable —
