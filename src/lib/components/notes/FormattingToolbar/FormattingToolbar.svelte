@@ -83,10 +83,27 @@
 
   // Stops a toolbar button from ever taking focus, so the contenteditable
   // note body never loses its live Selection when a button is tapped.
-  // mousedown.preventDefault() suppresses only the focus-stealing default
+  // preventDefault() here suppresses only the focus-stealing default
   // action — the click event (and this component's onclick handlers)
-  // still fire normally.
-  function guardFocus(e: MouseEvent) {
+  // still fire normally; this is standard practice for toolbar buttons
+  // next to a contenteditable, not specific to this app.
+  //
+  // Bound to BOTH pointerdown and mousedown, not mousedown alone. On a
+  // touchscreen, mousedown is a *synthesized* event fired after
+  // touchstart/touchend — if the WebView resolves focus/selection state
+  // off the raw touch before that synthetic mousedown ever fires,
+  // preventDefault() on mousedown alone never gets a chance to stop it.
+  // pointerdown is the unified pointer-events entry point for both
+  // mouse and touch and fires earlier in the sequence; unlike
+  // touchstart, preventDefault() on pointerdown doesn't carry the risk
+  // of suppressing the click that follows, so it's a strictly-safer
+  // earlier guard, not a replacement for the mousedown one. Genuinely
+  // not confirmed to be THE cause of the reported "tap registers, state
+  // reverts" symptom — that requires on-device confirmation like
+  // everything else this WebView-specific — but it's a real gap
+  // regardless of whether it's this particular bug, so it's worth
+  // having either way.
+  function guardFocus(e: Event) {
     e.preventDefault();
   }
 
@@ -113,20 +130,20 @@
 
 <div class="toolbar-wrap">
   {#if openPanel === "style"}
-    <div class="panel" role="toolbar" aria-label="Text style" tabindex="-1" onmousedown={guardFocus}>
+    <div class="panel" role="toolbar" aria-label="Text style" tabindex="-1" onmousedown={guardFocus} onpointerdown={guardFocus}>
       <button class:active={activeFormats.bold} onclick={() => apply("bold")} aria-label="Bold"><strong>B</strong></button>
       <button class:active={activeFormats.italic} onclick={() => apply("italic")} aria-label="Italic"><em>I</em></button>
       <button class:active={activeFormats.underline} onclick={() => apply("underline")} aria-label="Underline"><span class="underline">U</span></button>
       <button class:active={activeFormats.strikethrough} onclick={() => apply("strikethrough")} aria-label="Strikethrough"><span class="strike">S</span></button>
     </div>
   {:else if openPanel === "size"}
-    <div class="panel size-panel" role="toolbar" aria-label="Text size" tabindex="-1" onmousedown={guardFocus}>
+    <div class="panel size-panel" role="toolbar" aria-label="Text size" tabindex="-1" onmousedown={guardFocus} onpointerdown={guardFocus}>
       {#each FONT_SIZES as size (size)}
         <button class:active={fontSize === size} onclick={() => onFontSizeChange?.(size)}>{size}</button>
       {/each}
     </div>
   {:else if openPanel === "color"}
-    <div class="panel swatch-panel" role="toolbar" aria-label="Text color" tabindex="-1" onmousedown={guardFocus}>
+    <div class="panel swatch-panel" role="toolbar" aria-label="Text color" tabindex="-1" onmousedown={guardFocus} onpointerdown={guardFocus}>
       {#each TEXT_COLORS as c (c.label)}
         <button
           class="swatch"
@@ -140,7 +157,7 @@
       {/each}
     </div>
   {:else if openPanel === "bgColor"}
-    <div class="panel swatch-panel" role="toolbar" aria-label="Background color" tabindex="-1" onmousedown={guardFocus}>
+    <div class="panel swatch-panel" role="toolbar" aria-label="Background color" tabindex="-1" onmousedown={guardFocus} onpointerdown={guardFocus}>
       {#each BG_COLORS as c (c.label)}
         <button
           class="swatch"
@@ -155,7 +172,7 @@
     </div>
   {/if}
 
-  <div class="toolbar" role="toolbar" aria-label="Note formatting" tabindex="-1" onmousedown={guardFocus}>
+  <div class="toolbar" role="toolbar" aria-label="Note formatting" tabindex="-1" onmousedown={guardFocus} onpointerdown={guardFocus}>
     {#if hasSelection}
       <button class:active={activeFormats.bold} onclick={() => apply("bold")} aria-label="Bold"><strong>B</strong></button>
       <button class:active={activeFormats.italic} onclick={() => apply("italic")} aria-label="Italic"><em>I</em></button>
