@@ -4,8 +4,38 @@
   // never achievable with one. note.content is an HTML string (still
   // just a `string` field — no schema change, see mdix_files/schema).
   //
+  // REVISION NOTE (this file previously used bind:innerHTML={value} —
+  // a two-way DOM binding — alongside imperative DOM surgery in
+  // richText.ts (collapseOutsideFormatting) that repositions the live
+  // Selection right after a format is applied. Those two don't mix.
+  // bind:innerHTML writes `contentEl.innerHTML = value` any time `value`
+  // changes for ANY reason, including the app's own explicit "read the
+  // DOM back into state" lines (syncContentFromDom() in the page,
+  // formerly also here). Reassigning .innerHTML destroys and reparses
+  // the whole subtree — any live Selection pointing into the old nodes,
+  // including the one collapseOutsideFormatting just carefully moved
+  // outside a formatting span, is invalidated, and the browser's
+  // recovery position after that isn't something the fix controls. This
+  // is a well-documented category of bug for bind:innerHTML/contenteditable
+  // specifically (Svelte's own tracker has repeat reports of cursor
+  // position resetting on these bindings), not something specific to
+  // this app, but the fix here is specific: stop using it as a live
+  // two-way channel during editing.
+  //
+  // New contract: contentEl.innerHTML is the single source of truth
+  // while a note is open. This component only ever WRITES to it
+  // imperatively, gated by `syncToken` (bumped by the page on note
+  // load, undo, and redo — the three moments an external value should
+  // legitimately overwrite what's on screen). Ordinary typing/paste/
+  // format-apply are one-directional DOM -> value reads only, via
+  // `untrack()` on the syncToken effect so those reads never feed back
+  // into a write. See docs/svelte5-effect-safety.md — same read/write
+  // hazard that doc already covers, just arriving through bind:innerHTML's
+  // implicit two-way sync instead of a hand-written $effect.
+  //
   // Deliberately NOT auto-growing to fit content: fixed height + internal
   // scroll avoids a large paste forcing an expensive synchronous reflow.
+  import { untrack } from "svelte";
   import { insertPlainText, wrapLastInsertedText, emptyPendingFormats, stripHtml, type PendingFormats } from "$lib/utils/richText";
   import { noteLinesEnabled } from "$lib/stores/settings.svelte";
 
@@ -15,6 +45,7 @@
     baseFontSize = 15,
     pendingFormats = emptyPendingFormats(),
     onAutoFormatApplied,
+    syncToken = 0,
   }: {
     value?: string;
     contentEl?: HTMLDivElement | null;
@@ -30,6 +61,13 @@
     // apart from "selection changed because the user tapped/arrowed
     // somewhere else" and only reset pending formats for the latter.
     onAutoFormatApplied?: (node: Node, offset: number) => void;
+    // Bumped by the page exactly when `value` should be pushed INTO the
+    // DOM: note load (id change) and undo/redo. NOT bumped by ordinary
+    // typing or format application — those already live correctly in
+    // the DOM and re-pushing them is exactly the destructive round-trip
+    // described above. Read via untrack() below so this effect reacts
+    // only to the token, never to `value` itself changing on its own.
+    syncToken?: number;
   } = $props();
 
   // note.content's default is now "<div><br></div>" (see storage.ts's
@@ -39,10 +77,25 @@
   // contribute no text.
   const isEmpty = $derived(stripHtml(value).length === 0);
 
+  // The only place `value` gets written INTO the DOM. Fires on mount
+  // (contentEl just became available) and whenever the page bumps
+  // syncToken (note load / undo / redo). `value` itself is read via
+  // untrack so this does not also fire on every keystroke — same
+  // untrack(() => note.content) idiom the page already uses for its
+  // own undo-checkpoint baseline.
+  $effect(() => {
+    syncToken;
+    if (!contentEl) return;
+    contentEl.innerHTML = untrack(() => value);
+  });
+
   // Runs after the browser has already inserted typed/pasted text.
-  // Nothing to do when no format is pending — this is the overwhelmingly
-  // common case (most typing isn't happening right after a toolbar tap),
-  // so it stays a cheap no-op then.
+  // Always reads the DOM back into `value` at the end — this is now the
+  // ONLY thing keeping `value`/note.content in sync with ordinary typing,
+  // since there's no bind:innerHTML doing it automatically any more.
+  // Purely one-directional (DOM -> value); nothing here writes back to
+  // contentEl.innerHTML, so there's nothing for this to destructively
+  // undo.
   //
   // Typed as plain Event, not InputEvent: TypeScript's DOM lib only
   // types oninput as InputEvent for <input>/<textarea>, not a generic
@@ -63,12 +116,8 @@
     if (hasPending && !ie.isComposing && ie.data && ie.inputType?.startsWith("insert")) {
       const pos = wrapLastInsertedText(contentEl, ie.data.length, pendingFormats);
       if (pos) onAutoFormatApplied?.(pos.node, pos.offset);
-      // Explicit backstop, not a guess: don't assume Svelte's own
-      // bind:innerHTML input listener necessarily runs before or after
-      // this handler on every WebView — read the DOM back directly so
-      // note.content is never a beat behind what's actually on screen.
-      value = contentEl.innerHTML;
     }
+    value = contentEl.innerHTML;
   }
 
   // Pasting from another app would otherwise drag in arbitrary nested
@@ -84,7 +133,6 @@
 
 <div
   bind:this={contentEl}
-  bind:innerHTML={value}
   contenteditable="true"
   {oninput}
   {onpaste}

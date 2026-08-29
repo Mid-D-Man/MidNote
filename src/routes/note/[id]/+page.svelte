@@ -36,6 +36,14 @@
   let contentEl = $state<HTMLDivElement | null>(null);
   let loadError = $state<string | null>(null);
 
+  // Tells NoteContent when to push `note.content` INTO the DOM —
+  // bumped on note load, undo, and redo (see the REVISION NOTE in
+  // NoteContent.svelte). NOT bumped anywhere content is read OUT of
+  // the DOM (syncContentFromDom, oninput/onpaste) — those are one-
+  // directional and must stay that way, or this recreates the exact
+  // bind:innerHTML round-trip bug this pairing of changes fixes.
+  let domSyncToken = $state(0);
+
   // Live formatting/selection state for the toolbar — read straight from
   // the DOM Selection API, not derived from note.content. The Selection
   // API isn't something Svelte's reactivity tracks, so this is plain
@@ -175,6 +183,7 @@
       loadError = null;
       if (!id || id === "new") {
         note = createNote();
+        domSyncToken = untrack(() => domSyncToken) + 1;
         resetHistory();
         resetFormatState();
         return;
@@ -182,6 +191,7 @@
       const existing = getEntry(id);
       if (existing && existing.type === "regular") {
         note = existing;
+        domSyncToken = untrack(() => domSyncToken) + 1;
         resetHistory();
         resetFormatState();
         breadcrumb(`note: loaded ${id}`);
@@ -245,6 +255,7 @@
     clearTimeout(checkpointTimer);
     redoStack.push(note.content);
     note.content = undoStack.pop()!;
+    domSyncToken = untrack(() => domSyncToken) + 1;
     lastCheckpoint = note.content;
   }
 
@@ -253,6 +264,7 @@
     clearTimeout(checkpointTimer);
     undoStack.push(note.content);
     note.content = redoStack.pop()!;
+    domSyncToken = untrack(() => domSyncToken) + 1;
     lastCheckpoint = note.content;
   }
 
@@ -366,6 +378,7 @@
           bind:contentEl
           baseFontSize={fontSize.value}
           {pendingFormats}
+          syncToken={domSyncToken}
           onAutoFormatApplied={handleAutoFormatApplied}
         />
       </div>
