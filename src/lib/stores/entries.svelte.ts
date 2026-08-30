@@ -20,6 +20,7 @@ function seedIfEmpty(): Entry[] {
       lastModified: now,
       isBookmarked: true,
       encrypted: false,
+      struck: false,
     },
     {
       id: storage.generateId(),
@@ -30,6 +31,7 @@ function seedIfEmpty(): Entry[] {
       lastModified: now,
       isBookmarked: false,
       encrypted: false,
+      struck: false,
     },
   ];
   sample.forEach((n) => {
@@ -79,5 +81,12 @@ export function toggleBookmark(id: string) {
   const entry = entries.find((e) => e.id === id);
   if (!entry) return;
   entry.isBookmarked = !entry.isBookmarked;
+  saveEntry(entry);
+}
+
+export function toggleStrikethrough(id: string) {
+  const entry = entries.find((e) => e.id === id);
+  if (!entry) return;
+  entry.struck = !entry.struck;
   saveEntry(entry);
 }

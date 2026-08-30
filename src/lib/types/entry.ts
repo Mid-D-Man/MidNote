@@ -12,6 +12,14 @@ export interface EntryRef {
   lastModified: string;
   isBookmarked: boolean;
   encrypted: boolean;
+  // Quick per-card strikethrough toggle from the ⋮ overflow menu — shared
+  // between notes and todos deliberately (confirmed explicitly, not
+  // assumed): same field, same toggle function, same visual treatment
+  // for both card types. Not the same concept as a todo "step" being
+  // checked off (steps/annotations already have their own completion
+  // state inside Todo) — this is a whole-entry-level flag, e.g. "this
+  // note/todo is done with, keep it around but visually mark it so."
+  struck: boolean;
 }
 
 export interface Note extends EntryRef {

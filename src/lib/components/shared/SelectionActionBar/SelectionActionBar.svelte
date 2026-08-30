@@ -1,7 +1,7 @@
 <script lang="ts">
   import Button from "$lib/components/ui/Button/Button.svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog/ConfirmDialog.svelte";
-  import DropdownMenu from "$lib/components/ui/DropdownMenu/DropdownMenu.svelte";
+  import Sheet from "$lib/components/ui/Sheet/Sheet.svelte";
   import { breadcrumb } from "$lib/debug/log.svelte";
   import type { ExportFormat } from "$lib/utils/selectionActions";
 
@@ -27,10 +27,17 @@
   } = $props();
 
   let showDeleteConfirm = $state(false);
+  let showExportSheet = $state(false);
 
   function confirmDelete() {
     breadcrumb(`selection bar: delete confirmed (${selectedCount} items)`);
     onDelete();
+  }
+
+  function pickFormat(format: ExportFormat) {
+    breadcrumb(`selection bar: export format picked -> ${format}`);
+    showExportSheet = false;
+    onExport(format);
   }
 </script>
 
@@ -76,27 +83,20 @@
       </svg>
     </Button>
 
-    <DropdownMenu align="end">
-      {#snippet trigger(toggle)}
-        <Button
-          variant="ghost"
-          size="icon"
-          onclick={() => {
-            breadcrumb("selection bar: Export menu opened");
-            toggle();
-          }}
-          aria-label="Export"
-          disabled={selectedCount === 0}
-        >
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M5 21h14" />
-          </svg>
-        </Button>
-      {/snippet}
-      <button class="menu-item" onclick={() => onExport("separate")}>Separate files</button>
-      <button class="menu-item" onclick={() => onExport("combined")}>One combined file</button>
-      <button class="menu-item" onclick={() => onExport("zip")}>Zip archive</button>
-    </DropdownMenu>
+    <Button
+      variant="ghost"
+      size="icon"
+      onclick={() => {
+        breadcrumb("selection bar: Export sheet opened");
+        showExportSheet = true;
+      }}
+      aria-label="Export"
+      disabled={selectedCount === 0}
+    >
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M5 21h14" />
+      </svg>
+    </Button>
 
     <Button
       variant="ghost"
@@ -124,6 +124,14 @@
   danger
   onconfirm={confirmDelete}
 />
+
+<Sheet bind:open={showExportSheet} side="bottom" title="Export as">
+  <div class="menu-list">
+    <button class="menu-item" onclick={() => pickFormat("separate")}>Separate files</button>
+    <button class="menu-item" onclick={() => pickFormat("combined")}>One combined file</button>
+    <button class="menu-item" onclick={() => pickFormat("zip")}>Zip archive</button>
+  </div>
+</Sheet>
 
 <style>
   .bar {
@@ -171,6 +179,11 @@
     align-items: center;
     gap: var(--space-1);
     flex-shrink: 0;
+  }
+  .menu-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
   }
   .menu-item {
     display: block;

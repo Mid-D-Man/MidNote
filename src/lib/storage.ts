@@ -39,6 +39,10 @@ export function loadEntries(): Entry[] {
         if (!Array.isArray(e.categories) || e.categories.length === 0) e.categories = ["Steps"];
       }
       if (!Array.isArray(e.tags)) e.tags = [];
+      // Entries saved before the struck field existed won't have it at
+      // all (undefined, not false) — same migration-default treatment
+      // as tags/steps/annotations/categories above.
+      if (typeof e.struck !== "boolean") e.struck = false;
       valid.push(e);
     }
     return valid;
@@ -86,6 +90,7 @@ export function createNote(): Note {
     lastModified: new Date().toISOString(),
     isBookmarked: false,
     encrypted: false,
+    struck: false,
   };
 }
 
@@ -98,6 +103,7 @@ export function createTodo(): Todo {
     lastModified: new Date().toISOString(),
     isBookmarked: false,
     encrypted: false,
+    struck: false,
     categories: ["Steps"],
     steps: [],
     annotations: [],

@@ -8,7 +8,8 @@
   import Button from "$lib/components/ui/Button/Button.svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog/ConfirmDialog.svelte";
   import SelectionActionBar from "$lib/components/shared/SelectionActionBar/SelectionActionBar.svelte";
-  import { entries, saveEntry, removeEntry, toggleBookmark } from "$lib/stores/entries.svelte";
+  import CardOverflowMenu from "$lib/components/shared/CardOverflowMenu/CardOverflowMenu.svelte";
+  import { entries, saveEntry, removeEntry, toggleBookmark, toggleStrikethrough } from "$lib/stores/entries.svelte";
   import type { Note, Todo, Entry } from "$lib/types/entry";
   import { noteTags, todoTags, sync as syncTags, registerTag, unregisterTag } from "$lib/stores/tags.svelte";
   import { createNote } from "$lib/storage";
@@ -127,6 +128,22 @@
     selectedIds.forEach((id) => removeEntry(id));
     pushToast({ title: `${count} ${activeView === "notes" ? "note" : "todo"}${count === 1 ? "" : "s"} deleted`, variant: "destructive" });
     exitSelectMode();
+  }
+
+  // Per-card ⋮ menu actions — outside multi-select entirely, one item
+  // at a time. Shared between notes and todos (both are just Entry
+  // here), matching the shared CardOverflowMenu component itself.
+  function handleDeleteSingle(id: string) {
+    const item = entries.find((e) => e.id === id);
+    removeEntry(id);
+    pushToast({ title: `${item?.type === "todo" ? "Todo" : "Note"} deleted`, variant: "destructive" });
+  }
+
+  function handleDownloadSingle(id: string) {
+    const item = entries.find((e) => e.id === id);
+    if (!item) return;
+    downloadFiles(buildExportFiles([item], "separate"));
+    pushToast({ title: "Downloaded" });
   }
 
   async function handleSendSelected() {
@@ -295,12 +312,18 @@
                   selected={selectedIds.has(item.id)}
                   onToggleSelect={toggleSelect}
                   onEnterSelectMode={enterSelectMode}
+                  onDelete={handleDeleteSingle}
+                  onDownload={handleDownloadSingle}
+                  onToggleStrikethrough={toggleStrikethrough}
                 />
               {:else}
-                <button
+                <div
                   class="todo-item"
                   class:selected={selectedIds.has(item.id)}
+                  role="button"
+                  tabindex="0"
                   onclick={() => handleTodoClick(item.id)}
+                  onkeydown={(e) => e.key === "Enter" && handleTodoClick(item.id)}
                   {...todoPressHandlers(item.id)}
                 >
                   {#if selectMode}
@@ -311,10 +334,20 @@
                         </svg>
                       {/if}
                     </div>
+                  {:else}
+                    <div class="todo-overflow">
+                      <CardOverflowMenu
+                        itemLabel="todo"
+                        struck={item.struck}
+                        onDelete={() => handleDeleteSingle(item.id)}
+                        onDownload={() => handleDownloadSingle(item.id)}
+                        onToggleStrikethrough={() => toggleStrikethrough(item.id)}
+                      />
+                    </div>
                   {/if}
-                  <strong>{item.title || "Untitled"}</strong>
+                  <strong class:struck={item.struck}>{item.title || "Untitled"}</strong>
                   <span class="meta">{item.steps.length} step{item.steps.length === 1 ? "" : "s"} · {new Date(item.lastModified).toLocaleDateString()}</span>
-                </button>
+                </div>
               {/if}
             {/each}
           </div>
@@ -543,6 +576,15 @@
   .todo-item .select-check.checked {
     background: var(--accent);
     border-color: var(--accent);
+  }
+  .todo-item .todo-overflow {
+    position: absolute;
+    top: var(--space-2);
+    right: var(--space-2);
+  }
+  .todo-item strong.struck {
+    text-decoration: line-through;
+    color: var(--text-lo);
   }
 
   @media (max-width: 480px) {

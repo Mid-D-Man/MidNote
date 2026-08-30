@@ -1,5 +1,6 @@
 <script lang="ts">
   import Card from "$lib/components/ui/Card/Card.svelte";
+  import CardOverflowMenu from "$lib/components/shared/CardOverflowMenu/CardOverflowMenu.svelte";
   import { stripHtml } from "$lib/utils/richText";
   import { createLongPressHandlers } from "$lib/utils/longPress";
   import type { Note } from "$lib/types/entry";
@@ -12,6 +13,9 @@
     selected = false,
     onToggleSelect,
     onEnterSelectMode,
+    onDelete,
+    onDownload,
+    onToggleStrikethrough,
   }: {
     note: Note;
     onToggleBookmark: (id: string) => void;
@@ -22,6 +26,12 @@
     selected?: boolean;
     onToggleSelect?: (id: string) => void;
     onEnterSelectMode?: (id: string) => void;
+    // ⋮ overflow menu actions — same callback-prop shape as
+    // onToggleBookmark: NoteCard stays a dumb display component, the
+    // page owns the actual store mutations.
+    onDelete: (id: string) => void;
+    onDownload: (id: string) => void;
+    onToggleStrikethrough: (id: string) => void;
   } = $props();
 
   // note.content is HTML now (see NoteContent.svelte) — strip tags for
@@ -74,6 +84,15 @@
       {/if}
     </div>
   {:else}
+    <div class="corner-actions">
+      <CardOverflowMenu
+        itemLabel="note"
+        struck={note.struck}
+        onDelete={() => onDelete(note.id)}
+        onDownload={() => onDownload(note.id)}
+        onToggleStrikethrough={() => onToggleStrikethrough(note.id)}
+      />
+    </div>
     <button
       class="bookmark"
       class:active={note.isBookmarked}
@@ -90,7 +109,7 @@
     </button>
   {/if}
 
-  <h3 class="title">{note.title || "Untitled"}</h3>
+  <h3 class="title" class:struck={note.struck}>{note.title || "Untitled"}</h3>
   <p class="preview">{preview}</p>
   <p class="date">{dateLabel}</p>
 
@@ -134,6 +153,15 @@
   .bookmark.active {
     color: var(--accent-2);
   }
+  .corner-actions {
+    position: absolute;
+    top: var(--space-2);
+    left: var(--space-2);
+  }
+  .title.struck {
+    text-decoration: line-through;
+    color: var(--text-lo);
+  }
   .select-check {
     position: absolute;
     top: var(--space-2);
@@ -157,7 +185,7 @@
     font-size: 15px;
     font-weight: 600;
     color: var(--text-hi);
-    margin: 0 var(--space-6) var(--space-2) 0;
+    margin: 0 var(--space-6) var(--space-2) var(--space-6);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
