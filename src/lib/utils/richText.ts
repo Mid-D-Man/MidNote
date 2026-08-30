@@ -201,18 +201,50 @@ function wrapRangeInStyledSpan(range: Range, apply: (span: HTMLSpanElement) => v
   return result;
 }
 
-export function applyValueStyleToSelection(root: HTMLElement, style: ValueStyle): void {
+function applyValueStyleToRangeInternal(range: Range, root: HTMLElement, style: ValueStyle): void {
   const sel = window.getSelection();
-  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
-  const range = wrapRangeInStyledSpan(sel.getRangeAt(0), (span) => {
+  if (!sel) return;
+  const wrapped = wrapRangeInStyledSpan(range, (span) => {
     if (style.fontSize) span.style.fontSize = `${style.fontSize}px`;
     if (style.color) span.style.color = style.color;
     if (style.backgroundColor) span.style.backgroundColor = style.backgroundColor;
   });
   sel.removeAllRanges();
-  sel.addRange(range);
-  // Same fix as applyInlineFormat, same bug otherwise — see its comment.
+  sel.addRange(wrapped);
   collapseOutsideFormatting(root);
+}
+
+export function applyValueStyleToSelection(root: HTMLElement, style: ValueStyle): void {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
+  applyValueStyleToRangeInternal(sel.getRangeAt(0), root, style);
+}
+
+// Same as applyValueStyleToSelection, but acts on an explicitly-passed
+// Range rather than re-reading window.getSelection() at call time.
+//
+// Exists for the color/background-color swatch panels specifically:
+// unlike B/I/U/S, which apply in one tap directly off the main toolbar
+// row when there's a selection, color/backgroundColor need a second tap
+// — open the swatch panel, THEN pick a swatch — with a real, human-
+// timescale gap in between (long enough for a RAF-coalesced
+// selectionchange handler to fully process) where the live selection
+// sits exposed to anything that might disturb it before that second tap
+// lands, in a way B/I/U/S's single-tap path never is. Capturing the
+// range the moment the panel opens (see note/[id]/+page.svelte) and
+// applying to THAT clone instead of a fresh window.getSelection() read
+// is immune to whatever happens to the live selection in that gap —
+// confirmed directly, not just reasoned about: reproduced in isolation
+// with the live selection deliberately collapsed to a different
+// position after capture, and the captured range still applied
+// correctly to the originally-selected text. Not confirmed to be THE
+// on-device cause — that's still real-WebView-only territory — but the
+// gap itself (two taps with a human-timescale pause vs. one tap) is a
+// genuine, verified structural difference between these two code paths,
+// and this closes it regardless of the exact mechanism.
+export function applyValueStyleToCapturedRange(capturedRange: Range, root: HTMLElement, style: ValueStyle): void {
+  if (capturedRange.collapsed) return;
+  applyValueStyleToRangeInternal(capturedRange.cloneRange(), root, style);
 }
 
 // "None" swatch — clears color/background from a selection. Only
@@ -224,7 +256,19 @@ export function applyValueStyleToSelection(root: HTMLElement, style: ValueStyle)
 export function clearValueStyleFromSelection(root: HTMLElement, props: ("color" | "backgroundColor")[]): void {
   const sel = window.getSelection();
   if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
-  const range = sel.getRangeAt(0);
+  clearValueStyleFromRangeInternal(sel.getRangeAt(0), root, props);
+}
+
+// Captured-range counterpart to clearValueStyleFromSelection — see
+// applyValueStyleToCapturedRange's comment for why this exists.
+export function clearValueStyleFromCapturedRange(capturedRange: Range, root: HTMLElement, props: ("color" | "backgroundColor")[]): void {
+  if (capturedRange.collapsed) return;
+  clearValueStyleFromRangeInternal(capturedRange.cloneRange(), root, props);
+}
+
+function clearValueStyleFromRangeInternal(range: Range, root: HTMLElement, props: ("color" | "backgroundColor")[]): void {
+  const sel = window.getSelection();
+  if (!sel) return;
   const container = range.commonAncestorContainer;
   const scope = container.nodeType === Node.ELEMENT_NODE ? (container as Element) : container.parentElement;
   scope?.querySelectorAll("[style]").forEach((el) => {

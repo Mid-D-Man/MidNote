@@ -18,6 +18,8 @@
     queryActiveList,
     applyValueStyleToSelection,
     clearValueStyleFromSelection,
+    applyValueStyleToCapturedRange,
+    clearValueStyleFromCapturedRange,
     getCurrentFontSize,
     getCurrentColor,
     getCurrentBackgroundColor,
@@ -79,6 +81,37 @@
   // the user tapped or arrow-keyed somewhere else," and only reset
   // pendingFormats for the latter.
   let lastAutoFormatPos: { node: Node; offset: number } | null = null;
+  // Updated on every refreshFormatState run, not just after an
+  // auto-format wrap — a plain "where was the caret last time we
+  // checked" tracker, distinct from lastAutoFormatPos's narrower "did
+  // my own wrap just move it here" purpose. Exists to recognize a
+  // selectionchange that reports the exact same collapsed position as
+  // last time as redundant/spurious — the caret didn't actually move,
+  // so there's no reason to treat it as "the user navigated away" and
+  // reset pendingFormats. isEcho alone can't catch this: it's scoped to
+  // positions this file's own auto-format wrap just produced, and stays
+  // null the entire window between "toggle a pending format" and
+  // "type the first character" — exactly the window a stray
+  // selectionchange (nothing observed to move the caret, but one fires
+  // anyway) would wipe the just-toggled format in, with no way to tell
+  // it apart from a real navigation. This is a general fix for that gap,
+  // not specific to any one format.
+
+  // Snapshot of the selection Range taken the instant the color/bgColor
+  // swatch panel opens — see applyValueStyleToCapturedRange's comment in
+  // richText.ts for why. Plain (non-reactive) variable: a Range isn't
+  // meaningful $state, it's a one-shot handoff between "panel opened" and
+  // "swatch picked," consumed and nulled out the moment it's used or the
+  // panel closes without picking one.
+  let capturedFormatRange: Range | null = null;
+  let lastKnownCaretPos: { node: Node; offset: number } | null = null;
+
+  function captureRangeForColorPanel(panel: "color" | "bgColor") {
+    if (!hasSelection) return;
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
+    capturedFormatRange = sel.getRangeAt(0).cloneRange();
+  }
 
   function resetPendingFormats() {
     pendingFormats = emptyPendingFormats();
@@ -90,6 +123,8 @@
     currentFontSize = fontSize.value;
     resetPendingFormats();
     lastAutoFormatPos = null;
+    lastKnownCaretPos = null;
+    capturedFormatRange = null;
   }
 
   function refreshFormatState() {
@@ -105,6 +140,7 @@
       currentFontSize = fontSize.value;
       resetPendingFormats();
       lastAutoFormatPos = null;
+      lastKnownCaretPos = null;
       return;
     }
 
@@ -119,6 +155,7 @@
       };
       resetPendingFormats();
       lastAutoFormatPos = null;
+      lastKnownCaretPos = null;
       return;
     }
 
@@ -130,8 +167,10 @@
     const node = sel?.anchorNode ?? null;
     const offset = sel?.anchorOffset ?? -1;
     const isEcho = !!lastAutoFormatPos && node === lastAutoFormatPos.node && offset === lastAutoFormatPos.offset;
-    if (!isEcho) resetPendingFormats();
+    const isSpuriousRepeat = !!lastKnownCaretPos && node === lastKnownCaretPos.node && offset === lastKnownCaretPos.offset;
+    if (!isEcho && !isSpuriousRepeat) resetPendingFormats();
     lastAutoFormatPos = null;
+    lastKnownCaretPos = node ? { node, offset } : null;
   }
 
   function handleAutoFormatApplied(node: Node, offset: number) {
@@ -323,6 +362,25 @@
 
   function handleColorChange(color: string | null) {
     if (!contentEl) return;
+    if (capturedFormatRange) {
+      const range = capturedFormatRange;
+      capturedFormatRange = null;
+      try {
+        contentEl.focus();
+        if (color) applyValueStyleToCapturedRange(range, contentEl, { color });
+        else clearValueStyleFromCapturedRange(range, contentEl, ["color"]);
+        refreshFormatState();
+        syncContentFromDom();
+        return;
+      } catch (err) {
+        // Range methods can throw if the captured range's nodes somehow
+        // stopped being attached to the document in the gap since
+        // capture — not expected (nothing edits note content while a
+        // panel is open), but falling through to the live-selection
+        // path below is safer than surfacing this as a hard failure.
+        console.error("note page: captured-range color apply failed, falling back to live selection:", err);
+      }
+    }
     if (hasSelection) {
       contentEl.focus();
       if (color) applyValueStyleToSelection(contentEl, { color });
@@ -337,6 +395,20 @@
 
   function handleBackgroundColorChange(color: string | null) {
     if (!contentEl) return;
+    if (capturedFormatRange) {
+      const range = capturedFormatRange;
+      capturedFormatRange = null;
+      try {
+        contentEl.focus();
+        if (color) applyValueStyleToCapturedRange(range, contentEl, { backgroundColor: color });
+        else clearValueStyleFromCapturedRange(range, contentEl, ["backgroundColor"]);
+        refreshFormatState();
+        syncContentFromDom();
+        return;
+      } catch (err) {
+        console.error("note page: captured-range backgroundColor apply failed, falling back to live selection:", err);
+      }
+    }
     if (hasSelection) {
       contentEl.focus();
       if (color) applyValueStyleToSelection(contentEl, { backgroundColor: color });
@@ -392,6 +464,7 @@
       onFontSizeChange={handleFontSizeChange}
       onColorChange={handleColorChange}
       onBackgroundColorChange={handleBackgroundColorChange}
+      onCaptureRange={captureRangeForColorPanel}
       {canUndo}
       {canRedo}
       onUndo={undo}

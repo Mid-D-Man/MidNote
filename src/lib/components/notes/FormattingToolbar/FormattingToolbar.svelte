@@ -32,6 +32,7 @@
     onFontSizeChange,
     onColorChange,
     onBackgroundColorChange,
+    onCaptureRange,
     canUndo = false,
     canRedo = false,
     onUndo,
@@ -60,6 +61,13 @@
     onFontSizeChange?: (size: number) => void;
     onColorChange?: (color: string | null) => void;
     onBackgroundColorChange?: (color: string | null) => void;
+    // Fired right before the color/backgroundColor swatch panel opens,
+    // while there's still a live selection — the page uses this to
+    // snapshot the current Range before the panel-open tap gets any
+    // chance to disturb it. Not fired for the style/size panels, which
+    // don't need it (B/I/U/S apply in one tap when there's a selection,
+    // no second-tap gap to protect against).
+    onCaptureRange?: (panel: "color" | "bgColor") => void;
     canUndo?: boolean;
     canRedo?: boolean;
     onUndo?: () => void;
@@ -184,13 +192,13 @@
       <button class:active={openPanel === "size"} onclick={() => togglePanel("size")} aria-label="Text size">
         <span class="tt">{fontSize}</span>
       </button>
-      <button class:active={openPanel === "color"} onclick={() => togglePanel("color")} aria-label="Text color">
+      <button class:active={openPanel === "color"} onclick={() => { onCaptureRange?.("color"); togglePanel("color"); }} aria-label="Text color">
         <span class="color-icon">
           <span class="letter">A</span>
           <span class="bar" style="background:{activeFormats.color ?? 'currentColor'}"></span>
         </span>
       </button>
-      <button class:active={openPanel === "bgColor"} onclick={() => togglePanel("bgColor")} aria-label="Background color">
+      <button class:active={openPanel === "bgColor"} onclick={() => { onCaptureRange?.("bgColor"); togglePanel("bgColor"); }} aria-label="Background color">
         <span class="bg-icon" style="background:{activeFormats.backgroundColor ?? 'transparent'}">A</span>
       </button>
     {:else}
