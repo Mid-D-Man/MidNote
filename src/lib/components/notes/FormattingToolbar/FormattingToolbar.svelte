@@ -2,7 +2,9 @@
   import { FONT_SIZES } from "$lib/stores/settings.svelte";
   import { breadcrumb } from "$lib/debug/log.svelte";
 
-  // value: null means "no override" / the clear swatch.
+  // value: null means "no override" / the clear option. HTML <option>
+  // values are always strings, so null maps to "" and back at the call
+  // sites below.
   const TEXT_COLORS: { label: string; value: string | null }[] = [
     { label: "Default", value: null },
     { label: "Red", value: "#ef4444" },
@@ -48,76 +50,67 @@
       color: string | null;
       backgroundColor: string | null;
     };
-    // Whether the note body currently has a real (non-collapsed) text
-    // selection. Drives which row layout renders below — matches the
-    // reference: selected text gets direct one-tap B/I/U/S buttons in
-    // the main row; nothing selected shows the structural tools (Aa
-    // submenu, lists, undo/redo) instead. The actual "applies to
-    // selection vs. sets sticky state for future typing" behavior isn't
-    // decided here — that's the page's handleFormat(). This prop only
-    // controls which buttons are visible, not what they do.
+    // Still tells the page's handleFormat/handleFontSizeChange/
+    // handleColorChange/handleBackgroundColorChange whether to apply
+    // directly to a selection or set a pending (sticky-for-next-typing)
+    // format — that decision hasn't changed. What HAS changed: this no
+    // longer controls which buttons render.
+    //
+    // REVISION: this toolbar used to swap between two different row
+    // layouts depending on hasSelection, with B/I/U/S hidden behind a
+    // separate "Aa" panel-open tap in the no-selection layout, and
+    // color/backgroundColor behind their own swatch-panel-open tap in
+    // both layouts. Every one of those was a two-step "open something,
+    // then pick something" interaction with a real gap in between where
+    // the live selection sat exposed. Three rounds of fixes aimed at
+    // that gap (collapseOutsideFormatting, pointerdown guards, captured
+    // ranges) and the leak was still reported after all three — enough
+    // signal that the two-step pattern itself is the problem, not a
+    // specific bug in any one version of how it was defended.
+    //
+    // This version has exactly one interaction shape for every control:
+    // pick once, done. B/I/U/S and the list buttons are plain toggle
+    // buttons, always in the row, always one tap. Font size/color/
+    // backgroundColor are native <select> elements — picking a value
+    // fires one onchange; there's no separate app-rendered "panel" step
+    // for anything to go wrong in between opening it and picking from
+    // it.
     hasSelection?: boolean;
     fontSize?: number;
     onFontSizeChange?: (size: number) => void;
     onColorChange?: (color: string | null) => void;
     onBackgroundColorChange?: (color: string | null) => void;
-    // Fired right before the color/backgroundColor swatch panel opens,
-    // while there's still a live selection — the page uses this to
-    // snapshot the current Range before the panel-open tap gets any
-    // chance to disturb it. Not fired for the style/size panels, which
-    // don't need it (B/I/U/S apply in one tap when there's a selection,
-    // no second-tap gap to protect against).
-    onCaptureRange?: (panel: "color" | "bgColor") => void;
+    // Fired on pointerdown on the font-size/color/backgroundColor
+    // <select> elements specifically — before focus, before the native
+    // picker opens, the earliest point available to snapshot the
+    // current Range. Kept from the previous version, just retargeted:
+    // the captured-range apply logic was already proven correct
+    // (executed directly against the real compiled code, not just
+    // reasoned about) — what was fragile was the custom panel UI that
+    // used to sit between "open" and "pick," not this. Dropping a
+    // working safety net to match the interaction-shape simplification
+    // wouldn't have made anything simpler, just less defended.
+    onCaptureRange?: () => void;
     canUndo?: boolean;
     canRedo?: boolean;
     onUndo?: () => void;
     onRedo?: () => void;
   } = $props();
 
-  // Only one panel open at a time.
-  let openPanel = $state<"style" | "size" | "color" | "bgColor" | null>(null);
-
-  // Selecting/deselecting text swaps which row of buttons is shown below
-  // — close whatever submenu was open rather than leave it floating
-  // over a row that no longer has the button that opened it. This reads
-  // hasSelection (a prop) and writes openPanel (a *different* piece of
-  // state) — not the same state being read then written back, so this
-  // isn't the effect_update_depth_exceeded shape documented in
-  // docs/svelte5-effect-safety.md. Just a plain reset-on-prop-change.
-  $effect(() => {
-    hasSelection;
-    openPanel = null;
-  });
-
-  // Stops a toolbar button from ever taking focus, so the contenteditable
-  // note body never loses its live Selection when a button is tapped.
-  // preventDefault() here suppresses only the focus-stealing default
-  // action — the click event (and this component's onclick handlers)
-  // still fire normally; this is standard practice for toolbar buttons
-  // next to a contenteditable, not specific to this app.
+  // Stops a toolbar control from ever taking focus away from the note
+  // body in a way that loses its Selection. preventDefault() here
+  // suppresses only the focus-stealing default action of mousedown —
+  // click still fires normally. Bound to both pointerdown and mousedown:
+  // pointerdown fires earlier than the synthesized mousedown a
+  // touchscreen produces, so it's a strictly-earlier, strictly-safer
+  // version of the same guard, not a replacement for it.
   //
-  // Bound to BOTH pointerdown and mousedown, not mousedown alone. On a
-  // touchscreen, mousedown is a *synthesized* event fired after
-  // touchstart/touchend — if the WebView resolves focus/selection state
-  // off the raw touch before that synthetic mousedown ever fires,
-  // preventDefault() on mousedown alone never gets a chance to stop it.
-  // pointerdown is the unified pointer-events entry point for both
-  // mouse and touch and fires earlier in the sequence; unlike
-  // touchstart, preventDefault() on pointerdown doesn't carry the risk
-  // of suppressing the click that follows, so it's a strictly-safer
-  // earlier guard, not a replacement for the mousedown one. Genuinely
-  // not confirmed to be THE cause of the reported "tap registers, state
-  // reverts" symptom — that requires on-device confirmation like
-  // everything else this WebView-specific — but it's a real gap
-  // regardless of whether it's this particular bug, so it's worth
-  // having either way.
+  // NOT applied to the font-size/color/backgroundColor <select>
+  // elements — those need to take focus to open their native picker at
+  // all; guarding them would just break them. Their protection is the
+  // captured-range mechanism above, not this.
   function guardFocus(e: Event) {
     e.preventDefault();
-  }
-
-  function togglePanel(panel: "style" | "size" | "color" | "bgColor") {
-    breadcrumb(`toolbar: ${panel} panel toggled`);
-    openPanel = openPanel === panel ? null : panel;
   }
 
   function apply(format: string) {
@@ -125,142 +118,108 @@
     onFormat(format);
   }
 
-  function pickColor(value: string | null) {
-    breadcrumb(`toolbar: text color -> ${value ?? "default"}`);
-    onColorChange?.(value);
+  function pickFontSize(value: string) {
+    const size = Number(value);
+    breadcrumb(`toolbar: font size -> ${size}`);
+    onFontSizeChange?.(size);
   }
 
-  function pickBackgroundColor(value: string | null) {
-    breadcrumb(`toolbar: background color -> ${value ?? "none"}`);
-    onBackgroundColorChange?.(value);
+  function pickColor(value: string) {
+    breadcrumb(`toolbar: text color -> ${value || "default"}`);
+    onColorChange?.(value || null);
+  }
+
+  function pickBackgroundColor(value: string) {
+    breadcrumb(`toolbar: background color -> ${value || "none"}`);
+    onBackgroundColorChange?.(value || null);
   }
 </script>
 
 <div class="toolbar-wrap">
-  {#if openPanel === "style"}
-    <div class="panel" role="toolbar" aria-label="Text style" tabindex="-1" onmousedown={guardFocus} onpointerdown={guardFocus}>
-      <button class:active={activeFormats.bold} onclick={() => apply("bold")} aria-label="Bold"><strong>B</strong></button>
-      <button class:active={activeFormats.italic} onclick={() => apply("italic")} aria-label="Italic"><em>I</em></button>
-      <button class:active={activeFormats.underline} onclick={() => apply("underline")} aria-label="Underline"><span class="underline">U</span></button>
-      <button class:active={activeFormats.strikethrough} onclick={() => apply("strikethrough")} aria-label="Strikethrough"><span class="strike">S</span></button>
-    </div>
-  {:else if openPanel === "size"}
-    <div class="panel size-panel" role="toolbar" aria-label="Text size" tabindex="-1" onmousedown={guardFocus} onpointerdown={guardFocus}>
-      {#each FONT_SIZES as size (size)}
-        <button class:active={fontSize === size} onclick={() => onFontSizeChange?.(size)}>{size}</button>
-      {/each}
-    </div>
-  {:else if openPanel === "color"}
-    <div class="panel swatch-panel" role="toolbar" aria-label="Text color" tabindex="-1" onmousedown={guardFocus} onpointerdown={guardFocus}>
-      {#each TEXT_COLORS as c (c.label)}
-        <button
-          class="swatch"
-          class:active={activeFormats.color === c.value}
-          class:none-swatch={c.value === null}
-          style={c.value ? `background:${c.value}` : ""}
-          onclick={() => pickColor(c.value)}
-          aria-label={c.label}
-          title={c.label}
-        ></button>
-      {/each}
-    </div>
-  {:else if openPanel === "bgColor"}
-    <div class="panel swatch-panel" role="toolbar" aria-label="Background color" tabindex="-1" onmousedown={guardFocus} onpointerdown={guardFocus}>
-      {#each BG_COLORS as c (c.label)}
-        <button
-          class="swatch"
-          class:active={activeFormats.backgroundColor === c.value}
-          class:none-swatch={c.value === null}
-          style={c.value ? `background:${c.value}` : ""}
-          onclick={() => pickBackgroundColor(c.value)}
-          aria-label={c.label}
-          title={c.label}
-        ></button>
-      {/each}
-    </div>
-  {/if}
-
   <div class="toolbar" role="toolbar" aria-label="Note formatting" tabindex="-1" onmousedown={guardFocus} onpointerdown={guardFocus}>
-    {#if hasSelection}
-      <button class:active={activeFormats.bold} onclick={() => apply("bold")} aria-label="Bold"><strong>B</strong></button>
-      <button class:active={activeFormats.italic} onclick={() => apply("italic")} aria-label="Italic"><em>I</em></button>
-      <button class:active={activeFormats.underline} onclick={() => apply("underline")} aria-label="Underline"><span class="underline">U</span></button>
-      <button class:active={activeFormats.strikethrough} onclick={() => apply("strikethrough")} aria-label="Strikethrough"><span class="strike">S</span></button>
+    <button class:active={activeFormats.bold} onclick={() => apply("bold")} aria-label="Bold"><strong>B</strong></button>
+    <button class:active={activeFormats.italic} onclick={() => apply("italic")} aria-label="Italic"><em>I</em></button>
+    <button class:active={activeFormats.underline} onclick={() => apply("underline")} aria-label="Underline"><span class="underline">U</span></button>
+    <button class:active={activeFormats.strikethrough} onclick={() => apply("strikethrough")} aria-label="Strikethrough"><span class="strike">S</span></button>
 
-      <div class="sep"></div>
+    <div class="sep"></div>
 
-      <button class:active={openPanel === "size"} onclick={() => togglePanel("size")} aria-label="Text size">
-        <span class="tt">{fontSize}</span>
-      </button>
-      <button class:active={openPanel === "color"} onclick={() => { onCaptureRange?.("color"); togglePanel("color"); }} aria-label="Text color">
-        <span class="color-icon">
-          <span class="letter">A</span>
-          <span class="bar" style="background:{activeFormats.color ?? 'currentColor'}"></span>
-        </span>
-      </button>
-      <button class:active={openPanel === "bgColor"} onclick={() => { onCaptureRange?.("bgColor"); togglePanel("bgColor"); }} aria-label="Background color">
-        <span class="bg-icon" style="background:{activeFormats.backgroundColor ?? 'transparent'}">A</span>
-      </button>
-    {:else}
-      <button class:active={openPanel === "style" || activeFormats.bold || activeFormats.italic || activeFormats.underline || activeFormats.strikethrough} onclick={() => togglePanel("style")} aria-label="Text style">
-        <span class="aa">Aa</span>
-      </button>
+    <select
+      class="picker size-picker"
+      value={String(fontSize)}
+      onpointerdown={() => onCaptureRange?.()}
+      onchange={(e) => pickFontSize(e.currentTarget.value)}
+      aria-label="Text size"
+    >
+      {#each FONT_SIZES as size (size)}
+        <option value={String(size)}>{size}</option>
+      {/each}
+    </select>
 
-      <button class:active={openPanel === "size"} onclick={() => togglePanel("size")} aria-label="Text size">
-        <span class="tt">{fontSize}</span>
-      </button>
+    <select
+      class="picker"
+      style="color:{activeFormats.color ?? 'inherit'}"
+      value={activeFormats.color ?? ""}
+      onpointerdown={() => onCaptureRange?.()}
+      onchange={(e) => pickColor(e.currentTarget.value)}
+      aria-label="Text color"
+    >
+      {#each TEXT_COLORS as c (c.label)}
+        <option value={c.value ?? ""}>{c.label}</option>
+      {/each}
+    </select>
 
-      <div class="sep"></div>
+    <select
+      class="picker"
+      style="background:{activeFormats.backgroundColor ?? 'transparent'}"
+      value={activeFormats.backgroundColor ?? ""}
+      onpointerdown={() => onCaptureRange?.()}
+      onchange={(e) => pickBackgroundColor(e.currentTarget.value)}
+      aria-label="Background color"
+    >
+      {#each BG_COLORS as c (c.label)}
+        <option value={c.value ?? ""}>{c.label}</option>
+      {/each}
+    </select>
 
-      <button class:active={activeFormats.list === "bullet"} onclick={() => apply("bulletList")} aria-label="Bullet list" title="Bullet list">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="4" cy="6" r="1.2" fill="currentColor" stroke="none" />
-          <circle cx="4" cy="12" r="1.2" fill="currentColor" stroke="none" />
-          <circle cx="4" cy="18" r="1.2" fill="currentColor" stroke="none" />
-          <line x1="9" y1="6" x2="20" y2="6" />
-          <line x1="9" y1="12" x2="20" y2="12" />
-          <line x1="9" y1="18" x2="20" y2="18" />
-        </svg>
-      </button>
-      <button class:active={activeFormats.list === "decimal"} onclick={() => apply("orderedList")} aria-label="Numbered list" title="Numbered list">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
-          <line x1="9" y1="6" x2="20" y2="6" />
-          <line x1="9" y1="12" x2="20" y2="12" />
-          <line x1="9" y1="18" x2="20" y2="18" />
-          <text x="1" y="8" font-size="7" fill="currentColor" stroke="none">1</text>
-          <text x="1" y="14" font-size="7" fill="currentColor" stroke="none">2</text>
-          <text x="1" y="20" font-size="7" fill="currentColor" stroke="none">3</text>
-        </svg>
-      </button>
-      <button class:active={activeFormats.list === "roman"} onclick={() => apply("romanList")} aria-label="Roman numeral list" title="Roman numeral list">
-        <span class="roman-icon">iv.</span>
-      </button>
+    <div class="sep"></div>
 
-      <div class="sep"></div>
+    <button class:active={activeFormats.list === "bullet"} onclick={() => apply("bulletList")} aria-label="Bullet list" title="Bullet list">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="3.5" cy="6" r="1.2" fill="currentColor" stroke="none" />
+        <circle cx="3.5" cy="12" r="1.2" fill="currentColor" stroke="none" />
+        <circle cx="3.5" cy="18" r="1.2" fill="currentColor" stroke="none" />
+        <line x1="8" y1="6" x2="20" y2="6" />
+        <line x1="8" y1="12" x2="20" y2="12" />
+        <line x1="8" y1="18" x2="20" y2="18" />
+      </svg>
+    </button>
+    <button class:active={activeFormats.list === "decimal"} onclick={() => apply("orderedList")} aria-label="Numbered list" title="Numbered list">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+        <line x1="9" y1="6" x2="20" y2="6" />
+        <line x1="9" y1="12" x2="20" y2="12" />
+        <line x1="9" y1="18" x2="20" y2="18" />
+        <text x="1" y="8" font-size="7" fill="currentColor" stroke="none">1</text>
+        <text x="1" y="14" font-size="7" fill="currentColor" stroke="none">2</text>
+        <text x="1" y="20" font-size="7" fill="currentColor" stroke="none">3</text>
+      </svg>
+    </button>
+    <button class:active={activeFormats.list === "roman"} onclick={() => apply("romanList")} aria-label="Roman numeral list" title="Roman numeral list">
+      <span class="roman-icon">iv.</span>
+    </button>
 
-      <button class:active={openPanel === "color"} onclick={() => togglePanel("color")} aria-label="Text color">
-        <span class="color-icon">
-          <span class="letter">A</span>
-          <span class="bar" style="background:{activeFormats.color ?? 'currentColor'}"></span>
-        </span>
-      </button>
-      <button class:active={openPanel === "bgColor"} onclick={() => togglePanel("bgColor")} aria-label="Background color">
-        <span class="bg-icon" style="background:{activeFormats.backgroundColor ?? 'transparent'}">A</span>
-      </button>
+    <div class="sep"></div>
 
-      <div class="sep"></div>
-
-      <button onclick={() => { breadcrumb("toolbar: Undo tapped"); onUndo?.(); }} disabled={!canUndo} aria-label="Undo">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M3 7v6h6" /><path d="M3 13a9 9 0 1 0 3-7" />
-        </svg>
-      </button>
-      <button onclick={() => { breadcrumb("toolbar: Redo tapped"); onRedo?.(); }} disabled={!canRedo} aria-label="Redo">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M21 7v6h-6" /><path d="M21 13a9 9 0 1 1-3-7" />
-        </svg>
-      </button>
-    {/if}
+    <button onclick={() => { breadcrumb("toolbar: Undo tapped"); onUndo?.(); }} disabled={!canUndo} aria-label="Undo">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M3 7v6h6" /><path d="M3 13a9 9 0 1 0 3-7" />
+      </svg>
+    </button>
+    <button onclick={() => { breadcrumb("toolbar: Redo tapped"); onRedo?.(); }} disabled={!canRedo} aria-label="Redo">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M21 7v6h-6" /><path d="M21 13a9 9 0 1 1-3-7" />
+      </svg>
+    </button>
   </div>
 </div>
 
@@ -272,9 +231,7 @@
     transform: translateX(-50%);
     z-index: 30;
     display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: var(--space-2);
+    justify-content: center;
   }
   .toolbar {
     height: 52px;
@@ -315,45 +272,27 @@
     background: var(--accent);
     color: var(--bg);
   }
-  .aa {
-    font-family: var(--font-display);
-    font-weight: 600;
-    font-size: 14px;
-  }
-  .tt {
-    font-family: var(--font-sans);
-    font-weight: 600;
-    font-size: 12px;
-  }
-  .color-icon {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 1px;
-  }
-  .color-icon .letter {
-    font-family: var(--font-display);
-    font-weight: 700;
-    font-size: 14px;
-    line-height: 1;
-  }
-  .color-icon .bar {
-    width: 16px;
-    height: 3px;
-    border-radius: 2px;
+  /* Native <select> — deliberately minimal styling. The whole point is
+     that the OS renders and manages the actual picker; fighting that
+     with heavy custom CSS would be working against the reason this
+     exists. Sized to roughly match the toggle buttons alongside it and
+     left otherwise close to platform default. */
+  .picker {
     flex-shrink: 0;
+    height: 36px;
+    max-width: 72px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-hi);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    font-weight: 600;
+    padding: 0 var(--space-1);
   }
-  .bg-icon {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 20px;
-    height: 20px;
-    border-radius: 4px;
-    border: 1.5px solid var(--hairline);
-    font-family: var(--font-display);
-    font-weight: 700;
-    font-size: 12px;
+  .size-picker {
+    max-width: 52px;
+    text-align: center;
   }
   .roman-icon {
     font-family: var(--font-display);
@@ -372,73 +311,5 @@
     background: var(--hairline);
     margin: 0 var(--space-1);
     flex-shrink: 0;
-  }
-
-  .panel {
-    display: flex;
-    align-items: center;
-    gap: var(--space-1);
-    height: 44px;
-    border-radius: 999px;
-    border: 1px solid var(--hairline);
-    background: var(--surface-raised);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32);
-    padding: 0 var(--space-2);
-    max-width: calc(100vw - var(--space-6));
-    overflow-x: auto;
-  }
-  .panel button {
-    flex-shrink: 0;
-    min-width: 32px;
-    height: 32px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: transparent;
-    border: none;
-    border-radius: var(--radius-sm);
-    color: var(--text-hi);
-    cursor: pointer;
-    font-size: 13px;
-    padding: 0 var(--space-2);
-  }
-  .panel button:hover {
-    background: var(--surface);
-  }
-  .panel button.active {
-    background: var(--accent);
-    color: var(--bg);
-  }
-  .size-panel button {
-    font-family: var(--font-sans);
-    font-weight: 500;
-  }
-
-  .swatch-panel {
-    padding: 0 var(--space-3);
-    gap: var(--space-2);
-  }
-  .swatch {
-    flex-shrink: 0;
-    width: 26px;
-    height: 26px;
-    min-width: 26px;
-    padding: 0;
-    border-radius: 50%;
-    border: 2px solid var(--hairline);
-    background: var(--surface);
-  }
-  .swatch.active {
-    border-color: var(--text-hi);
-    box-shadow: 0 0 0 2px var(--surface-raised), 0 0 0 3px var(--accent);
-  }
-  .swatch.none-swatch {
-    background: repeating-linear-gradient(
-      45deg,
-      var(--surface),
-      var(--surface) 4px,
-      var(--hairline) 4px,
-      var(--hairline) 5px
-    );
   }
 </style>

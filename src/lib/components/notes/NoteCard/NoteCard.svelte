@@ -101,6 +101,9 @@
         onToggleBookmark(note.id);
       }}
       onpointerdown={(e) => e.stopPropagation()}
+      onpointerup={(e) => e.stopPropagation()}
+      onpointermove={(e) => e.stopPropagation()}
+      onpointercancel={(e) => e.stopPropagation()}
       aria-label="Toggle bookmark"
     >
       <svg viewBox="0 0 24 24" width="16" height="16" fill={note.isBookmarked ? "currentColor" : "none"} stroke="currentColor" stroke-width="2">

@@ -97,16 +97,26 @@
   // it apart from a real navigation. This is a general fix for that gap,
   // not specific to any one format.
 
-  // Snapshot of the selection Range taken the instant the color/bgColor
-  // swatch panel opens — see applyValueStyleToCapturedRange's comment in
-  // richText.ts for why. Plain (non-reactive) variable: a Range isn't
-  // meaningful $state, it's a one-shot handoff between "panel opened" and
-  // "swatch picked," consumed and nulled out the moment it's used or the
-  // panel closes without picking one.
+  // Snapshot of the selection Range taken the instant the font-size/
+  // color/backgroundColor <select> is pressed — see
+  // applyValueStyleToCapturedRange's comment in richText.ts for why.
+  // Plain (non-reactive) variable: a Range isn't meaningful $state, it's
+  // a one-shot handoff between "control pressed" and "value picked,"
+  // consumed and nulled out the moment it's used.
+  //
+  // REVISION: previously took a "color" | "bgColor" panel argument, back
+  // when there were separate custom panels for each. The toolbar no
+  // longer has panels at all (see FormattingToolbar.svelte) — every
+  // control that can disturb the selection now goes through this same
+  // one function, so the argument had nothing left to distinguish.
+  // Also now covers font size, which shares applyValueStyleToSelection's
+  // underlying span-wrap mechanism with color/backgroundColor and was
+  // never actually protected before — an oversight in the original
+  // captured-range pass, not something new about this WebView.
   let capturedFormatRange: Range | null = null;
   let lastKnownCaretPos: { node: Node; offset: number } | null = null;
 
-  function captureRangeForColorPanel(panel: "color" | "bgColor") {
+  function captureFormatRange() {
     if (!hasSelection) return;
     const sel = window.getSelection();
     if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
@@ -349,6 +359,19 @@
 
   function handleFontSizeChange(size: number) {
     if (!contentEl) return;
+    if (capturedFormatRange) {
+      const range = capturedFormatRange;
+      capturedFormatRange = null;
+      try {
+        contentEl.focus();
+        applyValueStyleToCapturedRange(range, contentEl, { fontSize: size });
+        refreshFormatState();
+        syncContentFromDom();
+        return;
+      } catch (err) {
+        console.error("note page: captured-range fontSize apply failed, falling back to live selection:", err);
+      }
+    }
     if (hasSelection) {
       contentEl.focus();
       applyValueStyleToSelection(contentEl, { fontSize: size });
@@ -464,7 +487,7 @@
       onFontSizeChange={handleFontSizeChange}
       onColorChange={handleColorChange}
       onBackgroundColorChange={handleBackgroundColorChange}
-      onCaptureRange={captureRangeForColorPanel}
+      onCaptureRange={captureFormatRange}
       {canUndo}
       {canRedo}
       onUndo={undo}
