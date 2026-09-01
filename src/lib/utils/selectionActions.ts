@@ -17,6 +17,8 @@
 // mirrors concat_dedup's actual behavior (union, no duplicates) since
 // that part of the idea genuinely does carry over.
 import { zipSync, strToU8 } from "fflate";
+import { writeFile, BaseDirectory } from "@tauri-apps/plugin-fs";
+import { isTauri } from "@tauri-apps/api/core";
 import { createNote, createTodo, generateId } from "$lib/storage";
 import { htmlToPlainText } from "$lib/utils/richText";
 import type { Entry, Note, Todo } from "$lib/types/entry";
@@ -129,8 +131,53 @@ export function buildExportFiles(entries: Entry[], format: ExportFormat): Export
   return [{ name: "MidNote-export.zip", blob: new Blob([zipped.slice()], { type: "application/zip" }) }];
 }
 
-export function downloadFiles(files: ExportedFile[]): void {
-  files.forEach((f) => {
+// <a download> blob links — what this used to do — don't work on
+// Android WebView. Not a MidNote bug: confirmed, still-open upstream
+// Tauri limitation (tauri-apps/tauri#10280 — Android has no way to
+// resolve a path for a blob link's implicit "download," so the tap
+// silently does nothing). The real fix is writing the bytes directly
+// via plugin-fs instead of asking the WebView to download anything.
+// $DOWNLOAD specifically because it has its own dedicated permission
+// (fs:allow-download-write, see capabilities/default.json) that bundles
+// the write_file command with a pre-set scope for that one directory —
+// no save-dialog picker needed, and no per-file dialog friction for
+// "separate"-format multi-file exports either, since every file just
+// writes straight there in one pass.
+//
+// isTauri()-gated rather than a bare try/catch on plugin-fs directly:
+// the fs plugin's write call will always reject when there's no Tauri
+// IPC backend to answer it — which is the ordinary, expected case when
+// this runs via `npm run dev` in a plain browser tab rather than inside
+// the actual app. Checking first keeps that expected case from being
+// logged as though it were a real failure; genuine on-device errors
+// (permission denied, disk full, whatever) still fall through to the
+// blob-link path below as a last resort rather than a dead end, and
+// still get logged, since those ARE worth knowing about.
+//
+// NOT independently verifiable end-to-end from this sandbox — no real
+// Android device, no way to compile-check the Rust/capability/manifest
+// side that has to be configured for fs:allow-download-write to
+// actually grant anything at runtime (see the manifest and capabilities
+// changes shipped alongside this). The API surface itself (writeFile's
+// signature, BaseDirectory.Download, isTauri()) was checked against the
+// real installed package's type definitions, not assumed from memory or
+// documentation alone — but whether the full permission chain actually
+// grants write access on a real device is on-device-only territory,
+// same as everything else this WebView-specific.
+export async function downloadFiles(files: ExportedFile[]): Promise<void> {
+  if (isTauri()) {
+    try {
+      for (const f of files) {
+        const bytes = new Uint8Array(await f.blob.arrayBuffer());
+        await writeFile(f.name, bytes, { baseDir: BaseDirectory.Download });
+      }
+      return;
+    } catch (err) {
+      console.error("downloadFiles: plugin-fs write to $DOWNLOAD failed, falling back to blob-link download:", err);
+    }
+  }
+
+  for (const f of files) {
     const a = document.createElement("a");
     a.href = URL.createObjectURL(f.blob);
     a.download = f.name;
@@ -138,5 +185,5 @@ export function downloadFiles(files: ExportedFile[]): void {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(a.href);
-  });
+  }
 }

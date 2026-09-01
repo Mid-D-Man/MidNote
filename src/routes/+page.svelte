@@ -139,10 +139,10 @@
     pushToast({ title: `${item?.type === "todo" ? "Todo" : "Note"} deleted`, variant: "destructive" });
   }
 
-  function handleDownloadSingle(id: string) {
+  async function handleDownloadSingle(id: string) {
     const item = entries.find((e) => e.id === id);
     if (!item) return;
-    downloadFiles(buildExportFiles([item], "separate"));
+    await downloadFiles(buildExportFiles([item], "separate"));
     pushToast({ title: "Downloaded" });
   }
 
@@ -160,7 +160,7 @@
       // to a download so the action still does something useful rather
       // than a dead end. Real platform uncertainty, not a guess dressed
       // up as one — see share.ts's header comment.
-      downloadFiles(files);
+      await downloadFiles(files);
       pushToast({ title: "Sharing isn't available here", description: "Downloaded instead." });
       exitSelectMode();
     }
@@ -200,9 +200,9 @@
     if (merged) goto(merged.type === "todo" ? `/todo/${merged.id}` : `/note/${merged.id}`);
   }
 
-  function handleExportSelected(format: ExportFormat) {
+  async function handleExportSelected(format: ExportFormat) {
     breadcrumb(`selection: exporting ${selectedIds.size} items as ${format}`);
-    downloadFiles(buildExportFiles(selectedEntries, format));
+    await downloadFiles(buildExportFiles(selectedEntries, format));
     pushToast({ title: "Exported", description: `${selectedIds.size} item${selectedIds.size === 1 ? "" : "s"} downloaded.` });
     exitSelectMode();
   }
