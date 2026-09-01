@@ -103,7 +103,16 @@ jobs:
       # is the textbook-standard fix for this symptom, but confirming it
       # actually keeps the toolbar visible with the keyboard up still
       # needs an on-device check after this build installs.
-      - name: Patch AndroidManifest for keyboard resize
+      # windowSoftInputMode from before, plus the storage permissions
+      # plugin-fs needs for the $DOWNLOAD write access the download fix
+      # depends on (fs:allow-download-write in capabilities/default.json
+      # only grants the app-side permission — Android itself separately
+      # needs these two <uses-permission> entries, per Tauri's own fs
+      # plugin docs' Android-specific setup section, current as of this
+      # writing). Same reasoning as before for doing this here rather
+      # than committing gen/android: it's regenerated fresh every run,
+      # so there's no manifest to hand-edit once and forget about.
+      - name: Patch AndroidManifest for keyboard resize and storage access
         run: |
           python3 - <<'PY'
           import xml.etree.ElementTree as ET
@@ -128,8 +137,26 @@ jobs:
           for activity in activities:
               activity.set(attr, "adjustResize")
 
+          # <uses-permission> is a direct child of <manifest>, same level
+          # as <application> — not nested under it or under <activity>,
+          # unlike windowSoftInputMode above. Checked for existing entries
+          # first so this stays a no-op if Tauri's own template ever
+          # starts including either of these itself.
+          name_attr = f"{{{ns}}}name"
+          existing = {el.get(name_attr) for el in root.findall("uses-permission")}
+          needed = ["android.permission.READ_EXTERNAL_STORAGE", "android.permission.WRITE_EXTERNAL_STORAGE"]
+          added = 0
+          for perm in needed:
+              if perm in existing:
+                  continue
+              el = ET.Element("uses-permission")
+              el.set(name_attr, perm)
+              root.insert(0, el)
+              added += 1
+
           tree.write(path, encoding="utf-8", xml_declaration=True)
           print(f"Patched {len(activities)} <activity> element(s) with windowSoftInputMode=adjustResize")
+          print(f"Added {added} storage <uses-permission> entr{'y' if added == 1 else 'ies'} ({len(needed) - added} already present)")
           PY
 
       # --target restricts this to the one ABI that's actually needed. The
