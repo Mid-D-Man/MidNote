@@ -1,30 +1,7 @@
 <script lang="ts">
-  import { FONT_SIZES } from "$lib/stores/settings.svelte";
+  import Sheet from "$lib/components/ui/Sheet/Sheet.svelte";
+  import FormatValuePicker from "$lib/components/notes/FormatValuePicker/FormatValuePicker.svelte";
   import { breadcrumb } from "$lib/debug/log.svelte";
-
-  // value: null means "no override" / the clear option. HTML <option>
-  // values are always strings, so null maps to "" and back at the call
-  // sites below.
-  const TEXT_COLORS: { label: string; value: string | null }[] = [
-    { label: "Default", value: null },
-    { label: "Red", value: "#ef4444" },
-    { label: "Orange", value: "#f97316" },
-    { label: "Yellow", value: "#eab308" },
-    { label: "Green", value: "#22c55e" },
-    { label: "Teal", value: "#14b8a6" },
-    { label: "Blue", value: "#3b82f6" },
-    { label: "Purple", value: "#a855f7" },
-  ];
-  const BG_COLORS: { label: string; value: string | null }[] = [
-    { label: "None", value: null },
-    { label: "Red", value: "#fecaca" },
-    { label: "Orange", value: "#fed7aa" },
-    { label: "Yellow", value: "#fef08a" },
-    { label: "Green", value: "#bbf7d0" },
-    { label: "Teal", value: "#99f6e4" },
-    { label: "Blue", value: "#bfdbfe" },
-    { label: "Purple", value: "#e9d5ff" },
-  ];
 
   let {
     onFormat,
@@ -50,46 +27,26 @@
       color: string | null;
       backgroundColor: string | null;
     };
-    // Still tells the page's handleFormat/handleFontSizeChange/
-    // handleColorChange/handleBackgroundColorChange whether to apply
-    // directly to a selection or set a pending (sticky-for-next-typing)
-    // format — that decision hasn't changed. What HAS changed: this no
-    // longer controls which buttons render.
-    //
-    // REVISION: this toolbar used to swap between two different row
-    // layouts depending on hasSelection, with B/I/U/S hidden behind a
-    // separate "Aa" panel-open tap in the no-selection layout, and
-    // color/backgroundColor behind their own swatch-panel-open tap in
-    // both layouts. Every one of those was a two-step "open something,
-    // then pick something" interaction with a real gap in between where
-    // the live selection sat exposed. Three rounds of fixes aimed at
-    // that gap (collapseOutsideFormatting, pointerdown guards, captured
-    // ranges) and the leak was still reported after all three — enough
-    // signal that the two-step pattern itself is the problem, not a
-    // specific bug in any one version of how it was defended.
-    //
-    // This version has exactly one interaction shape for every control:
-    // pick once, done. B/I/U/S and the list buttons are plain toggle
-    // buttons, always in the row, always one tap. Font size/color/
-    // backgroundColor are native <select> elements — picking a value
-    // fires one onchange; there's no separate app-rendered "panel" step
-    // for anything to go wrong in between opening it and picking from
-    // it.
+    // SECOND REVISION: back to controlling which buttons render, this
+    // time deliberately rather than as leftover browser-internal state.
+    // See the REVISION note below for why the "one interaction shape for
+    // everything" version this replaces didn't hold up, and
+    // FormatValuePicker.svelte's header comment for the <select>-specific
+    // half of it.
     hasSelection?: boolean;
     fontSize?: number;
     onFontSizeChange?: (size: number) => void;
     onColorChange?: (color: string | null) => void;
     onBackgroundColorChange?: (color: string | null) => void;
-    // Fired on pointerdown on the font-size/color/backgroundColor
-    // <select> elements specifically — before focus, before the native
-    // picker opens, the earliest point available to snapshot the
-    // current Range. Kept from the previous version, just retargeted:
-    // the captured-range apply logic was already proven correct
-    // (executed directly against the real compiled code, not just
-    // reasoned about) — what was fragile was the custom panel UI that
-    // used to sit between "open" and "pick," not this. Dropping a
-    // working safety net to match the interaction-shape simplification
-    // wouldn't have made anything simpler, just less defended.
+    // Fired on pointerdown on anything that can open a value-style
+    // picker (previously the size/color/backgroundColor <select>s
+    // directly; now the single "Aa" trigger below) — the earliest point
+    // available to snapshot the current Range, before whatever the tap
+    // does next might disturb it. See richText.ts's
+    // applyValueStyleToCapturedRange comment for why this matters: a
+    // real, human-timescale gap between "open something" and "pick
+    // something" is exactly the window a stray selectionchange can land
+    // in and invalidate the live selection before the pick lands.
     onCaptureRange?: () => void;
     canUndo?: boolean;
     canRedo?: boolean;
@@ -97,18 +54,39 @@
     onRedo?: () => void;
   } = $props();
 
-  // Stops a toolbar control from ever taking focus away from the note
-  // body in a way that loses its Selection. preventDefault() here
-  // suppresses only the focus-stealing default action of mousedown —
-  // click still fires normally. Bound to both pointerdown and mousedown:
-  // pointerdown fires earlier than the synthesized mousedown a
-  // touchscreen produces, so it's a strictly-earlier, strictly-safer
-  // version of the same guard, not a replacement for it.
-  //
-  // NOT applied to the font-size/color/backgroundColor <select>
-  // elements — those need to take focus to open their native picker at
-  // all; guarding them would just break them. Their protection is the
-  // captured-range mechanism above, not this.
+  // REVISION NOTE: the previous version of this file removed the
+  // hasSelection-driven layout swap entirely, on the theory that three
+  // rounds of fixing the two-step "open a panel, then pick from it" gap
+  // meant the two-step pattern itself was the problem. That diagnosis
+  // was half right: the color/backgroundColor swatch *panels* specifically
+  // were real, repeat offenders, and are gone for good (see
+  // FormatValuePicker.svelte). But folding hasSelection out of the
+  // picture at the same time was a second, separate change bundled into
+  // one "simplification," and it's the one that broke on real use:
+  // - Undo/redo stayed visible and tappable while a selection was
+  //   active, where they don't apply to a selection at all.
+  // - B/I/U/S/size/color/background sat in the always-visible row for
+  //   the no-selection ("just typing") case too, which is exactly the
+  //   clutter an explicit request asked to move into the header's "..."
+  //   Actions sheet instead (see NoteEditorHeader.svelte).
+  // Two-step "open, then pick" and hasSelection-driven layout are
+  // independent axes. This version keeps the fix for the first (no more
+  // bespoke swatch panels with their own timing surface — FormatValuePicker
+  // is plain content dropped into the existing, already-proven Sheet
+  // component) and restores the second.
+  let styleOpen = $state(false);
+
+  // Same guard as before: stops a toolbar control from stealing focus
+  // away from the note body in a way that loses its Selection.
+  // preventDefault() here suppresses only the focus-stealing default
+  // action of mousedown/pointerdown — click still fires normally for a
+  // <button>. Deliberately NOT relied on to protect anything that isn't
+  // a <button> here any more — see FormatValuePicker.svelte's header
+  // comment for why a bubbled preventDefault() from a handler like this
+  // one is NOT safe to lean on for a native <select>'s own default
+  // action (that was the actual, confirmed cause of color/background/
+  // size never responding to a tap at all), which is exactly why this
+  // toolbar has no <select> elements left for it to accidentally catch.
   function guardFocus(e: Event) {
     e.preventDefault();
   }
@@ -118,71 +96,23 @@
     onFormat(format);
   }
 
-  function pickFontSize(value: string) {
-    const size = Number(value);
-    breadcrumb(`toolbar: font size -> ${size}`);
-    onFontSizeChange?.(size);
-  }
-
-  function pickColor(value: string) {
-    breadcrumb(`toolbar: text color -> ${value || "default"}`);
-    onColorChange?.(value || null);
-  }
-
-  function pickBackgroundColor(value: string) {
-    breadcrumb(`toolbar: background color -> ${value || "none"}`);
-    onBackgroundColorChange?.(value || null);
+  function openStylePicker() {
+    breadcrumb("toolbar: style panel opened");
+    onCaptureRange?.();
+    styleOpen = true;
   }
 </script>
 
 <div class="toolbar-wrap">
   <div class="toolbar" role="toolbar" aria-label="Note formatting" tabindex="-1" onmousedown={guardFocus} onpointerdown={guardFocus}>
-    <button class:active={activeFormats.bold} onclick={() => apply("bold")} aria-label="Bold"><strong>B</strong></button>
-    <button class:active={activeFormats.italic} onclick={() => apply("italic")} aria-label="Italic"><em>I</em></button>
-    <button class:active={activeFormats.underline} onclick={() => apply("underline")} aria-label="Underline"><span class="underline">U</span></button>
-    <button class:active={activeFormats.strikethrough} onclick={() => apply("strikethrough")} aria-label="Strikethrough"><span class="strike">S</span></button>
+    {#if hasSelection}
+      <button class:active={activeFormats.bold} onclick={() => apply("bold")} aria-label="Bold"><strong>B</strong></button>
+      <button class:active={activeFormats.italic} onclick={() => apply("italic")} aria-label="Italic"><em>I</em></button>
+      <button class:active={activeFormats.underline} onclick={() => apply("underline")} aria-label="Underline"><span class="underline">U</span></button>
+      <button class:active={activeFormats.strikethrough} onclick={() => apply("strikethrough")} aria-label="Strikethrough"><span class="strike">S</span></button>
 
-    <div class="sep"></div>
-
-    <select
-      class="picker size-picker"
-      value={String(fontSize)}
-      onpointerdown={() => onCaptureRange?.()}
-      onchange={(e) => pickFontSize(e.currentTarget.value)}
-      aria-label="Text size"
-    >
-      {#each FONT_SIZES as size (size)}
-        <option value={String(size)}>{size}</option>
-      {/each}
-    </select>
-
-    <select
-      class="picker"
-      style="color:{activeFormats.color ?? 'inherit'}"
-      value={activeFormats.color ?? ""}
-      onpointerdown={() => onCaptureRange?.()}
-      onchange={(e) => pickColor(e.currentTarget.value)}
-      aria-label="Text color"
-    >
-      {#each TEXT_COLORS as c (c.label)}
-        <option value={c.value ?? ""}>{c.label}</option>
-      {/each}
-    </select>
-
-    <select
-      class="picker"
-      style="background:{activeFormats.backgroundColor ?? 'transparent'}"
-      value={activeFormats.backgroundColor ?? ""}
-      onpointerdown={() => onCaptureRange?.()}
-      onchange={(e) => pickBackgroundColor(e.currentTarget.value)}
-      aria-label="Background color"
-    >
-      {#each BG_COLORS as c (c.label)}
-        <option value={c.value ?? ""}>{c.label}</option>
-      {/each}
-    </select>
-
-    <div class="sep"></div>
+      <div class="sep"></div>
+    {/if}
 
     <button class:active={activeFormats.list === "bullet"} onclick={() => apply("bulletList")} aria-label="Bullet list" title="Bullet list">
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
@@ -210,18 +140,40 @@
 
     <div class="sep"></div>
 
-    <button onclick={() => { breadcrumb("toolbar: Undo tapped"); onUndo?.(); }} disabled={!canUndo} aria-label="Undo">
-      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M3 7v6h6" /><path d="M3 13a9 9 0 1 0 3-7" />
-      </svg>
-    </button>
-    <button onclick={() => { breadcrumb("toolbar: Redo tapped"); onRedo?.(); }} disabled={!canRedo} aria-label="Redo">
-      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M21 7v6h-6" /><path d="M21 13a9 9 0 1 1-3-7" />
-      </svg>
-    </button>
+    {#if hasSelection}
+      <button
+        class="style-trigger"
+        class:active={!!activeFormats.color || !!activeFormats.backgroundColor}
+        onpointerdown={openStylePicker}
+        aria-label="Text size and color"
+      >
+        <span class="aa-icon" style="color:{activeFormats.color ?? 'inherit'}; background:{activeFormats.backgroundColor ?? 'transparent'}">Aa</span>
+      </button>
+    {:else}
+      <button onclick={() => { breadcrumb("toolbar: Undo tapped"); onUndo?.(); }} disabled={!canUndo} aria-label="Undo">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M3 7v6h6" /><path d="M3 13a9 9 0 1 0 3-7" />
+        </svg>
+      </button>
+      <button onclick={() => { breadcrumb("toolbar: Redo tapped"); onRedo?.(); }} disabled={!canRedo} aria-label="Redo">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 7v6h-6" /><path d="M21 13a9 9 0 1 1-3-7" />
+        </svg>
+      </button>
+    {/if}
   </div>
 </div>
+
+<Sheet bind:open={styleOpen} side="bottom" title="Text style">
+  <FormatValuePicker
+    {fontSize}
+    onFontSizeChange={(size) => onFontSizeChange?.(size)}
+    color={activeFormats.color}
+    onColorChange={(c) => onColorChange?.(c)}
+    backgroundColor={activeFormats.backgroundColor}
+    onBackgroundColorChange={(c) => onBackgroundColorChange?.(c)}
+  />
+</Sheet>
 
 <style>
   .toolbar-wrap {
@@ -248,8 +200,8 @@
   }
   .toolbar button {
     flex-shrink: 0;
-    width: 36px;
-    height: 36px;
+    width: 40px;
+    height: 40px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -272,27 +224,18 @@
     background: var(--accent);
     color: var(--bg);
   }
-  /* Native <select> — deliberately minimal styling. The whole point is
-     that the OS renders and manages the actual picker; fighting that
-     with heavy custom CSS would be working against the reason this
-     exists. Sized to roughly match the toggle buttons alongside it and
-     left otherwise close to platform default. */
-  .picker {
-    flex-shrink: 0;
-    height: 36px;
-    max-width: 72px;
-    border: none;
-    border-radius: var(--radius-sm);
-    background: transparent;
-    color: var(--text-hi);
-    font-family: var(--font-sans);
-    font-size: 13px;
-    font-weight: 600;
+  .style-trigger {
+    width: auto;
+    min-width: 40px;
     padding: 0 var(--space-1);
   }
-  .size-picker {
-    max-width: 52px;
-    text-align: center;
+  .aa-icon {
+    font-family: var(--font-sans);
+    font-weight: 700;
+    font-size: 13px;
+    padding: 3px 5px;
+    border-radius: var(--radius-sm);
+    line-height: 1;
   }
   .roman-icon {
     font-family: var(--font-display);
