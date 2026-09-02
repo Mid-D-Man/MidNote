@@ -13,6 +13,7 @@
   import { breadcrumb } from "$lib/debug/log.svelte";
   import {
     applyInlineFormat,
+    escapeInlineFormattingContext,
     queryActiveFormats,
     applyListFormat,
     queryActiveList,
@@ -340,11 +341,25 @@
         refreshFormatState();
         syncContentFromDom();
       } else {
-        // No DOM/execCommand touched at all here — just our own boolean
-        // flip. See the pendingFormats comment above for why.
+        // Mostly just our own boolean flip — see the pendingFormats
+        // comment above for why this doesn't touch execCommand at all
+        // while toggling. The one exception: toggling OFF specifically
+        // also escapes the caret out of any formatting element it's
+        // currently sitting inside (e.g. the span wrapLastInsertedText
+        // created for the last character typed while this was pending —
+        // see richText.ts). Nothing else walks it back out on a bare
+        // toggle, so without this the very next keystroke lands inside
+        // that same span regardless of pendingFormats now reading
+        // false — structurally continuing a format the user just turned
+        // off. Safe to call unconditionally on toggle-off: it's a no-op
+        // if the caret isn't inside any formatting element (e.g. this
+        // format was toggled on and off again without ever actually
+        // being typed).
         const key = format as keyof Pick<PendingFormats, "bold" | "italic" | "underline" | "strikethrough">;
-        pendingFormats = { ...pendingFormats, [key]: !pendingFormats[key] };
-        activeFormats = { ...activeFormats, [key]: pendingFormats[key] };
+        const nextValue = !pendingFormats[key];
+        pendingFormats = { ...pendingFormats, [key]: nextValue };
+        activeFormats = { ...activeFormats, [key]: nextValue };
+        if (!nextValue) escapeInlineFormattingContext(contentEl);
       }
       return;
     }
@@ -463,6 +478,13 @@
       onTagsChange={setTags}
       onSave={persist}
       onBack={() => goto("/")}
+      {hasSelection}
+      {activeFormats}
+      onFormat={handleFormat}
+      fontSize={currentFontSize}
+      onFontSizeChange={handleFontSizeChange}
+      onColorChange={handleColorChange}
+      onBackgroundColorChange={handleBackgroundColorChange}
     />
 
     <div class="scroll-area">
@@ -475,6 +497,7 @@
           {pendingFormats}
           syncToken={domSyncToken}
           onAutoFormatApplied={handleAutoFormatApplied}
+          {hasSelection}
         />
       </div>
     </div>
