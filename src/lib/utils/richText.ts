@@ -78,9 +78,67 @@ function safeQueryState(cmd: string): boolean {
 // formatting element's boundary after applying, into the parent's flow
 // — a real DOM reposition, not another appeal to execCommand's own
 // state tracking.
+//
+// SECOND REVISION NOTE: on-device testing after the fix above still
+// showed formatting leaking into text typed after a formatted
+// selection. The Range reposition itself was verifiable and is correct
+// as far as it goes, but it only ever addressed where the *Selection*
+// object points — not a separate thing the W3C editing wiki calls
+// "typing style": an internal browser flag, distinct from the visible
+// Selection, that execCommand can set on a selection to mean "apply
+// this to whatever gets typed next," and which the spec says clears
+// "when the user modifies the selection" — user, not script. Whether a
+// script-driven removeAllRanges()/addRange() (which is what
+// collapseOutsideFormatting does) counts as "the user modifying the
+// selection" for the purpose of clearing that flag is
+// implementation-defined, and not something with a public answer either
+// way for Chromium/Android WebView specifically. escapeInlineFormattingContext
+// covers both possibilities: reposition the Range (already done, kept),
+// then explicitly re-query and, if still (surprisingly) active, re-toggle
+// off each inline command — closing the gap if the flag turns out not to
+// clear on its own, at zero cost if it already does (queryCommandState
+// would just read false and nothing further happens).
+//
+// NOT independently verifiable from this sandbox — jsdom has no
+// execCommand at all (see this file's header comment), so neither the
+// original leak nor this fix can be exercised here. This is the
+// best-supported explanation given the evidence (the first fix
+// addressed a real, confirmed mechanism and the leak was still
+// reported), not a confirmed root cause. If it's still not fully closed
+// after this, the next step is dropping execCommand for inline formats
+// entirely in favor of the same plain-span-wrap approach already used
+// for font size/color/background below — that would remove this whole
+// class of browser-internal state as a variable, at the cost of having
+// to reimplement toggle-off-a-mixed-selection by hand instead of
+// leaning on the browser's native (if occasionally flaky) handling of it.
 export function applyInlineFormat(format: InlineFormat, root: HTMLElement): void {
   safeExec(INLINE_COMMAND[format]);
+  escapeInlineFormattingContext(root);
+}
+
+// Shared by applyInlineFormat (selection case, above) and the
+// no-selection "toggle a pending format back off" case in
+// note/[id]/+page.svelte's handleFormat — both are moments where typing
+// should stop inheriting a format the caret currently happens to sit
+// inside, whether that's from a selection just formatted or from this
+// file's own per-character auto-wrap (see wrapLastInsertedText)
+// finishing with the caret still inside the span it just created.
+export function escapeInlineFormattingContext(root: HTMLElement): void {
   collapseOutsideFormatting(root);
+  clearLingeringTypingState();
+}
+
+function clearLingeringTypingState(): void {
+  (Object.values(INLINE_COMMAND) as string[]).forEach((cmd) => {
+    // collapseOutsideFormatting just walked the caret to a position
+    // structurally outside every formatting element it was nested in —
+    // so a command reading "on" here can't be reflecting real DOM
+    // context (there's no formatting element left to be inside), only a
+    // leftover browser-internal flag. Toggling it off is always correct
+    // at this specific point, not just for whichever single format the
+    // caller happened to apply.
+    if (safeQueryState(cmd)) safeExec(cmd);
+  });
 }
 
 const FORMATTING_TAGS = new Set(["STRONG", "B", "EM", "I", "U", "S", "STRIKE", "SPAN"]);
