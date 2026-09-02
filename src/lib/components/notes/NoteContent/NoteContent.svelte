@@ -36,7 +36,7 @@
   // Deliberately NOT auto-growing to fit content: fixed height + internal
   // scroll avoids a large paste forcing an expensive synchronous reflow.
   import { untrack } from "svelte";
-  import { insertPlainText, wrapLastInsertedText, emptyPendingFormats, stripHtml, type PendingFormats } from "$lib/utils/richText";
+  import { insertPlainText, wrapLastInsertedText, hasPendingFormats, emptyPendingFormats, stripHtml, type PendingFormats } from "$lib/utils/richText";
   import { noteLinesEnabled } from "$lib/stores/settings.svelte";
 
   let {
@@ -46,6 +46,7 @@
     pendingFormats = emptyPendingFormats(),
     onAutoFormatApplied,
     syncToken = 0,
+    hasSelection = false,
   }: {
     value?: string;
     contentEl?: HTMLDivElement | null;
@@ -68,6 +69,12 @@
     // described above. Read via untrack() below so this effect reacts
     // only to the token, never to `value` itself changing on its own.
     syncToken?: number;
+    // Suppresses the ruled-paper background (below) while a real
+    // selection is active — a live Selection highlight painted over
+    // ruled lines is what "the line stuff doesn't go away when I
+    // select text" referred to. Purely visual; has no effect on
+    // pendingFormats/formatting logic.
+    hasSelection?: boolean;
   } = $props();
 
   // note.content's default is now "<div><br></div>" (see storage.ts's
@@ -101,20 +108,59 @@
   // types oninput as InputEvent for <input>/<textarea>, not a generic
   // contenteditable <div> — even though the browser does fire a real
   // InputEvent here. Cast at the point of use instead of fighting that.
+  //
+  // REVISION NOTE: this used to gate on `ie.data && ie.inputType?.startsWith("insert")`
+  // — require BOTH a non-empty data string AND a well-formed "insert*"
+  // inputType before ever calling wrapLastInsertedText. That's the spec
+  // shape for a clean desktop-Chrome insertText event, but it's an
+  // allow-list of a well-formed shape, and real keyboards — Samsung
+  // Keyboard on Android WebView specifically has open, general-purpose
+  // contenteditable bug reports independent of any framework — are not
+  // guaranteed to produce it: `data` can come through null/empty on an
+  // otherwise perfectly ordinary single-character keystroke. When that
+  // happened, the old guard silently did nothing at all: no error, no
+  // log, just no formatting, on every single keystroke — which matches
+  // "bold/italic/underline/strikethrough do not work AT ALL" exactly.
+  //
+  // Flipped to a deny-list instead: only SKIP when this is positively
+  // identifiable as a deletion or a history action, both of which
+  // reliably self-report via inputType even when insertions don't
+  // ("deleteContentBackward" etc. / "historyUndo" / "historyRedo" —
+  // note MidNote's own undo/redo is a separate page-level stack that
+  // doesn't dispatch native input events at all, but a WebView's own
+  // built-in undo gesture could, so this stays excluded on principle).
+  // Everything else that isn't IME composition is treated as a
+  // candidate insertion. `ie.data`'s length is still used when present
+  // (the common, correct case); when it's missing, this falls back to
+  // wrapping exactly 1 character rather than doing nothing — right for
+  // the overwhelmingly common case of a single keystroke, and bounded-
+  // safe even when wrong: wrapLastInsertedText clamps to what's actually
+  // there and simply no-ops if the assumption doesn't hold, not a crash
+  // or data loss either way.
+  //
+  // NOT independently verifiable from this sandbox: jsdom doesn't
+  // simulate a real WebView's IME/keyboard event sequence (it has no
+  // execCommand at all — see richText.ts's header comment — and nothing
+  // here drives actual on-screen-keyboard behavior either), so this is
+  // the best-supported fix given the evidence (a real, general,
+  // independently-documented Samsung-Keyboard-in-Android-WebView
+  // contenteditable quirk class), not a confirmed root cause. Worth
+  // checking the debug panel after this build for whether "toolbar:
+  // bold tapped" is now actually followed by bold characters landing in
+  // note.content, on-device.
   function oninput(e: Event) {
     if (!contentEl) return;
     const ie = e as InputEvent;
-    const hasPending =
-      pendingFormats.bold ||
-      pendingFormats.italic ||
-      pendingFormats.underline ||
-      pendingFormats.strikethrough ||
-      pendingFormats.fontSize !== null ||
-      pendingFormats.color !== null ||
-      pendingFormats.backgroundColor !== null;
+    if (ie.isComposing) {
+      value = contentEl.innerHTML;
+      return;
+    }
+    const isDeletion = !!ie.inputType && ie.inputType.startsWith("delete");
+    const isHistory = ie.inputType === "historyUndo" || ie.inputType === "historyRedo";
 
-    if (hasPending && !ie.isComposing && ie.data && ie.inputType?.startsWith("insert")) {
-      const pos = wrapLastInsertedText(contentEl, ie.data.length, pendingFormats);
+    if (hasPendingFormats(pendingFormats) && !isDeletion && !isHistory) {
+      const insertedLength = ie.data && ie.data.length > 0 ? ie.data.length : 1;
+      const pos = wrapLastInsertedText(contentEl, insertedLength, pendingFormats);
       if (pos) onAutoFormatApplied?.(pos.node, pos.offset);
     }
     value = contentEl.innerHTML;
@@ -142,7 +188,7 @@
   data-placeholder="Start typing..."
   class="note-content"
   class:empty={isEmpty}
-  class:lined={noteLinesEnabled.value}
+  class:lined={noteLinesEnabled.value && !hasSelection}
   style="font-size: {baseFontSize}px; line-height: {Math.round(baseFontSize * 1.7)}px"
 ></div>
 
