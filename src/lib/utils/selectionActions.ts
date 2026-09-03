@@ -18,6 +18,7 @@
 // that part of the idea genuinely does carry over.
 import { zipSync, strToU8 } from "fflate";
 import { writeFile, BaseDirectory } from "@tauri-apps/plugin-fs";
+import { save } from "@tauri-apps/plugin-dialog";
 import { isTauri } from "@tauri-apps/api/core";
 import { createNote, createTodo, generateId } from "$lib/storage";
 import { htmlToPlainText } from "$lib/utils/richText";
@@ -135,35 +136,52 @@ export function buildExportFiles(entries: Entry[], format: ExportFormat): Export
 // Android WebView. Not a MidNote bug: confirmed, still-open upstream
 // Tauri limitation (tauri-apps/tauri#10280 — Android has no way to
 // resolve a path for a blob link's implicit "download," so the tap
-// silently does nothing). The real fix is writing the bytes directly
-// via plugin-fs instead of asking the WebView to download anything.
-// $DOWNLOAD specifically because it has its own dedicated permission
-// (fs:allow-download-write, see capabilities/default.json) that bundles
-// the write_file command with a pre-set scope for that one directory —
-// no save-dialog picker needed, and no per-file dialog friction for
-// "separate"-format multi-file exports either, since every file just
-// writes straight there in one pass.
+// silently does nothing).
 //
-// isTauri()-gated rather than a bare try/catch on plugin-fs directly:
-// the fs plugin's write call will always reject when there's no Tauri
-// IPC backend to answer it — which is the ordinary, expected case when
-// this runs via `npm run dev` in a plain browser tab rather than inside
-// the actual app. Checking first keeps that expected case from being
-// logged as though it were a real failure; genuine on-device errors
-// (permission denied, disk full, whatever) still fall through to the
-// blob-link path below as a last resort rather than a dead end, and
-// still get logged, since those ARE worth knowing about.
+// REVISION: the direct plugin-fs write to $DOWNLOAD below was meant to
+// be the real fix, sidestepping the blob-link problem entirely — and it
+// still is, on desktop. On-device testing on Android showed it silently
+// not working there either, and looking into why turned up a real,
+// documented gap rather than a MidNote-specific mistake: Tauri's own
+// downloadDir()/BaseDirectory.Download docs describe Linux/macOS/
+// Windows behavior specifically and say nothing about Android or iOS at
+// all (contrast fontDir()/executableDir()/runtimeDir(), which
+// explicitly say "Not supported" for the platforms that don't have one
+// — Download isn't given that treatment either way), and real-world
+// reports of using plugin-fs's BaseDirectory system on Android describe
+// files created under it landing somewhere the OS's own Downloads app
+// and file manager can't see, or the write being rejected outright —
+// consistent with Android's scoped storage rules (strict since Android
+// 11/API 30), which block direct writes to shared directories like the
+// real Downloads folder unless the write goes through an API meant for
+// exactly that. A plain writeFile+BaseDirectory call isn't one — which
+// is also the whole reason dedicated community plugins
+// (tauri-plugin-android-fs, tauri-plugin-scoped-storage) exist purely
+// to work around this gap.
+//
+// The API that IS meant for it, and IS what Tauri's own docs show for
+// this exact "let the user save a file" case: plugin-dialog's save(),
+// which routes through Android's real file picker (Storage Access
+// Framework) rather than a pre-declared path at all — the resulting
+// path comes back already-granted for that one write, sidestepping
+// scoped storage instead of running into it. Kept as the FALLBACK
+// specifically, not the first attempt: it costs a picker tap per file
+// where the direct write costs none, and the direct write is confirmed
+// fine on desktop, so there's no reason to add that friction where
+// nothing's actually broken. Only reached if the direct write throws —
+// which is exactly the Android case, going by the above.
 //
 // NOT independently verifiable end-to-end from this sandbox — no real
-// Android device, no way to compile-check the Rust/capability/manifest
-// side that has to be configured for fs:allow-download-write to
-// actually grant anything at runtime (see the manifest and capabilities
-// changes shipped alongside this). The API surface itself (writeFile's
-// signature, BaseDirectory.Download, isTauri()) was checked against the
-// real installed package's type definitions, not assumed from memory or
-// documentation alone — but whether the full permission chain actually
-// grants write access on a real device is on-device-only territory,
-// same as everything else this WebView-specific.
+// Android device, no way to compile-check the Rust/capability side here
+// either (added tauri-plugin-dialog to Cargo.toml/capabilities/lib.rs
+// alongside this — real, current crate and package versions, checked
+// against the published registries rather than assumed — but whether
+// the full permission chain actually grants what it's supposed to at
+// runtime is on-device-only territory, same as the rest of this
+// WebView-specific file). One known rough edge either way: Android has
+// an open upstream report of the save dialog not honoring the
+// suggested filename (tauri-apps/tauri#12942) — the picker will still
+// open and work, just possibly without f.name pre-filled.
 export async function downloadFiles(files: ExportedFile[]): Promise<void> {
   if (isTauri()) {
     try {
@@ -173,7 +191,19 @@ export async function downloadFiles(files: ExportedFile[]): Promise<void> {
       }
       return;
     } catch (err) {
-      console.error("downloadFiles: plugin-fs write to $DOWNLOAD failed, falling back to blob-link download:", err);
+      console.error("downloadFiles: plugin-fs write to $DOWNLOAD failed, falling back to save dialog:", err);
+    }
+
+    try {
+      for (const f of files) {
+        const path = await save({ defaultPath: f.name });
+        if (!path) continue; // user cancelled this file's dialog
+        const bytes = new Uint8Array(await f.blob.arrayBuffer());
+        await writeFile(path, bytes);
+      }
+      return;
+    } catch (err) {
+      console.error("downloadFiles: save-dialog fallback also failed, falling back to blob-link download:", err);
     }
   }
 

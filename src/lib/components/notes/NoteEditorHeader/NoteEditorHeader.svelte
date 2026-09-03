@@ -74,6 +74,16 @@
     onFormat?.(format);
   }
 
+  // Same guard as FormattingToolbar's — see FormatValuePicker.svelte's
+  // header comment for the exact chain this closes (tap steals focus ->
+  // refreshFormatState sees the selection left the note body ->
+  // resetPendingFormats wipes out whatever was just set). This one
+  // covers the inline B/I/U/S row specifically, which lives directly in
+  // this file rather than inside FormatValuePicker.
+  function guardFocus(e: Event) {
+    e.preventDefault();
+  }
+
   let isSaving = $state(false);
   let showDeleteConfirm = $state(false);
   let moreOpen = $state(false);
@@ -200,7 +210,7 @@
 
 <Sheet bind:open={moreOpen} side="bottom" title="Actions">
   {#if !hasSelection}
-    <div class="format-section">
+    <div class="format-section" role="toolbar" aria-label="Formatting" tabindex="-1" onpointerdown={guardFocus} onmousedown={guardFocus}>
       <span class="group-label">Formatting</span>
       <div class="inline-format-row">
         <button type="button" class:active={activeFormats.bold} onclick={() => tapFormat("bold")} aria-label="Bold"><strong>B</strong></button>

@@ -112,35 +112,7 @@
       <button class:active={activeFormats.strikethrough} onclick={() => apply("strikethrough")} aria-label="Strikethrough"><span class="strike">S</span></button>
 
       <div class="sep"></div>
-    {/if}
 
-    <button class:active={activeFormats.list === "bullet"} onclick={() => apply("bulletList")} aria-label="Bullet list" title="Bullet list">
-      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
-        <circle cx="3.5" cy="6" r="1.2" fill="currentColor" stroke="none" />
-        <circle cx="3.5" cy="12" r="1.2" fill="currentColor" stroke="none" />
-        <circle cx="3.5" cy="18" r="1.2" fill="currentColor" stroke="none" />
-        <line x1="8" y1="6" x2="20" y2="6" />
-        <line x1="8" y1="12" x2="20" y2="12" />
-        <line x1="8" y1="18" x2="20" y2="18" />
-      </svg>
-    </button>
-    <button class:active={activeFormats.list === "decimal"} onclick={() => apply("orderedList")} aria-label="Numbered list" title="Numbered list">
-      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
-        <line x1="9" y1="6" x2="20" y2="6" />
-        <line x1="9" y1="12" x2="20" y2="12" />
-        <line x1="9" y1="18" x2="20" y2="18" />
-        <text x="1" y="8" font-size="7" fill="currentColor" stroke="none">1</text>
-        <text x="1" y="14" font-size="7" fill="currentColor" stroke="none">2</text>
-        <text x="1" y="20" font-size="7" fill="currentColor" stroke="none">3</text>
-      </svg>
-    </button>
-    <button class:active={activeFormats.list === "roman"} onclick={() => apply("romanList")} aria-label="Roman numeral list" title="Roman numeral list">
-      <span class="roman-icon">iv.</span>
-    </button>
-
-    <div class="sep"></div>
-
-    {#if hasSelection}
       <button
         class="style-trigger"
         class:active={!!activeFormats.color || !!activeFormats.backgroundColor}
@@ -150,6 +122,32 @@
         <span class="aa-icon" style="color:{activeFormats.color ?? 'inherit'}; background:{activeFormats.backgroundColor ?? 'transparent'}">Aa</span>
       </button>
     {:else}
+      <button class:active={activeFormats.list === "bullet"} onclick={() => apply("bulletList")} aria-label="Bullet list" title="Bullet list">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="3.5" cy="6" r="1.2" fill="currentColor" stroke="none" />
+          <circle cx="3.5" cy="12" r="1.2" fill="currentColor" stroke="none" />
+          <circle cx="3.5" cy="18" r="1.2" fill="currentColor" stroke="none" />
+          <line x1="8" y1="6" x2="20" y2="6" />
+          <line x1="8" y1="12" x2="20" y2="12" />
+          <line x1="8" y1="18" x2="20" y2="18" />
+        </svg>
+      </button>
+      <button class:active={activeFormats.list === "decimal"} onclick={() => apply("orderedList")} aria-label="Numbered list" title="Numbered list">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="9" y1="6" x2="20" y2="6" />
+          <line x1="9" y1="12" x2="20" y2="12" />
+          <line x1="9" y1="18" x2="20" y2="18" />
+          <text x="1" y="8" font-size="7" fill="currentColor" stroke="none">1</text>
+          <text x="1" y="14" font-size="7" fill="currentColor" stroke="none">2</text>
+          <text x="1" y="20" font-size="7" fill="currentColor" stroke="none">3</text>
+        </svg>
+      </button>
+      <button class:active={activeFormats.list === "roman"} onclick={() => apply("romanList")} aria-label="Roman numeral list" title="Roman numeral list">
+        <span class="roman-icon">iv.</span>
+      </button>
+
+      <div class="sep"></div>
+
       <button onclick={() => { breadcrumb("toolbar: Undo tapped"); onUndo?.(); }} disabled={!canUndo} aria-label="Undo">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M3 7v6h6" /><path d="M3 13a9 9 0 1 0 3-7" />

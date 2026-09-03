@@ -28,7 +28,10 @@
   // a select's picker-open is, which is also why B/I/U/S kept registering
   // taps in the debug log while the color/background/size controls never
   // logged anything at all.
-  import { FONT_SIZES } from "$lib/stores/settings.svelte";
+  // MIN_FONT_SIZE/MAX_FONT_SIZE below replace the old fixed FONT_SIZES
+  // chip set now that this is a slider — a continuous range needs
+  // bounds, not a discrete list, and a slider covers finer whole-number
+  // steps a fixed set of 8 chips didn't.
 
   const TEXT_COLORS: { label: string; value: string | null }[] = [
     { label: "Default", value: null },
@@ -66,16 +69,52 @@
     backgroundColor: string | null;
     onBackgroundColorChange: (color: string | null) => void;
   } = $props();
+
+  const MIN_FONT_SIZE = 10;
+  const MAX_FONT_SIZE = 32;
+
+  // REVISION: the real, confirmed bug — this component's controls had no
+  // focus guard at all, unlike every other formatting control in the
+  // app (see FormattingToolbar's guardFocus). Tapping a plain <button>
+  // gives it focus by default; with nothing here preventing that, a tap
+  // stole focus away from the note body's contenteditable. That's the
+  // one thing note/[id]/+page.svelte's refreshFormatState treats as a
+  // hard signal the user navigated away entirely — its `!state.within`
+  // branch unconditionally calls resetPendingFormats() — so for the
+  // no-selection ("plain typing") case specifically, where nothing else
+  // re-focuses the note body afterward, the sequence was: tap a swatch
+  // -> pendingFormats.color set correctly for one instant -> the tap's
+  // own focus-steal fires a real selectionchange a moment later ->
+  // RAF-coalesced refreshFormatState sees the selection is no longer
+  // inside the note body -> wipes pendingFormats right back out. Reads
+  // exactly like "the moment I click on it it reverts," because that's
+  // what was actually happening. Confirmed the mechanism directly by
+  // reading refreshFormatState's own branches (not guessing at
+  // WebView-only behavior this time — this one's plain, ordinary DOM
+  // focus semantics, true in any browser). Same preventDefault-on-
+  // pointerdown pattern as guardFocus elsewhere: suppresses only the
+  // focus-stealing default action, click still fires normally.
+  function guardFocus(e: Event) {
+    e.preventDefault();
+  }
 </script>
 
+<div class="picker-root" role="toolbar" aria-label="Text style" tabindex="-1" onpointerdown={guardFocus} onmousedown={guardFocus}>
 <div class="picker-group">
-  <span class="group-label">Text size</span>
-  <div class="chip-row">
-    {#each FONT_SIZES as size (size)}
-      <button type="button" class="chip" class:active={fontSize === size} onclick={() => onFontSizeChange(size)}>
-        {size}
-      </button>
-    {/each}
+  <span class="group-label">Text size — {fontSize}px</span>
+  <input
+    type="range"
+    class="size-slider"
+    min={MIN_FONT_SIZE}
+    max={MAX_FONT_SIZE}
+    step="1"
+    value={fontSize}
+    oninput={(e) => onFontSizeChange(Math.round(Number((e.target as HTMLInputElement).value)))}
+    aria-label="Text size"
+  />
+  <div class="slider-scale">
+    <span>{MIN_FONT_SIZE}</span>
+    <span>{MAX_FONT_SIZE}</span>
   </div>
 </div>
 
@@ -114,6 +153,8 @@
     {/each}
   </div>
 </div>
+</div>
+
 
 <style>
   .picker-group {
@@ -131,29 +172,22 @@
     letter-spacing: 0.04em;
     margin-bottom: var(--space-2);
   }
-  .chip-row,
   .swatch-row {
     display: flex;
     flex-wrap: wrap;
     gap: var(--space-2);
   }
-  .chip {
-    min-width: 40px;
+  .size-slider {
+    width: 100%;
     height: 40px;
-    padding: 0 var(--space-2);
-    border-radius: var(--radius-sm);
-    border: 1px solid var(--hairline);
-    background: var(--surface);
-    color: var(--text-hi);
-    font-family: var(--font-sans);
-    font-weight: 600;
-    font-size: 14px;
-    cursor: pointer;
+    accent-color: var(--accent);
   }
-  .chip.active {
-    background: var(--accent);
-    border-color: var(--accent);
-    color: #fff;
+  .slider-scale {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: var(--text-lo);
+    margin-top: 2px;
   }
   .swatch {
     width: 40px;
