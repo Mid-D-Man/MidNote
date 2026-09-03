@@ -172,40 +172,27 @@ function collapseOutsideFormatting(root: HTMLElement): void {
   }
 
   const parent = outermost.parentNode;
-  // Land the caret INSIDE a real text node, not at an ambiguous
-  // Element+offset position sitting between two sibling nodes.
-  //
-  // THIRD REVISION NOTE: on-device testing after the first two fixes
-  // (Range reposition + sticky-typing-state clear, see
-  // escapeInlineFormattingContext above) showed backgroundColor
-  // specifically still leaking into text typed right after a formatted
-  // selection, while color did not — same wrapRangeInStyledSpan +
-  // collapseOutsideFormatting call for both, byte-for-byte, verified by
-  // running both through this exact function directly and diffing the
-  // resulting DOM and caret position: identical. No execCommand is
-  // involved in the value-style path at all (see
-  // applyValueStyleToRangeInternal below), so the sticky-typing-state
-  // theory doesn't even apply here — this needed a different
-  // explanation. The remaining candidate: an Element+offset caret
-  // position sitting *between* two sibling nodes (the old
-  // `range.setStart(parent, idx + 1)`) doesn't pin down where the next
-  // keystroke's browser-native text insertion actually lands — the
-  // browser has to pick a neighbor to extend, and that pick is
-  // implementation-defined the same way the sticky-typing-state clearing
-  // rules were, and evidently isn't guaranteed to be consistent even
-  // between two selectors on the same page (color vs. backgroundColor)
-  // let alone across engines. A caret already sitting inside a genuinely
-  // plain, unstyled, real text node removes that ambiguity outright —
-  // there's no neighbor to choose between, just this node, and it has
-  // nothing that could be inherited.
-  const boundary = document.createTextNode("");
-  if (outermost.nextSibling) {
-    parent.insertBefore(boundary, outermost.nextSibling);
-  } else {
-    parent.appendChild(boundary);
-  }
+  const idx = Array.prototype.indexOf.call(parent.childNodes, outermost);
+  // FOURTH REVISION NOTE — reverting the third: landing the caret inside
+  // a real (empty) text node instead of this Element+offset position was
+  // a reasonable-sounding theory, but on-device testing after it showed
+  // a regression, not a fix — text color started leaking too, which it
+  // hadn't before. The one thing that changed between those two tests
+  // was this function, shared by every caller (inline formats and both
+  // value-styles alike), so whatever the empty-text-node approach did
+  // differently, it made things worse here rather than better. The
+  // honest state of things: this was never independently verifiable
+  // either way — jsdom has no execCommand (irrelevant to this path, but
+  // shared code with the parts that do) and, more to the point for this
+  // specific function, doesn't simulate how a real browser decides where
+  // a keystroke actually lands relative to a caret position at all —
+  // that's genuinely WebView-only territory, and reasoning about it
+  // further from here without a way to observe it directly isn't going
+  // to be more reliable than the last two attempts were. Back to the
+  // Element+offset position, which is at least confirmed not to have
+  // been the thing breaking text color.
   const range = document.createRange();
-  range.setStart(boundary, 0);
+  range.setStart(parent, idx + 1);
   range.collapse(true);
   sel.removeAllRanges();
   sel.addRange(range);

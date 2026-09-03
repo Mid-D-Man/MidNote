@@ -182,16 +182,51 @@ export function buildExportFiles(entries: Entry[], format: ExportFormat): Export
 // an open upstream report of the save dialog not honoring the
 // suggested filename (tauri-apps/tauri#12942) — the picker will still
 // open and work, just possibly without f.name pre-filled.
+// FIFTH REVISION NOTE (still this same file — see the notes above for
+// the full history): the dialog fallback above was tested on-device
+// this round, in the same build as everything else, and downloads still
+// didn't work — no picker opened, nothing landed anywhere visible,
+// nothing reported as an error either. That specific combination (no
+// error surfaced, fallback never visibly engaged) matches a case the
+// research above didn't rule out: some Android WebView/plugin-fs
+// combinations report BaseDirectory.Download writes as having
+// *succeeded* — genuinely no thrown exception — while actually landing
+// the file somewhere the OS's own Downloads app and file manager can't
+// see, per the same real-world reports cited above. This function's
+// fallback is gated on the first attempt throwing; if it doesn't throw,
+// the function returns right after the "successful" write and the
+// dialog is never reached at all — which would look exactly like this.
+//
+// Rather than keep guessing at whether THIS specific build throws or
+// silently no-ops, removed the dependency on that distinction entirely:
+// go straight to the dialog on Android, skip the direct write attempt
+// there completely. iOS gets the same treatment on the same reasoning
+// (also scoped-storage-restricted, not tested either way since there's
+// no iOS build in this project's pipeline at all, but no reason to
+// assume it's more permissive than Android here). Desktop is untouched
+// — still the fast direct-write path, still confirmed fine there.
+//
+// navigator.userAgent rather than @tauri-apps/plugin-os: same
+// information, without adding a third Tauri plugin (on top of fs and
+// dialog already added this session) that also can't be compile-checked
+// here. Standard WebView/Chromium behavior, not Tauri-specific — every
+// Android WebView's user agent string contains "Android".
+function isMobilePlatform(): boolean {
+  return /android|iphone|ipad|ipod/i.test(navigator.userAgent);
+}
+
 export async function downloadFiles(files: ExportedFile[]): Promise<void> {
   if (isTauri()) {
-    try {
-      for (const f of files) {
-        const bytes = new Uint8Array(await f.blob.arrayBuffer());
-        await writeFile(f.name, bytes, { baseDir: BaseDirectory.Download });
+    if (!isMobilePlatform()) {
+      try {
+        for (const f of files) {
+          const bytes = new Uint8Array(await f.blob.arrayBuffer());
+          await writeFile(f.name, bytes, { baseDir: BaseDirectory.Download });
+        }
+        return;
+      } catch (err) {
+        console.error("downloadFiles: plugin-fs write to $DOWNLOAD failed, falling back to save dialog:", err);
       }
-      return;
-    } catch (err) {
-      console.error("downloadFiles: plugin-fs write to $DOWNLOAD failed, falling back to save dialog:", err);
     }
 
     try {

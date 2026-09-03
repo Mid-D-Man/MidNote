@@ -12,6 +12,7 @@
     onColorChange,
     onBackgroundColorChange,
     onCaptureRange,
+    onFormatPickerOpenChange,
     canUndo = false,
     canRedo = false,
     onUndo,
@@ -48,6 +49,9 @@
     // something" is exactly the window a stray selectionchange can land
     // in and invalidate the live selection before the pick lands.
     onCaptureRange?: () => void;
+    // Same purpose as NoteEditorHeader's — see formatPickerOpen in
+    // note/[id]/+page.svelte.
+    onFormatPickerOpenChange?: (open: boolean) => void;
     canUndo?: boolean;
     canRedo?: boolean;
     onUndo?: () => void;
@@ -75,6 +79,9 @@
   // is plain content dropped into the existing, already-proven Sheet
   // component) and restores the second.
   let styleOpen = $state(false);
+  $effect(() => {
+    onFormatPickerOpenChange?.(styleOpen);
+  });
 
   // Same guard as before: stops a toolbar control from stealing focus
   // away from the note body in a way that loses its Selection.

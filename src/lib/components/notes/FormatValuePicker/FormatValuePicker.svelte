@@ -73,33 +73,34 @@
   const MIN_FONT_SIZE = 10;
   const MAX_FONT_SIZE = 32;
 
-  // REVISION: the real, confirmed bug — this component's controls had no
-  // focus guard at all, unlike every other formatting control in the
-  // app (see FormattingToolbar's guardFocus). Tapping a plain <button>
-  // gives it focus by default; with nothing here preventing that, a tap
-  // stole focus away from the note body's contenteditable. That's the
-  // one thing note/[id]/+page.svelte's refreshFormatState treats as a
-  // hard signal the user navigated away entirely — its `!state.within`
-  // branch unconditionally calls resetPendingFormats() — so for the
-  // no-selection ("plain typing") case specifically, where nothing else
-  // re-focuses the note body afterward, the sequence was: tap a swatch
-  // -> pendingFormats.color set correctly for one instant -> the tap's
-  // own focus-steal fires a real selectionchange a moment later ->
-  // RAF-coalesced refreshFormatState sees the selection is no longer
-  // inside the note body -> wipes pendingFormats right back out. Reads
-  // exactly like "the moment I click on it it reverts," because that's
-  // what was actually happening. Confirmed the mechanism directly by
-  // reading refreshFormatState's own branches (not guessing at
-  // WebView-only behavior this time — this one's plain, ordinary DOM
-  // focus semantics, true in any browser). Same preventDefault-on-
-  // pointerdown pattern as guardFocus elsewhere: suppresses only the
-  // focus-stealing default action, click still fires normally.
-  function guardFocus(e: Event) {
-    e.preventDefault();
-  }
+  // SECOND REVISION: the guardFocus (preventDefault-on-pointerdown)
+  // approach from the previous round is gone. It fixed B/I/U/S and the
+  // swatches — buttons are fine with it, confirmed both times now — but
+  // it also sat on the font-size slider, and a native <input type=range>
+  // needs its own pointerdown's default action to start tracking a drag
+  // at all, the same way a <select> needs its pointerdown's default
+  // action to open its native picker (see this file's other REVISION
+  // note, and FormattingToolbar's guardFocus comment — same underlying
+  // mechanism both times, an ancestor's preventDefault suppressing a
+  // descendant form control's own default behavior regardless of which
+  // element the handler is actually bound to). Applying one guard
+  // uniformly to a mix of buttons and a slider was the mistake: it's
+  // safe for the former and breaks the latter outright, not just for
+  // Android — this is standard, cross-browser pointer-event semantics
+  // for native form controls, not a WebView-specific quirk this time.
+  //
+  // The actual problem this was protecting against — a tap stealing
+  // focus from the note body, which refreshFormatState's `!within`
+  // branch treats as "user left entirely" and responds to by wiping
+  // pendingFormats — is now handled at the source instead: see
+  // formatPickerOpen in note/[id]/+page.svelte, set true for exactly as
+  // long as this component (or FormattingToolbar's equivalent popup) is
+  // open, and checked by that branch before it resets anything. Doesn't
+  // care whether focus moved, so it doesn't need to stop focus from
+  // moving — works the same for a button tap and a slider drag.
 </script>
 
-<div class="picker-root" role="toolbar" aria-label="Text style" tabindex="-1" onpointerdown={guardFocus} onmousedown={guardFocus}>
+<div class="picker-root" role="toolbar" aria-label="Text style" tabindex="-1">
 <div class="picker-group">
   <span class="group-label">Text size — {fontSize}px</span>
   <input

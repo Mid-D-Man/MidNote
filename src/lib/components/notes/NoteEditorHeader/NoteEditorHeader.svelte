@@ -47,6 +47,7 @@
     onFontSizeChange,
     onColorChange,
     onBackgroundColorChange,
+    onFormatPickerOpenChange,
   }: {
     note: Note;
     availableTags: string[];
@@ -67,6 +68,13 @@
     onFontSizeChange?: (size: number) => void;
     onColorChange?: (color: string | null) => void;
     onBackgroundColorChange?: (color: string | null) => void;
+    // See note/[id]/+page.svelte's formatPickerOpen — this is how the
+    // page knows to stop refreshFormatState's `!within` branch from
+    // wiping pendingFormats while this sheet is open. Effect-based below
+    // rather than only at this file's own `moreOpen = ...` call sites,
+    // since Sheet's own bind:open can also flip it closed (scrim tap)
+    // without going through any of them.
+    onFormatPickerOpenChange?: (open: boolean) => void;
   } = $props();
 
   function tapFormat(format: string) {
@@ -74,19 +82,12 @@
     onFormat?.(format);
   }
 
-  // Same guard as FormattingToolbar's — see FormatValuePicker.svelte's
-  // header comment for the exact chain this closes (tap steals focus ->
-  // refreshFormatState sees the selection left the note body ->
-  // resetPendingFormats wipes out whatever was just set). This one
-  // covers the inline B/I/U/S row specifically, which lives directly in
-  // this file rather than inside FormatValuePicker.
-  function guardFocus(e: Event) {
-    e.preventDefault();
-  }
-
   let isSaving = $state(false);
   let showDeleteConfirm = $state(false);
   let moreOpen = $state(false);
+  $effect(() => {
+    onFormatPickerOpenChange?.(moreOpen);
+  });
 
   async function handleSave() {
     breadcrumb("note header: Save tapped");
@@ -210,7 +211,7 @@
 
 <Sheet bind:open={moreOpen} side="bottom" title="Actions">
   {#if !hasSelection}
-    <div class="format-section" role="toolbar" aria-label="Formatting" tabindex="-1" onpointerdown={guardFocus} onmousedown={guardFocus}>
+    <div class="format-section" role="toolbar" aria-label="Formatting" tabindex="-1">
       <span class="group-label">Formatting</span>
       <div class="inline-format-row">
         <button type="button" class:active={activeFormats.bold} onclick={() => tapFormat("bold")} aria-label="Bold"><strong>B</strong></button>

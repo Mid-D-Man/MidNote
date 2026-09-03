@@ -55,6 +55,21 @@
   // below are inside an $effect (onMount setup, a DOM event listener,
   // plain onclick-driven functions) — see docs/svelte5-effect-safety.md.
   let hasSelection = $state(false);
+  // True for exactly as long as either format popup is open (the
+  // header's Actions sheet for no-selection, FormattingToolbar's style
+  // sheet for has-selection) — wired from each via
+  // onFormatPickerOpenChange. See its use in refreshFormatState's
+  // `!state.within` branch below for why this exists: tapping a control
+  // inside either sheet can take focus away from the note body's
+  // contenteditable (ordinary browser behavior for a <button> or a
+  // native <input type=range>, not something worth fighting with
+  // preventDefault — see FormatValuePicker.svelte's header comment for
+  // why that approach broke the font-size slider's own native dragging).
+  // Rather than stopping focus from moving, this just tells
+  // refreshFormatState that a selection/focus change happening *because
+  // one of these is open* isn't the user navigating away and shouldn't
+  // wipe pendingFormats — the actual thing that was going wrong.
+  let formatPickerOpen = $state(false);
   let activeFormats = $state({
     bold: false,
     italic: false,
@@ -143,6 +158,17 @@
       resetFormatState();
       return;
     }
+    // A tap or drag inside either format popup can move focus/selection
+    // away from the note body — ordinary behavior for a <button> or a
+    // native <input type=range>, not a bug to route around with
+    // preventDefault (see formatPickerOpen's own comment above). Freeze
+    // everything format-related for as long as one is open rather than
+    // reacting to what's really our own UI, not the user navigating
+    // away: hasSelection included, so the toolbar's selection-mode
+    // layout doesn't switch out from under an open popup either. Whatever
+    // selectionchange fires once the picker actually closes picks this
+    // back up normally.
+    if (formatPickerOpen) return;
     const state = readSelectionState(contentEl);
     hasSelection = state.hasSelection;
 
@@ -485,6 +511,7 @@
       onFontSizeChange={handleFontSizeChange}
       onColorChange={handleColorChange}
       onBackgroundColorChange={handleBackgroundColorChange}
+      onFormatPickerOpenChange={(open) => (formatPickerOpen = open)}
     />
 
     <div class="scroll-area">
@@ -511,6 +538,7 @@
       onColorChange={handleColorChange}
       onBackgroundColorChange={handleBackgroundColorChange}
       onCaptureRange={captureFormatRange}
+      onFormatPickerOpenChange={(open) => (formatPickerOpen = open)}
       {canUndo}
       {canRedo}
       onUndo={undo}
