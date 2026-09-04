@@ -1,33 +1,23 @@
 <script lang="ts">
-  // Pure presentational picker content — font size chips + text-color/
+  // Pure presentational picker content — font size slider + text-color/
   // background-color swatch grids. Meant to be dropped inside whatever
-  // Sheet the caller already has open, not a Sheet itself: FormattingToolbar
-  // wraps this in its own small popup for the has-selection case,
-  // NoteEditorHeader embeds it directly in the existing "..." Actions
-  // sheet for the no-selection case. Deliberately has no opinion on
-  // WHERE the value ends up (selection vs. pending-for-next-typing) —
-  // both call sites already pass in the exact same onFontSizeChange/
-  // onColorChange/onBackgroundColorChange from note/[id]/+page.svelte,
-  // and that page's own handlers already branch on capturedFormatRange/
-  // hasSelection internally. This component just needs to call them.
+  // popup the caller already has open, not a popup itself: only
+  // FormattingToolbar uses this now (formatting moved back out of the
+  // header's Actions sheet and into this toolbar's own anchored popups —
+  // see FormattingToolbar.svelte's header comment). Deliberately has no
+  // opinion on selection vs. cursor mode — the caller's callbacks just
+  // call editor.chain().focus()....run() unconditionally now, since
+  // Tiptap's own stored-marks handle that distinction internally. This
+  // component only needs to call them.
   //
-  // REVISION: replaces the native <select> elements that used to live
-  // directly in FormattingToolbar. Two independent problems with those:
-  // (1) not what was asked for ("a popup, not a dropdown") and (2) the
-  // toolbar row's own guardFocus pointerdown handler — bound on the
-  // *parent* .toolbar div to stop B/I/U/S buttons from stealing focus —
-  // was catching every select's pointerdown too on its way up (pointerdown
-  // bubbles), calling preventDefault() on it. That suppresses a <select>'s
-  // native-picker-open default action even though guardFocus was never
-  // attached to the select itself — confirmed directly (a small jsdom
-  // script reproducing just the bubbling, since that part needs no
-  // execCommand to verify): the select's own pointerdown handler ran,
-  // but event.defaultPrevented was still true by the time it finished
-  // bubbling. Plain <button>s here sidestep the whole category — a
-  // button's click isn't gated on pointerdown's default action the way
-  // a select's picker-open is, which is also why B/I/U/S kept registering
-  // taps in the debug log while the color/background/size controls never
-  // logged anything at all.
+  // Older revision notes below (native <select> removal, the guardFocus/
+  // preventDefault saga across rounds 1-3) describe real bugs that were
+  // real at the time, in the previous execCommand-based editor. Left
+  // as-is rather than deleted — the underlying lessons (ancestor
+  // preventDefault can suppress a descendant native control's default
+  // action; a slider needs its pointerdown default action to drag at
+  // all) are still true facts about the browser, even though the specific
+  // code paths they were fixing are gone with the Tiptap migration.
   // MIN_FONT_SIZE/MAX_FONT_SIZE below replace the old fixed FONT_SIZES
   // chip set now that this is a slider — a continuous range needs
   // bounds, not a discrete list, and a slider covers finer whole-number

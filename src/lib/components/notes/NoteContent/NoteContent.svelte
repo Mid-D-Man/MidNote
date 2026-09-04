@@ -1,191 +1,171 @@
 <script lang="ts">
-  // Real contenteditable, not a <textarea> — a textarea has exactly one
-  // font/weight/style for its entire content, so mixed formatting was
-  // never achievable with one. note.content is an HTML string (still
-  // just a `string` field — no schema change, see mdix_files/schema).
+  // FOURTH REVISION — the big one. Everything before this comment in
+  // this file's history (bind:innerHTML, then a hand-written one-
+  // directional DOM->value sync, then three rounds of patches to
+  // execCommand-driven formatting in richText.ts) was working around
+  // the same underlying fact: document.execCommand plus manual
+  // Range/Selection surgery on a raw contenteditable has no single
+  // source of truth for "what's formatted right now" other than the
+  // live DOM itself, and browsers — Android WebView specifically, but
+  // this was never actually Android-only — don't manipulate that DOM in
+  // fully predictable ways. Three rounds of fixes for the same leak/
+  // revert/doesn't-apply class of bug, one of which made things worse
+  // on re-test, is the actual evidence that patching that layer further
+  // wasn't going to convincingly finish.
   //
-  // REVISION NOTE (this file previously used bind:innerHTML={value} —
-  // a two-way DOM binding — alongside imperative DOM surgery in
-  // richText.ts (collapseOutsideFormatting) that repositions the live
-  // Selection right after a format is applied. Those two don't mix.
-  // bind:innerHTML writes `contentEl.innerHTML = value` any time `value`
-  // changes for ANY reason, including the app's own explicit "read the
-  // DOM back into state" lines (syncContentFromDom() in the page,
-  // formerly also here). Reassigning .innerHTML destroys and reparses
-  // the whole subtree — any live Selection pointing into the old nodes,
-  // including the one collapseOutsideFormatting just carefully moved
-  // outside a formatting span, is invalidated, and the browser's
-  // recovery position after that isn't something the fix controls. This
-  // is a well-documented category of bug for bind:innerHTML/contenteditable
-  // specifically (Svelte's own tracker has repeat reports of cursor
-  // position resetting on these bindings), not something specific to
-  // this app, but the fix here is specific: stop using it as a live
-  // two-way channel during editing.
+  // This file now wraps Tiptap (a thin, Svelte-agnostic layer over
+  // ProseMirror) instead. The difference that actually matters here
+  // isn't the library name, it's the architecture: ProseMirror keeps
+  // its own document model — nodes and marks in a tree, not "whatever
+  // the DOM happens to contain" — and every edit goes through a
+  // transaction that's applied to that model first, with the DOM
+  // reconciled to match afterward, in ProseMirror's own well-tested
+  // reconciliation code rather than this app's. "Bold with the cursor
+  // collapsed, no selection, so the next characters typed come out
+  // bold" — the entire PendingFormats/wrapLastInsertedText machinery
+  // this file used to contain — is a native, built-in feature of that
+  // model called "stored marks," not something to hand-roll. No
+  // execCommand anywhere in this file or its extensions.
   //
-  // New contract: contentEl.innerHTML is the single source of truth
-  // while a note is open. This component only ever WRITES to it
-  // imperatively, gated by `syncToken` (bumped by the page on note
-  // load, undo, and redo — the three moments an external value should
-  // legitimately overwrite what's on screen). Ordinary typing/paste/
-  // format-apply are one-directional DOM -> value reads only, via
-  // `untrack()` on the syncToken effect so those reads never feed back
-  // into a write. See docs/svelte5-effect-safety.md — same read/write
-  // hazard that doc already covers, just arriving through bind:innerHTML's
-  // implicit two-way sync instead of a hand-written $effect.
-  //
-  // Deliberately NOT auto-growing to fit content: fixed height + internal
-  // scroll avoids a large paste forcing an expensive synchronous reflow.
-  import { untrack } from "svelte";
-  import { insertPlainText, wrapLastInsertedText, hasPendingFormats, emptyPendingFormats, stripHtml, type PendingFormats } from "$lib/utils/richText";
+  // Honest limits, not oversold: this does NOT make every Android
+  // WebView input quirk disappear. ProseMirror still renders into a
+  // real contenteditable element and still depends on the browser
+  // delivering sane input/composition events — confirmed independently
+  // (not just theorized) that the specific "Samsung Keyboard spam of
+  // newlines" bug reproduces in a plain ProseMirror editor exactly like
+  // it does in raw contenteditable, because the bug is in the WebView/
+  // keyboard layer, below either. Worth watching for on-device — if it
+  // shows up, there's a small, specifically-scoped, community-tested
+  // guard for that exact signature (not applied here yet, since it's
+  // not been observed in this app and a defensive patch for a bug that
+  // may not occur here is its own source of false positives).
+  import { onDestroy, untrack } from "svelte";
+  import { Editor } from "@tiptap/core";
+  import StarterKit from "@tiptap/starter-kit";
+  import Paragraph from "@tiptap/extension-paragraph";
+  import { TextStyle, Color, BackgroundColor, FontSize } from "@tiptap/extension-text-style";
+  import { Placeholder } from "@tiptap/extensions";
+  import { stripHtml } from "$lib/utils/richText";
   import { noteLinesEnabled } from "$lib/stores/settings.svelte";
+
+  // Paragraphs render/parse as <div>, matching every note already saved
+  // by the previous contenteditable-based editor (note.content is still
+  // just an HTML string in storage — no schema change). Tiptap's own
+  // default is <p>; overriding both parseHTML and renderHTML keeps
+  // existing notes loading exactly as before and keeps the ruled-lines
+  // CSS below (which targets child <div> elements specifically) working
+  // unchanged.
+  const DivParagraph = Paragraph.extend({
+    parseHTML() {
+      return [{ tag: "div" }, { tag: "p" }];
+    },
+    renderHTML({ HTMLAttributes }) {
+      return ["div", HTMLAttributes, 0];
+    },
+  });
 
   let {
     value = $bindable(""),
-    contentEl = $bindable(null),
+    editor = $bindable(null),
+    tick = $bindable(0),
     baseFontSize = 15,
-    pendingFormats = emptyPendingFormats(),
-    onAutoFormatApplied,
     syncToken = 0,
-    hasSelection = false,
+    hasSelection = $bindable(false),
   }: {
     value?: string;
-    contentEl?: HTMLDivElement | null;
+    // The live Tiptap Editor instance, handed up so the toolbar and the
+    // page can call editor.chain()... commands and read
+    // editor.isActive(...)/editor.state directly, instead of this
+    // component owning a bespoke formatting API those callers would
+    // otherwise have to go through. Not reactive by itself (it's a
+    // plain class instance) — see `tick` below.
+    editor?: Editor | null;
+    // Bumped on every Tiptap transaction (content OR selection change).
+    // `editor` doesn't change identity when its internal state changes,
+    // so anything outside this component that reads editor.isActive(...)
+    // or editor.state.selection needs its own reactive signal to know
+    // when to re-read — this is that signal. `value` alone doesn't
+    // cover it: moving the cursor or changing the selection updates
+    // active-mark state without changing the document, so it wouldn't
+    // bump `value`.
+    tick?: number;
     baseFontSize?: number;
-    // Bold/italic/underline/strikethrough/fontSize/color/backgroundColor
-    // currently toggled on with no selection — see richText.ts's header
-    // comment for why this is explicit page-owned state rather than
-    // left to the browser's own (on real-device testing, unreliable)
-    // sticky-typing tracking.
-    pendingFormats?: PendingFormats;
-    // Reports where the caret ended up right after an auto-format wrap,
-    // so the page can tell "selection changed because of my own wrap"
-    // apart from "selection changed because the user tapped/arrowed
-    // somewhere else" and only reset pending formats for the latter.
-    onAutoFormatApplied?: (node: Node, offset: number) => void;
     // Bumped by the page exactly when `value` should be pushed INTO the
-    // DOM: note load (id change) and undo/redo. NOT bumped by ordinary
-    // typing or format application — those already live correctly in
-    // the DOM and re-pushing them is exactly the destructive round-trip
-    // described above. Read via untrack() below so this effect reacts
-    // only to the token, never to `value` itself changing on its own.
+    // editor from outside: note load (id change) only now — undo/redo
+    // is Tiptap's own History extension internally, not a page-level
+    // stack pushed back in through this prop any more.
     syncToken?: number;
-    // Suppresses the ruled-paper background (below) while a real
-    // selection is active — a live Selection highlight painted over
-    // ruled lines is what "the line stuff doesn't go away when I
-    // select text" referred to. Purely visual; has no effect on
-    // pendingFormats/formatting logic.
     hasSelection?: boolean;
   } = $props();
 
-  // note.content's default is now "<div><br></div>" (see storage.ts's
-  // createNote), not "" — a raw length check would think that's not
-  // empty and hide the placeholder on every new note. stripHtml()
-  // correctly reads it as empty since <br> and an empty <div> both
-  // contribute no text.
   const isEmpty = $derived(stripHtml(value).length === 0);
 
-  // The only place `value` gets written INTO the DOM. Fires on mount
-  // (contentEl just became available) and whenever the page bumps
-  // syncToken (note load / undo / redo). `value` itself is read via
-  // untrack so this does not also fire on every keystroke — same
-  // untrack(() => note.content) idiom the page already uses for its
-  // own undo-checkpoint baseline.
-  $effect(() => {
-    syncToken;
-    if (!contentEl) return;
-    contentEl.innerHTML = untrack(() => value);
+  let element: HTMLDivElement | undefined = $state();
+
+  function createEditor(initialContent: string): Editor {
+    return new Editor({
+      element,
+      extensions: [
+        StarterKit.configure({
+          paragraph: false,
+          blockquote: false,
+          code: false,
+          codeBlock: false,
+          heading: false,
+          horizontalRule: false,
+          link: false,
+          gapcursor: false,
+        }),
+        DivParagraph,
+        TextStyle,
+        Color,
+        BackgroundColor,
+        FontSize,
+        Placeholder.configure({ placeholder: "Start typing..." }),
+      ],
+      content: initialContent,
+      onTransaction: ({ editor: e }) => {
+        tick++;
+        hasSelection = !e.state.selection.empty;
+      },
+      onUpdate: ({ editor: e }) => {
+        value = e.getHTML();
+      },
+    });
+  }
+
+  onDestroy(() => {
+    editor?.destroy();
   });
 
-  // Runs after the browser has already inserted typed/pasted text.
-  // Always reads the DOM back into `value` at the end — this is now the
-  // ONLY thing keeping `value`/note.content in sync with ordinary typing,
-  // since there's no bind:innerHTML doing it automatically any more.
-  // Purely one-directional (DOM -> value); nothing here writes back to
-  // contentEl.innerHTML, so there's nothing for this to destructively
-  // undo.
+  // The only place a note-load should reinitialize the editor from
+  // outside. Destroys and recreates rather than calling
+  // editor.commands.setContent() on the existing instance: Tiptap's
+  // History extension tracks undo/redo against the live document model,
+  // and there's no confirmed-safe way from this sandbox to verify that
+  // replacing content on a live instance resets that history rather
+  // than leaving a step behind that could undo back into a DIFFERENT
+  // note's content after switching. A fresh instance has fresh,
+  // guaranteed-empty history — no ambiguity to resolve.
   //
-  // Typed as plain Event, not InputEvent: TypeScript's DOM lib only
-  // types oninput as InputEvent for <input>/<textarea>, not a generic
-  // contenteditable <div> — even though the browser does fire a real
-  // InputEvent here. Cast at the point of use instead of fighting that.
-  //
-  // REVISION NOTE: this used to gate on `ie.data && ie.inputType?.startsWith("insert")`
-  // — require BOTH a non-empty data string AND a well-formed "insert*"
-  // inputType before ever calling wrapLastInsertedText. That's the spec
-  // shape for a clean desktop-Chrome insertText event, but it's an
-  // allow-list of a well-formed shape, and real keyboards — Samsung
-  // Keyboard on Android WebView specifically has open, general-purpose
-  // contenteditable bug reports independent of any framework — are not
-  // guaranteed to produce it: `data` can come through null/empty on an
-  // otherwise perfectly ordinary single-character keystroke. When that
-  // happened, the old guard silently did nothing at all: no error, no
-  // log, just no formatting, on every single keystroke — which matches
-  // "bold/italic/underline/strikethrough do not work AT ALL" exactly.
-  //
-  // Flipped to a deny-list instead: only SKIP when this is positively
-  // identifiable as a deletion or a history action, both of which
-  // reliably self-report via inputType even when insertions don't
-  // ("deleteContentBackward" etc. / "historyUndo" / "historyRedo" —
-  // note MidNote's own undo/redo is a separate page-level stack that
-  // doesn't dispatch native input events at all, but a WebView's own
-  // built-in undo gesture could, so this stays excluded on principle).
-  // Everything else that isn't IME composition is treated as a
-  // candidate insertion. `ie.data`'s length is still used when present
-  // (the common, correct case); when it's missing, this falls back to
-  // wrapping exactly 1 character rather than doing nothing — right for
-  // the overwhelmingly common case of a single keystroke, and bounded-
-  // safe even when wrong: wrapLastInsertedText clamps to what's actually
-  // there and simply no-ops if the assumption doesn't hold, not a crash
-  // or data loss either way.
-  //
-  // NOT independently verifiable from this sandbox: jsdom doesn't
-  // simulate a real WebView's IME/keyboard event sequence (it has no
-  // execCommand at all — see richText.ts's header comment — and nothing
-  // here drives actual on-screen-keyboard behavior either), so this is
-  // the best-supported fix given the evidence (a real, general,
-  // independently-documented Samsung-Keyboard-in-Android-WebView
-  // contenteditable quirk class), not a confirmed root cause. Worth
-  // checking the debug panel after this build for whether "toolbar:
-  // bold tapped" is now actually followed by bold characters landing in
-  // note.content, on-device.
-  function oninput(e: Event) {
-    if (!contentEl) return;
-    const ie = e as InputEvent;
-    if (ie.isComposing) {
-      value = contentEl.innerHTML;
-      return;
-    }
-    const isDeletion = !!ie.inputType && ie.inputType.startsWith("delete");
-    const isHistory = ie.inputType === "historyUndo" || ie.inputType === "historyRedo";
-
-    if (hasPendingFormats(pendingFormats) && !isDeletion && !isHistory) {
-      const insertedLength = ie.data && ie.data.length > 0 ? ie.data.length : 1;
-      const pos = wrapLastInsertedText(contentEl, insertedLength, pendingFormats);
-      if (pos) onAutoFormatApplied?.(pos.node, pos.offset);
-    }
-    value = contentEl.innerHTML;
-  }
-
-  // Pasting from another app would otherwise drag in arbitrary nested
-  // spans/colors/fonts that live in note.content forever. Force plain
-  // text only, applying whatever's currently pending to it.
-  function onpaste(e: ClipboardEvent) {
-    e.preventDefault();
-    const text = e.clipboardData?.getData("text/plain") ?? "";
-    insertPlainText(text, pendingFormats);
-    if (contentEl) value = contentEl.innerHTML;
-  }
+  // Gated on syncToken specifically (bumped by the page on note load
+  // only, not on undo/redo any more — Tiptap owns its own undo/redo
+  // internally now), read via untrack() so this effect reacts ONLY to
+  // syncToken changing, never to `value` changing on its own — same
+  // discipline docs/svelte5-effect-safety.md already established, same
+  // reason: if this also depended on `value`, every keystroke would
+  // trigger a full editor teardown/rebuild.
+  $effect(() => {
+    syncToken;
+    if (!element) return;
+    const html = untrack(() => value);
+    untrack(() => editor)?.destroy();
+    editor = createEditor(html);
+  });
 </script>
 
 <div
-  bind:this={contentEl}
-  contenteditable="true"
-  {oninput}
-  {onpaste}
-  role="textbox"
-  aria-multiline="true"
-  aria-label="Note content"
-  data-placeholder="Start typing..."
+  bind:this={element}
   class="note-content"
   class:empty={isEmpty}
   class:lined={noteLinesEnabled.value && !hasSelection}
@@ -200,51 +180,51 @@
     box-sizing: border-box;
     flex: 1;
     min-height: 0;
-    outline: none;
-    border: none;
-    background: transparent;
     overflow-y: auto;
-    overflow-wrap: break-word;
-    word-break: break-word;
     color: var(--text-hi);
     font-family: var(--font-sans);
     padding: var(--space-2) 0 var(--space-6);
   }
-  .note-content.empty::before {
-    content: attr(data-placeholder);
-    color: var(--text-faint);
-    pointer-events: none;
+  /* Tiptap mounts its own contenteditable (class ProseMirror) as a
+     child of the element it's given, rather than making that element
+     itself editable — every selector below that used to target this
+     wrapper directly now targets .note-content :global(.ProseMirror)
+     instead. */
+  .note-content :global(.ProseMirror) {
+    outline: none;
+    border: none;
+    background: transparent;
+    overflow-wrap: break-word;
+    word-break: break-word;
+    min-height: 100%;
   }
-  .note-content :global(ul),
-  .note-content :global(ol) {
+  .note-content :global(.ProseMirror ul),
+  .note-content :global(.ProseMirror ol) {
     margin: 0 0 var(--space-2);
     padding-left: 1.4em;
   }
-  .note-content :global(li) {
+  .note-content :global(.ProseMirror li) {
     margin: 2px 0;
   }
+  /* Placeholder extension marks the empty paragraph with is-empty and
+     sets data-placeholder on it — same attr(data-placeholder) pattern
+     the old CSS-only placeholder used, just driven by Tiptap now. */
+  .note-content :global(.ProseMirror .is-empty::before) {
+    content: attr(data-placeholder);
+    float: left;
+    height: 0;
+    color: var(--text-faint);
+    pointer-events: none;
+  }
 
-  /* Ruled-paper lines, toggled from Settings. Each paragraph the user
-     creates by pressing Enter becomes its own <div> — this is Chromium's
-     long-standing default contenteditable behavior, not something forced
-     here via execCommand. Giving each of those its own border-bottom is
-     what makes the rule line "reactive": a block's border sits at the
-     bottom of its own box, which naturally already accounts for the
-     tallest inline content inside it (a bigger font on part of that
-     line makes the div taller, so the line the border draws moves down
-     to match, with no measurement code needed at all — ordinary CSS box
-     layout does this for free). This is only tested to the extent CSS
-     box-model behavior is well-established platform knowledge; the
-     interaction with contenteditable's line-wrapping on this specific
-     WebView is still worth an on-device look.
-     Known simplification, not a silent gap: this only covers actual
-     typed paragraphs — it does not extend ruled lines into the blank
-     space below the last paragraph, since that space has no element to
-     attach a border to without either faking empty trailing divs or a
-     separate fixed-grid background that can't perfectly line-align with
-     variable-height real content above it. Left out rather than shipped
-     half-aligned. */
-  .note-content.lined :global(> div) {
+  /* Ruled-paper lines, toggled from Settings. Unchanged reasoning from
+     the previous version of this file: each paragraph is its own <div>
+     (DivParagraph above), giving each one its own border-bottom makes
+     the rule line sit under whatever that paragraph's own tallest
+     inline content is, with no measurement code — ordinary CSS box
+     layout. Known simplification, not a silent gap: only covers actual
+     typed paragraphs, not the blank space below the last one. */
+  .note-content.lined :global(.ProseMirror > div) {
     border-bottom: 1px solid var(--rule-color, rgba(150, 120, 60, 0.35));
   }
 </style>

@@ -18,6 +18,13 @@
     "@tauri-apps/plugin-dialog": "^2.7.3",
     "@tauri-apps/plugin-fs": "^2",
     "@tauri-apps/plugin-opener": "^2",
+    "@tiptap/core": "^3.31.2",
+    "@tiptap/extension-paragraph": "^3.31.2",
+    "@tiptap/extension-text-style": "^3.31.2",
+    "@tiptap/extension-underline": "^3.31.2",
+    "@tiptap/extensions": "^3.31.2",
+    "@tiptap/pm": "^3.31.2",
+    "@tiptap/starter-kit": "^3.31.2",
     "fflate": "^0.8.3"
   },
   "devDependencies": {
