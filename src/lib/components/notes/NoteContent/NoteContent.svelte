@@ -43,8 +43,13 @@
   import { Editor } from "@tiptap/core";
   import StarterKit from "@tiptap/starter-kit";
   import Paragraph from "@tiptap/extension-paragraph";
+  import { Bold } from "@tiptap/extension-bold";
+  import { Italic } from "@tiptap/extension-italic";
+  import { Strike } from "@tiptap/extension-strike";
+  import { Underline } from "@tiptap/extension-underline";
   import { TextStyle, Color, BackgroundColor, FontSize } from "@tiptap/extension-text-style";
   import { Placeholder } from "@tiptap/extensions";
+  import { PersistentMarks } from "$lib/utils/persistentMarksExtension";
   import { stripHtml } from "$lib/utils/richText";
   import { noteLinesEnabled } from "$lib/stores/settings.svelte";
 
@@ -63,6 +68,21 @@
       return ["div", HTMLAttributes, 0];
     },
   });
+
+  // inclusive: false on every mark that can be applied to a selection —
+  // see persistentMarksExtension.ts's header comment for the full
+  // mechanism this closes (the reported "selected text, formatted it,
+  // and it kept leaking into whatever I typed next" bug) and why
+  // PersistentMarks (added to the extension list below) is what keeps
+  // this from breaking ordinary multi-character cursor-mode typing at
+  // the same time. Bundled here as one small set of overrides rather
+  // than spread across separate files, since they only make sense read
+  // together with that extension.
+  const NonLeakingBold = Bold.extend({ inclusive: false });
+  const NonLeakingItalic = Italic.extend({ inclusive: false });
+  const NonLeakingStrike = Strike.extend({ inclusive: false });
+  const NonLeakingUnderline = Underline.extend({ inclusive: false });
+  const NonLeakingTextStyle = TextStyle.extend({ inclusive: false });
 
   let {
     value = $bindable(""),
@@ -108,6 +128,10 @@
       extensions: [
         StarterKit.configure({
           paragraph: false,
+          bold: false,
+          italic: false,
+          strike: false,
+          underline: false,
           blockquote: false,
           code: false,
           codeBlock: false,
@@ -117,11 +141,32 @@
           gapcursor: false,
         }),
         DivParagraph,
-        TextStyle,
+        NonLeakingBold,
+        NonLeakingItalic,
+        NonLeakingStrike,
+        NonLeakingUnderline,
+        NonLeakingTextStyle,
         Color,
         BackgroundColor,
         FontSize,
-        Placeholder.configure({ placeholder: "Start typing..." }),
+        PersistentMarks,
+        Placeholder.configure({
+          placeholder: "Start typing...",
+          // REVISION: default showOnlyCurrent means "only the node the
+          // cursor is in" — so pressing Enter to start a new paragraph
+          // made THAT (now-current, empty) paragraph show the
+          // placeholder too, regardless of how much text already exists
+          // earlier in the note. Reported directly: "start typing...
+          // shows up no matter how much I've actually written." Wanted
+          // (and what the old CSS-only placeholder actually did):
+          // show only when the WHOLE note is empty. emptyNodeClass as a
+          // function, gated on editor.isEmpty (whole-document, not
+          // per-node) rather than the plugin's own per-node default —
+          // when it returns "", the class this file's CSS keys off of
+          // never gets applied, so the ::before rule simply doesn't
+          // match, regardless of data-placeholder being present.
+          emptyNodeClass: ({ editor: e }) => (e.isEmpty ? "is-empty" : ""),
+        }),
       ],
       content: initialContent,
       onTransaction: ({ editor: e }) => {
