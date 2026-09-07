@@ -3,6 +3,8 @@
   import CardOverflowMenu from "$lib/components/shared/CardOverflowMenu/CardOverflowMenu.svelte";
   import { stripHtml } from "$lib/utils/richText";
   import { createLongPressHandlers } from "$lib/utils/longPress";
+  import { resolveTheme, hexToRgba } from "$lib/utils/themePalette";
+  import { customThemes } from "$lib/stores/customThemes.svelte";
   import type { Note } from "$lib/types/entry";
 
   let {
@@ -16,6 +18,7 @@
     onDelete,
     onDownload,
     onToggleStrikethrough,
+    onTogglePin,
   }: {
     note: Note;
     onToggleBookmark: (id: string) => void;
@@ -32,12 +35,25 @@
     onDelete: (id: string) => void;
     onDownload: (id: string) => void;
     onToggleStrikethrough: (id: string) => void;
+    onTogglePin: (id: string) => void;
   } = $props();
 
   // note.content is HTML now (see NoteContent.svelte) — strip tags for
   // the plain-text card preview rather than showing raw markup.
   const preview = $derived(stripHtml(note.content).slice(0, 120));
   const dateLabel = $derived(new Date(note.lastModified).toLocaleDateString());
+
+  const resolved = $derived(resolveTheme(note.theme, customThemes));
+  // Left-edge stripe + faint wash for a color theme; full cover image +
+  // scrim for a custom upload. "none" leaves cardStyle empty so the card
+  // keeps its ordinary --surface background untouched.
+  const cardStyle = $derived(
+    resolved.kind === "color"
+      ? `border-left: 4px solid ${resolved.color}; background: ${hexToRgba(resolved.color, 0.08)};`
+      : resolved.kind === "image"
+        ? `background-image: url(${resolved.dataUrl}); background-size: cover; background-position: center;`
+        : "",
+  );
 
   // Pointer-driven taps fire this (via onpointerup) before the browser's
   // own native `click` event has a chance to. suppressClick consumes
@@ -74,7 +90,10 @@
   });
 </script>
 
-<Card class="note-card {selected ? 'selected' : ''}" onclick={handleClick} {...pressHandlers}>
+<Card class="note-card {selected ? 'selected' : ''} {resolved.kind === 'image' ? 'has-image-theme' : ''}" style={cardStyle} onclick={handleClick} {...pressHandlers}>
+  {#if resolved.kind === "image"}
+    <div class="theme-scrim" aria-hidden="true"></div>
+  {/if}
   {#if selectionMode}
     <div class="select-check" class:checked={selected} aria-hidden="true">
       {#if selected}
@@ -88,10 +107,19 @@
       <CardOverflowMenu
         itemLabel="note"
         struck={note.struck}
+        pinned={note.isPinned}
         onDelete={() => onDelete(note.id)}
         onDownload={() => onDownload(note.id)}
         onToggleStrikethrough={() => onToggleStrikethrough(note.id)}
+        onTogglePin={() => onTogglePin(note.id)}
       />
+      {#if note.isPinned}
+        <span class="pin-indicator" aria-label="Pinned" title="Pinned">
+          <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor">
+            <path d="M12 17v5" /><path d="M9 3h6l-1 6 3 3v2H7v-2l3-3-1-6z" />
+          </svg>
+        </span>
+      {/if}
     </div>
     <button
       class="bookmark"
@@ -135,6 +163,12 @@
     border-color: var(--accent);
     box-shadow: 0 0 0 2px var(--accent-wash);
   }
+  .theme-scrim {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, rgba(4, 6, 16, 0.15) 0%, rgba(4, 6, 16, 0.72) 100%);
+    border-radius: inherit;
+  }
   .bookmark {
     position: absolute;
     top: var(--space-2);
@@ -160,6 +194,18 @@
     position: absolute;
     top: var(--space-2);
     left: var(--space-2);
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+  .pin-indicator {
+    width: 16px;
+    height: 16px;
+    color: var(--accent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
   }
   .title.struck {
     text-decoration: line-through;
@@ -188,7 +234,12 @@
     font-size: 15px;
     font-weight: 600;
     color: var(--text-hi);
-    margin: 0 var(--space-6) var(--space-2) var(--space-6);
+    /* Left margin reserves room for corner-actions (overflow trigger +
+       the pin indicator badge that sits next to it when pinned) so a
+       long title never runs underneath either — space-6 alone (used on
+       the right, under just the bookmark icon) isn't quite wide enough
+       once the pin badge is showing too. */
+    margin: 0 var(--space-6) var(--space-2) 48px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -221,5 +272,25 @@
     background: var(--accent-wash);
     color: var(--accent);
     font-weight: 500;
+  }
+
+  /* The scrim guarantees a dark backdrop regardless of the app's own
+     light/dark mode setting, so text drawn over it needs to be forced
+     light too — the ordinary --text-hi/--text-lo tokens flip to
+     near-black in light mode and would be unreadable here otherwise. */
+  :global(.note-card.has-image-theme) .title,
+  :global(.note-card.has-image-theme) .preview,
+  :global(.note-card.has-image-theme) .date {
+    color: rgba(255, 255, 255, 0.95);
+  }
+  :global(.note-card.has-image-theme) .preview {
+    color: rgba(255, 255, 255, 0.78);
+  }
+  :global(.note-card.has-image-theme) .date {
+    color: rgba(255, 255, 255, 0.6);
+  }
+  :global(.note-card.has-image-theme) .tag {
+    background: rgba(255, 255, 255, 0.16);
+    color: rgba(255, 255, 255, 0.92);
   }
 </style>

@@ -18,8 +18,10 @@
   // without loading the full entry — a themed card's color, or a bell
   // icon for an upcoming reminder. Safe to include theme in full here:
   // this is the small {kind, name, customThemeId} pointer object, never
-  // the uploaded image blob itself — see custom-themes.mdix.
-  ~note_ref<object>(_id, _title, _tags, _lastModified, _isBookmarked, _encrypted, _theme<object>, _reminder) {
+  // the uploaded image blob itself — see custom-themes.mdix. isPinned
+  // is here for the same reason: the list view needs it to sort pinned
+  // entries to the top without loading every full entry first.
+  ~note_ref<object>(_id, _title, _tags, _lastModified, _isBookmarked, _encrypted, _isPinned, _theme<object>, _reminder) {
     return {
       id           = _id
       title        = _title
@@ -27,6 +29,7 @@
       lastModified = _lastModified
       isBookmarked = _isBookmarked
       encrypted    = _encrypted
+      isPinned     = _isPinned
       theme        = _theme
       reminder     = _reminder
     }
@@ -36,6 +39,6 @@
 
 @DATA(
   notes::
-    note_ref("n1", "Grocery list", ["personal"], 2026-08-08T09:15:00Z, false, false, Themes.theme_preset("sunset"), null),
-    note_ref("n2", "Anniversary gift ideas", [], 2026-08-06T11:00:00Z, false, true, Themes.theme_preset("none"), null)
+    note_ref("n1", "Grocery list", ["personal"], 2026-08-08T09:15:00Z, false, false, false, Themes.theme_preset("sunset"), null),
+    note_ref("n2", "Anniversary gift ideas", [], 2026-08-06T11:00:00Z, false, true, true, Themes.theme_preset("none"), null)
 )

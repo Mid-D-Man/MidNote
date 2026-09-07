@@ -5,6 +5,36 @@
 // from localStorage to real Tauri invoke calls is a backend-only change,
 // not a data-shape rewrite.
 
+// Mirrors themes.mdix's theme_preset()/theme_custom() QuickFuncs exactly
+// — a pointer, never the actual image. Exactly one of name/customThemeId
+// is non-null depending on kind. "preset" resolves against
+// themePalette.ts's bundled solid-color palette (nothing about a
+// preset's color lives in DixScript, same as the schema comment says);
+// "custom" looks up an uploaded image by id in the CustomTheme registry
+// (see custom-themes.mdix / stores/customThemes.svelte.ts) so one upload
+// can be reused across many notes without duplicating the blob.
+export interface ThemeRef {
+  kind: "preset" | "custom";
+  name: string | null;
+  customThemeId: string | null;
+}
+
+// No-theme sentinel — matches the schema seed data's Themes.theme_preset("none")
+// convention (a real preset name, not a null theme field).
+export const NO_THEME: ThemeRef = { kind: "preset", name: "none", customThemeId: null };
+
+// Mirrors custom-themes.mdix's custom_theme() shape exactly. `data` is a
+// base64 data URL (already downscaled — see storage.ts's
+// storeCustomThemeImage) so it can go straight into a CSS
+// background-image without another decode step.
+export interface CustomTheme {
+  id: string;
+  data: string;
+  width: number;
+  height: number;
+  createdAt: string;
+}
+
 export interface EntryRef {
   id: string;
   title: string;
@@ -20,6 +50,17 @@ export interface EntryRef {
   // state inside Todo) — this is a whole-entry-level flag, e.g. "this
   // note/todo is done with, keep it around but visually mark it so."
   struck: boolean;
+  // ⋮ overflow menu — pinned entries float to the top of the list, but
+  // only while the search box is empty (see +page.svelte's sortedItems):
+  // pinning is a browsing convenience, not something that should ever
+  // hide or reorder an actual search result you went looking for.
+  isPinned: boolean;
+  // Per-entry visual theme, selected from the same Actions sheet as
+  // Share/Duplicate. Distinct from settings.svelte.ts's appTheme, which
+  // is the landing-page-wide default — this overrides it for one
+  // specific note/todo. Was a schema-only placeholder before this; see
+  // entry-note.mdix/entry-todo.mdix.
+  theme: ThemeRef;
 }
 
 export interface Note extends EntryRef {

@@ -1,8 +1,9 @@
 // Reactive entry list — Svelte 5 runes state. Backed by src/lib/storage.ts
 // (localStorage, temporary) rather than notes_index.mdix/todos_index.mdix
 // directly; see that file's header for why.
-import type { Entry, Note, Todo } from "$lib/types/entry";
+import type { Entry, Note, ThemeRef, Todo } from "$lib/types/entry";
 import * as storage from "$lib/storage";
+import { NO_THEME } from "$lib/types/entry";
 import { untrack } from "svelte";
 
 function seedIfEmpty(): Entry[] {
@@ -21,6 +22,8 @@ function seedIfEmpty(): Entry[] {
       isBookmarked: true,
       encrypted: false,
       struck: false,
+      isPinned: false,
+      theme: { ...NO_THEME },
     },
     {
       id: storage.generateId(),
@@ -32,6 +35,8 @@ function seedIfEmpty(): Entry[] {
       isBookmarked: false,
       encrypted: false,
       struck: false,
+      isPinned: false,
+      theme: { ...NO_THEME },
     },
   ];
   sample.forEach((n) => {
@@ -88,5 +93,19 @@ export function toggleStrikethrough(id: string) {
   const entry = entries.find((e) => e.id === id);
   if (!entry) return;
   entry.struck = !entry.struck;
+  saveEntry(entry);
+}
+
+export function togglePinned(id: string) {
+  const entry = entries.find((e) => e.id === id);
+  if (!entry) return;
+  entry.isPinned = !entry.isPinned;
+  saveEntry(entry);
+}
+
+export function setEntryTheme(id: string, theme: ThemeRef) {
+  const entry = entries.find((e) => e.id === id);
+  if (!entry) return;
+  entry.theme = theme;
   saveEntry(entry);
 }

@@ -9,7 +9,7 @@
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog/ConfirmDialog.svelte";
   import SelectionActionBar from "$lib/components/shared/SelectionActionBar/SelectionActionBar.svelte";
   import CardOverflowMenu from "$lib/components/shared/CardOverflowMenu/CardOverflowMenu.svelte";
-  import { entries, saveEntry, removeEntry, toggleBookmark, toggleStrikethrough } from "$lib/stores/entries.svelte";
+  import { entries, saveEntry, removeEntry, toggleBookmark, toggleStrikethrough, togglePinned, setEntryTheme } from "$lib/stores/entries.svelte";
   import type { Note, Todo, Entry } from "$lib/types/entry";
   import { noteTags, todoTags, sync as syncTags, registerTag, unregisterTag } from "$lib/stores/tags.svelte";
   import { createNote } from "$lib/storage";
@@ -19,6 +19,9 @@
   import { shareFiles } from "$lib/utils/share";
   import { pushToast } from "$lib/stores/toast.svelte";
   import { breadcrumb } from "$lib/debug/log.svelte";
+  import { resolveTheme, hexToRgba } from "$lib/utils/themePalette";
+  import { customThemes } from "$lib/stores/customThemes.svelte";
+  import { appTheme } from "$lib/stores/settings.svelte";
 
   let isLoading = $state(true);
   let activeView = $state<"notes" | "todos">("notes");
@@ -57,13 +60,41 @@
     })
   );
 
-  const sortedItems = $derived(
-    [...filteredItems].sort((a, b) => {
+  const sortedItems = $derived.by(() => {
+    const base = [...filteredItems].sort((a, b) => {
       if (sortBy === "recent") return new Date(b.lastModified).getTime() - new Date(a.lastModified).getTime();
       if (sortBy === "alphabetical") return a.title.localeCompare(b.title);
       return (b.isBookmarked ? 1 : 0) - (a.isBookmarked ? 1 : 0);
-    })
+    });
+    // Pin floats an item to the top of the browse list, but only while
+    // actually browsing — the moment there's a search query the person
+    // is looking for something specific, and pin order re-sorting the
+    // matches around would work against them, not for them. Tag
+    // filtering doesn't count as "searching" here, only the text box.
+    if (searchQuery.trim()) return base;
+    const pinned = base.filter((i) => i.isPinned);
+    const rest = base.filter((i) => !i.isPinned);
+    return [...pinned, ...rest];
+  });
+
+  // Landing-page theme (Settings) — applied as a subtle wash behind the
+  // whole list page. Same resolveTheme() as every per-entry theme, just
+  // fed the app-wide pointer instead of one entry's own.
+  const appThemeResolved = $derived(resolveTheme(appTheme.value, customThemes));
+  const pageStyle = $derived(
+    appThemeResolved.kind === "color"
+      ? `background: ${hexToRgba(appThemeResolved.color, 0.06)};`
+      : appThemeResolved.kind === "image"
+        ? `background-image: url(${appThemeResolved.dataUrl}); background-size: cover; background-attachment: fixed;`
+        : "",
   );
+
+  function todoItemStyle(todo: Todo): string {
+    const resolved = resolveTheme(todo.theme, customThemes);
+    if (resolved.kind === "color") return `border-left: 4px solid ${resolved.color}; background: ${hexToRgba(resolved.color, 0.08)};`;
+    if (resolved.kind === "image") return `background-image: url(${resolved.dataUrl}); background-size: cover; background-position: center;`;
+    return "";
+  }
 
   const selectedEntries = $derived(entries.filter((e) => selectedIds.has(e.id)));
   const canMerge = $derived(selectedIds.size >= 2);
@@ -241,7 +272,7 @@
 {#if isLoading}
   <LoadingScreen oncomplete={() => (isLoading = false)} />
 {:else}
-  <main class="page">
+  <main class="page" style={pageStyle}>
     <AppHeader />
 
     <div class="view-tabs">
@@ -315,17 +346,23 @@
                   onDelete={handleDeleteSingle}
                   onDownload={handleDownloadSingle}
                   onToggleStrikethrough={toggleStrikethrough}
+                  onTogglePin={togglePinned}
                 />
               {:else}
                 <div
                   class="todo-item"
                   class:selected={selectedIds.has(item.id)}
+                  class:has-image-theme={resolveTheme(item.theme, customThemes).kind === "image"}
+                  style={todoItemStyle(item)}
                   role="button"
                   tabindex="0"
                   onclick={() => handleTodoClick(item.id)}
                   onkeydown={(e) => e.key === "Enter" && handleTodoClick(item.id)}
                   {...todoPressHandlers(item.id)}
                 >
+                  {#if resolveTheme(item.theme, customThemes).kind === "image"}
+                    <div class="theme-scrim" aria-hidden="true"></div>
+                  {/if}
                   {#if selectMode}
                     <div class="select-check" class:checked={selectedIds.has(item.id)} aria-hidden="true">
                       {#if selectedIds.has(item.id)}
@@ -336,12 +373,21 @@
                     </div>
                   {:else}
                     <div class="todo-overflow">
+                      {#if item.isPinned}
+                        <span class="pin-indicator" aria-label="Pinned" title="Pinned">
+                          <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor">
+                            <path d="M12 17v5" /><path d="M9 3h6l-1 6 3 3v2H7v-2l3-3-1-6z" />
+                          </svg>
+                        </span>
+                      {/if}
                       <CardOverflowMenu
                         itemLabel="todo"
                         struck={item.struck}
+                        pinned={item.isPinned}
                         onDelete={() => handleDeleteSingle(item.id)}
                         onDownload={() => handleDownloadSingle(item.id)}
                         onToggleStrikethrough={() => toggleStrikethrough(item.id)}
+                        onTogglePin={() => togglePinned(item.id)}
                       />
                     </div>
                   {/if}
@@ -581,10 +627,38 @@
     position: absolute;
     top: var(--space-2);
     right: var(--space-2);
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+  .todo-item .pin-indicator {
+    width: 16px;
+    height: 16px;
+    color: var(--accent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
   }
   .todo-item strong.struck {
     text-decoration: line-through;
     color: var(--text-lo);
+  }
+  .todo-item .theme-scrim {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, rgba(4, 6, 16, 0.15) 0%, rgba(4, 6, 16, 0.72) 100%);
+    border-radius: inherit;
+  }
+  /* Same reasoning as NoteCard.svelte's has-image-theme override — the
+     scrim guarantees a dark backdrop no matter the app's light/dark
+     mode, so text over it needs to be forced light rather than left on
+     the ordinary tokens (which flip to near-black in light mode). */
+  .todo-item.has-image-theme {
+    color: rgba(255, 255, 255, 0.95);
+  }
+  .todo-item.has-image-theme .meta {
+    color: rgba(255, 255, 255, 0.6);
   }
 
   @media (max-width: 480px) {

@@ -4,6 +4,7 @@
   let {
     onclick,
     class: className = "",
+    style = "",
     children,
     onpointerdown,
     onpointermove,
@@ -12,6 +13,12 @@
   }: {
     onclick?: (e: MouseEvent) => void;
     class?: string;
+    // Passthrough for per-instance inline styling — specifically added
+    // for NoteCard/todo-row theme backgrounds (themePalette.ts's
+    // resolveTheme), which are per-entry data, not something a CSS
+    // class alone can express. Card stays generic; it just forwards
+    // whatever the caller computed.
+    style?: string;
     children: Snippet;
     // Optional passthrough for gesture handling (long-press-to-select —
     // see longPress.ts) without every Card usage needing it. Card stays
@@ -28,6 +35,7 @@
 <div
   class="card {className}"
   class:clickable={!!onclick}
+  {style}
   onclick={(e) => onclick?.(e)}
   onkeydown={(e) => e.key === "Enter" && onclick?.(e as unknown as MouseEvent)}
   {onpointerdown}

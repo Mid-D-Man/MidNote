@@ -13,8 +13,9 @@
 
 @QUICKFUNCS(
 
-  // See notes_index.mdix's comment on the same two added fields.
-  ~todo_ref<object>(_id, _title, _tags, _lastModified, _isBookmarked, _encrypted, _theme<object>, _reminder) {
+  // See notes_index.mdix's comment on isPinned/theme/reminder — same
+  // reasoning, same three fields, todos side.
+  ~todo_ref<object>(_id, _title, _tags, _lastModified, _isBookmarked, _encrypted, _isPinned, _theme<object>, _reminder) {
     return {
       id           = _id
       title        = _title
@@ -22,6 +23,7 @@
       lastModified = _lastModified
       isBookmarked = _isBookmarked
       encrypted    = _encrypted
+      isPinned     = _isPinned
       theme        = _theme
       reminder     = _reminder
     }
@@ -31,5 +33,5 @@
 
 @DATA(
   todos::
-    todo_ref("r1", "Grandma's Chili", ["dinner", "comfort-food"], 2026-08-07T18:30:00Z, true, false, Themes.theme_preset("sunset"), null)
+    todo_ref("r1", "Grandma's Chili", ["dinner", "comfort-food"], 2026-08-07T18:30:00Z, true, false, false, Themes.theme_preset("sunset"), null)
 )

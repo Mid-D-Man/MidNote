@@ -6,16 +6,20 @@
   let {
     itemLabel,
     struck = false,
+    pinned = false,
     onDelete,
     onDownload,
     onToggleStrikethrough,
+    onTogglePin,
   }: {
     // "note" or "todo" — copy only ("Delete note?").
     itemLabel: string;
     struck?: boolean;
+    pinned?: boolean;
     onDelete: () => void;
     onDownload: () => void;
     onToggleStrikethrough: () => void;
+    onTogglePin: () => void;
   } = $props();
 
   let open = $state(false);
@@ -80,6 +84,13 @@
 
   <Sheet bind:open side="bottom" title="Options">
     <div class="menu-list">
+      <button class="menu-item" onclick={() => pick(onTogglePin, "pin")}>
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 17v5" />
+          <path d="M9 3h6l-1 6 3 3v2H7v-2l3-3-1-6z" />
+        </svg>
+        <span>{pinned ? "Unpin" : "Pin to top"}</span>
+      </button>
       <button class="menu-item" onclick={() => pick(onToggleStrikethrough, "strikethrough")}>
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
           <line x1="4" y1="12" x2="20" y2="12" />

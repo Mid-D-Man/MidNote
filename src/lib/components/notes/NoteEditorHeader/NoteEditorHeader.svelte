@@ -6,11 +6,14 @@
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog/ConfirmDialog.svelte";
   import TagSelector from "$lib/components/shared/TagSelector/TagSelector.svelte";
   import { pushToast } from "$lib/stores/toast.svelte";
-  import { removeEntry, saveEntry } from "$lib/stores/entries.svelte";
+  import { removeEntry, saveEntry, setEntryTheme } from "$lib/stores/entries.svelte";
   import { createNote } from "$lib/storage";
   import { breadcrumb } from "$lib/debug/log.svelte";
   import { htmlToPlainText } from "$lib/utils/richText";
   import { shareFiles } from "$lib/utils/share";
+  import ThemePicker from "$lib/components/shared/ThemePicker/ThemePicker.svelte";
+  import { resolveTheme, hexToRgba } from "$lib/utils/themePalette";
+  import { customThemes } from "$lib/stores/customThemes.svelte";
   import type { Note } from "$lib/types/entry";
 
   // REVISION: back to just Share/Duplicate in the "..." sheet — B/I/U/S/
@@ -38,6 +41,34 @@
   let isSaving = $state(false);
   let showDeleteConfirm = $state(false);
   let moreOpen = $state(false);
+  let themePickerOpen = $state(false);
+
+  // Same resolveTheme() as the card preview — a visible (but
+  // deliberately contained, see header comment above ThemePicker's
+  // callsite below) echo of the selected theme in the editor itself,
+  // not just the list. Scoped to the header bar only, not the actual
+  // writing surface: an uploaded photo sitting directly behind live
+  // Tiptap text/caret/selection is a real legibility risk that hasn't
+  // been tried on-device, so this stays out of scope for now rather
+  // than guessing it's fine.
+  const resolvedTheme = $derived(resolveTheme(note.theme, customThemes));
+  const headerStyle = $derived(
+    resolvedTheme.kind === "color"
+      ? `background: ${hexToRgba(resolvedTheme.color, 0.14)}; border-bottom-color: ${resolvedTheme.color};`
+      : resolvedTheme.kind === "image"
+        ? `background-image: linear-gradient(rgba(4,6,16,0.35), rgba(4,6,16,0.35)), url(${resolvedTheme.dataUrl}); background-size: cover; background-position: center;`
+        : "",
+  );
+
+  function handleOpenThemePicker() {
+    breadcrumb("note header: Theme tapped");
+    // Sequential, not nested — same pattern CardOverflowMenu already
+    // uses for its delete-confirm flow (close the sheet you're in,
+    // open the next one), rather than two Sheets open at once, which
+    // Sheet.svelte was never built or tested to support.
+    moreOpen = false;
+    themePickerOpen = true;
+  }
 
   async function handleSave() {
     breadcrumb("note header: Save tapped");
@@ -109,7 +140,7 @@
   }
 </script>
 
-<header class="editor-header">
+<header class="editor-header" style={headerStyle}>
   <div class="row">
     <Button variant="ghost" size="icon" onclick={handleBack}>
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
@@ -173,8 +204,17 @@
       </svg>
       <span>Duplicate</span>
     </button>
+    <button class="action-row" onclick={handleOpenThemePicker}>
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="9" /><path d="M12 3a6 6 0 0 0 0 12 3 3 0 0 1 0 6 9 9 0 1 1 0-18z" />
+        <circle cx="7.5" cy="10.5" r="1" fill="currentColor" /><circle cx="12" cy="7.5" r="1" fill="currentColor" /><circle cx="16.5" cy="10.5" r="1" fill="currentColor" />
+      </svg>
+      <span>Theme</span>
+    </button>
   </div>
 </Sheet>
+
+<ThemePicker bind:open={themePickerOpen} value={note.theme} onChange={(theme) => setEntryTheme(note.id, theme)} />
 
 <ConfirmDialog
   bind:open={showDeleteConfirm}

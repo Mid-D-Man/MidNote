@@ -1,14 +1,44 @@
 <script lang="ts">
   import Sheet from "$lib/components/ui/Sheet/Sheet.svelte";
   import Switch from "$lib/components/ui/Switch/Switch.svelte";
-  import { debugPanelVisible, setDebugPanelVisible, noteLinesEnabled, setNoteLinesEnabled } from "$lib/stores/settings.svelte";
+  import ThemePicker from "$lib/components/shared/ThemePicker/ThemePicker.svelte";
+  import { debugPanelVisible, setDebugPanelVisible, noteLinesEnabled, setNoteLinesEnabled, appTheme, setAppTheme } from "$lib/stores/settings.svelte";
+  import { resolveTheme } from "$lib/utils/themePalette";
+  import { customThemes } from "$lib/stores/customThemes.svelte";
   import { breadcrumb } from "$lib/debug/log.svelte";
 
   let { open = $bindable(false) }: { open?: boolean } = $props();
+
+  let themePickerOpen = $state(false);
+  const resolvedAppTheme = $derived(resolveTheme(appTheme.value, customThemes));
+
+  function handleOpenThemePicker() {
+    breadcrumb("settings: theme row tapped");
+    // Sequential sheet swap — same reasoning as NoteEditorHeader/
+    // TodoHeader's Theme row: close this Sheet, open the next.
+    open = false;
+    themePickerOpen = true;
+  }
 </script>
 
 <Sheet bind:open side="left" title="Settings">
   <div class="settings-list">
+    <button class="settings-row settings-row-button" onclick={handleOpenThemePicker}>
+      <div class="row-text">
+        <span class="row-label">Theme</span>
+        <span class="row-desc">Default background for the notes &amp; todos list.</span>
+      </div>
+      <span
+        class="theme-swatch"
+        class:none-swatch={resolvedAppTheme.kind === "none"}
+        style={resolvedAppTheme.kind === "color"
+          ? `background:${resolvedAppTheme.color}`
+          : resolvedAppTheme.kind === "image"
+            ? `background-image:url(${resolvedAppTheme.dataUrl})`
+            : undefined}
+        aria-hidden="true"
+      ></span>
+    </button>
     <div class="settings-row">
       <div class="row-text">
         <span class="row-label">Debug panel</span>
@@ -40,6 +70,8 @@
   </div>
 </Sheet>
 
+<ThemePicker bind:open={themePickerOpen} title="Landing page theme" value={appTheme.value} onChange={setAppTheme} />
+
 <style>
   .settings-list {
     display: flex;
@@ -66,5 +98,26 @@
   .row-desc {
     font-size: 12px;
     color: var(--text-faint);
+  }
+  .settings-row-button {
+    background: transparent;
+    border: none;
+    padding: 0;
+    width: 100%;
+    text-align: left;
+    cursor: pointer;
+  }
+  .theme-swatch {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 2px solid var(--hairline);
+    background-color: var(--surface);
+    background-size: cover;
+    background-position: center;
+    flex-shrink: 0;
+  }
+  .theme-swatch.none-swatch {
+    background: linear-gradient(45deg, transparent 47%, var(--text-faint) 47%, var(--text-faint) 53%, transparent 53%), var(--surface);
   }
 </style>

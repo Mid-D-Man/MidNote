@@ -69,3 +69,35 @@ export function setNoteLinesEnabled(enabled: boolean) {
   noteLinesEnabled.value = enabled;
   if (typeof localStorage !== "undefined") localStorage.setItem(NOTE_LINES_KEY, String(enabled));
 }
+
+// Landing-page theme — the list/notes-and-todos page's own background,
+// set from Settings. Deliberately separate from any single entry's
+// `theme` field (entry.ts): a note/todo's own theme, when set, overrides
+// this for that one card/editor; this is just the default the landing
+// page itself paints with. Same {kind,name,customThemeId} pointer shape
+// as an entry's theme — see themePalette.ts's resolveTheme, which both
+// consume identically.
+import type { ThemeRef } from "$lib/types/entry";
+import { NO_THEME } from "$lib/types/entry";
+
+const APP_THEME_KEY = "midnote:app-theme";
+
+function loadAppTheme(): ThemeRef {
+  if (typeof localStorage === "undefined") return { ...NO_THEME };
+  try {
+    const raw = localStorage.getItem(APP_THEME_KEY);
+    if (!raw) return { ...NO_THEME };
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && typeof parsed.kind === "string") return parsed as ThemeRef;
+    return { ...NO_THEME };
+  } catch {
+    return { ...NO_THEME };
+  }
+}
+
+export const appTheme = $state<{ value: ThemeRef }>({ value: loadAppTheme() });
+
+export function setAppTheme(theme: ThemeRef) {
+  appTheme.value = theme;
+  if (typeof localStorage !== "undefined") localStorage.setItem(APP_THEME_KEY, JSON.stringify(theme));
+}

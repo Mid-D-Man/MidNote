@@ -23,12 +23,18 @@
   lastModified = 2026-08-08T09:15:00Z
   isBookmarked = false
 
-  // Not wired up yet — schema-only placeholders for the future actions
-  // menu (theme/favorite/lock/reminder). Favorite and lock already have
-  // homes above (isBookmarked, encrypted); theme and reminder are the
-  // two genuinely new fields. reminder is null for "none set," otherwise
-  // a real timestamp literal — same shape as lastModified, so no
-  // separate "hasReminder" flag is needed.
+  // ⋮ overflow menu — pinned entries float to the top of the browse
+  // list (see +page.svelte's sortedItems), suspended while the search
+  // box has text in it. Same field name/shape on notes and todos.
+  isPinned     = false
+
+  // theme is wired up now (ThemePicker.svelte, resolved by
+  // themePalette.ts's resolveTheme) — still against storage.ts's
+  // TEMPORARY localStorage layer, not real DixScript-backed storage
+  // yet, since src-tauri/src/data/entries.rs is still stubbed. reminder
+  // stays an unwired schema-only placeholder for a future actions-menu
+  // item: null for "none set," otherwise a real timestamp literal, same
+  // shape as lastModified, so no separate "hasReminder" flag is needed.
   theme        = Themes.theme_preset("sunset")
   reminder     = null
 
