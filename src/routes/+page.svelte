@@ -9,7 +9,7 @@
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog/ConfirmDialog.svelte";
   import SelectionActionBar from "$lib/components/shared/SelectionActionBar/SelectionActionBar.svelte";
   import CardOverflowMenu from "$lib/components/shared/CardOverflowMenu/CardOverflowMenu.svelte";
-  import { entries, saveEntry, removeEntry, toggleBookmark, toggleStrikethrough, togglePinned, setEntryTheme } from "$lib/stores/entries.svelte";
+  import { entries, saveEntry, removeEntry, toggleBookmark, toggleStrikethrough, togglePinned } from "$lib/stores/entries.svelte";
   import type { Note, Todo, Entry } from "$lib/types/entry";
   import { noteTags, todoTags, sync as syncTags, registerTag, unregisterTag } from "$lib/stores/tags.svelte";
   import { createNote } from "$lib/storage";
@@ -83,7 +83,13 @@
   const appThemeResolved = $derived(resolveTheme(appTheme.value, customThemes));
   const pageStyle = $derived(
     appThemeResolved.kind === "color"
-      ? `background: ${hexToRgba(appThemeResolved.color, 0.06)};`
+      ? // BUGFIX: was 0.06 — confirmed on-device as imperceptible (this
+        // app's layout is mostly opaque NoteCard/todo-item surfaces, so
+        // the wash was only ever visible in thin gaps/padding to begin
+        // with; at 6% alpha it read as "not working" rather than
+        // "subtle"). 0.16 is roughly the same strength already used
+        // for a themed note's own card wash.
+        `background: ${hexToRgba(appThemeResolved.color, 0.16)};`
       : appThemeResolved.kind === "image"
         ? `background-image: url(${appThemeResolved.dataUrl}); background-size: cover; background-attachment: fixed;`
         : "",
@@ -275,7 +281,7 @@
   <main class="page" style={pageStyle}>
     <AppHeader />
 
-    <div class="view-tabs">
+    <div class="view-tabs" style={pageStyle}>
       <button class:active={activeView === "notes"} onclick={() => switchView("notes")}>Notes</button>
       <button class:active={activeView === "todos"} onclick={() => switchView("todos")}>Todos</button>
     </div>

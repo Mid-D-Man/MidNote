@@ -1,7 +1,7 @@
 // Reactive entry list — Svelte 5 runes state. Backed by src/lib/storage.ts
 // (localStorage, temporary) rather than notes_index.mdix/todos_index.mdix
 // directly; see that file's header for why.
-import type { Entry, Note, ThemeRef, Todo } from "$lib/types/entry";
+import type { Entry, Note, Todo } from "$lib/types/entry";
 import * as storage from "$lib/storage";
 import { NO_THEME } from "$lib/types/entry";
 import { untrack } from "svelte";
@@ -103,9 +103,18 @@ export function togglePinned(id: string) {
   saveEntry(entry);
 }
 
-export function setEntryTheme(id: string, theme: ThemeRef) {
-  const entry = entries.find((e) => e.id === id);
-  if (!entry) return;
-  entry.theme = theme;
-  saveEntry(entry);
-}
+// NOTE: no store-level setEntryTheme() here (unlike togglePinned/
+// toggleBookmark/toggleStrikethrough above) — per-entry theme is only
+// ever changed from inside the note/todo editor, where the entry being
+// edited is that page's own local $state object (see
+// /note/[id]/+page.svelte), not this store's `entries` array. A
+// version of this function lived here briefly and looked correct
+// (typechecked, ran without error) but silently mutated the wrong
+// object — confirmed on-device as "theme doesn't work" for notes/
+// todos. NoteEditorHeader/TodoHeader now mutate their own local
+// note.theme/todo.theme directly and call saveEntry() themselves. If a
+// future screen needs to set an entry's theme from OUTSIDE its own
+// editor (operating on a genuine `entries` array item), it's safe to
+// add a function like this back — just for that caller, matching the
+// pattern toggleBookmark/togglePinned already use correctly from the
+// list view.

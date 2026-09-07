@@ -7,12 +7,12 @@
   import TagSelector from "$lib/components/shared/TagSelector/TagSelector.svelte";
   import ThemePicker from "$lib/components/shared/ThemePicker/ThemePicker.svelte";
   import { pushToast } from "$lib/stores/toast.svelte";
-  import { removeEntry, saveEntry, setEntryTheme } from "$lib/stores/entries.svelte";
+  import { removeEntry, saveEntry } from "$lib/stores/entries.svelte";
   import { createTodo } from "$lib/storage";
   import { breadcrumb } from "$lib/debug/log.svelte";
   import { resolveTheme, hexToRgba } from "$lib/utils/themePalette";
   import { customThemes } from "$lib/stores/customThemes.svelte";
-  import type { Todo } from "$lib/types/entry";
+  import type { Todo, ThemeRef } from "$lib/types/entry";
 
   let {
     todo,
@@ -57,6 +57,15 @@
     breadcrumb("todo header: Theme tapped");
     moreOpen = false;
     themePickerOpen = true;
+  }
+
+  // BUGFIX — see NoteEditorHeader.svelte's identical comment: `todo`
+  // here is /todo/[id]/+page.svelte's own local $state (loaded via
+  // getEntry()), a different object from the entries store's array
+  // item. The old setEntryTheme(todo.id, theme) mutated the wrong one.
+  function handleThemeChange(theme: ThemeRef) {
+    todo.theme = theme;
+    saveEntry(todo);
   }
 
   async function handleSave() {
@@ -190,7 +199,7 @@
   </div>
 </Sheet>
 
-<ThemePicker bind:open={themePickerOpen} value={todo.theme} onChange={(theme) => setEntryTheme(todo.id, theme)} />
+<ThemePicker bind:open={themePickerOpen} value={todo.theme} onChange={handleThemeChange} />
 
 <ConfirmDialog
   bind:open={showDeleteConfirm}

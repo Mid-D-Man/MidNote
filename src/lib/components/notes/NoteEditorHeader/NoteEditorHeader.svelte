@@ -6,7 +6,7 @@
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog/ConfirmDialog.svelte";
   import TagSelector from "$lib/components/shared/TagSelector/TagSelector.svelte";
   import { pushToast } from "$lib/stores/toast.svelte";
-  import { removeEntry, saveEntry, setEntryTheme } from "$lib/stores/entries.svelte";
+  import { removeEntry, saveEntry } from "$lib/stores/entries.svelte";
   import { createNote } from "$lib/storage";
   import { breadcrumb } from "$lib/debug/log.svelte";
   import { htmlToPlainText } from "$lib/utils/richText";
@@ -14,7 +14,7 @@
   import ThemePicker from "$lib/components/shared/ThemePicker/ThemePicker.svelte";
   import { resolveTheme, hexToRgba } from "$lib/utils/themePalette";
   import { customThemes } from "$lib/stores/customThemes.svelte";
-  import type { Note } from "$lib/types/entry";
+  import type { Note, ThemeRef } from "$lib/types/entry";
 
   // REVISION: back to just Share/Duplicate in the "..." sheet — B/I/U/S/
   // size/color/background moved back to the bottom FormattingToolbar,
@@ -68,6 +68,26 @@
     // Sheet.svelte was never built or tested to support.
     moreOpen = false;
     themePickerOpen = true;
+  }
+
+  // BUGFIX: this used to call the entries store's setEntryTheme(note.id,
+  // theme), which looks the entry up in the `entries` STORE array —
+  // a completely different object from this page's own local `note`
+  // (see /note/[id]/+page.svelte: `note` is loaded via getEntry(), not
+  // pulled from the store). That meant the theme genuinely saved to
+  // localStorage correctly, but headerStyle (derived from this exact
+  // `note` prop) never saw the change, so nothing visibly updated —
+  // confirmed on-device as "theme doesn't work" for notes/todos.
+  // Mutating `note` directly here works because it's the SAME reactive
+  // object the parent page declared with $state (objects pass by
+  // reference as props, Svelte doesn't clone them), so this also
+  // immediately updates whatever the parent derives from note.theme.
+  // saveEntry() then persists it AND refreshes the entries store so the
+  // list view picks up the change too, same as Save/Duplicate/Delete
+  // already do on this page.
+  function handleThemeChange(theme: ThemeRef) {
+    note.theme = theme;
+    saveEntry(note);
   }
 
   async function handleSave() {
@@ -214,7 +234,7 @@
   </div>
 </Sheet>
 
-<ThemePicker bind:open={themePickerOpen} value={note.theme} onChange={(theme) => setEntryTheme(note.id, theme)} />
+<ThemePicker bind:open={themePickerOpen} value={note.theme} onChange={handleThemeChange} />
 
 <ConfirmDialog
   bind:open={showDeleteConfirm}

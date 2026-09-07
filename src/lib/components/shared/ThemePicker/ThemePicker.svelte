@@ -101,6 +101,7 @@
     </div>
 
     <div class="section-label">Your uploads</div>
+    <p class="upload-hint">Any photo works — it's resized to 720px on the long edge before saving. Landscape/wide shots fit a card background best; very tall portrait photos will get cropped.</p>
     <div class="swatch-grid">
       {#each customThemes as ct (ct.id)}
         <div class="custom-swatch-wrap">
@@ -149,6 +150,12 @@
   }
   .section-label:first-child {
     margin-top: 0;
+  }
+  .upload-hint {
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--text-faint);
+    margin: 0 0 var(--space-1) 0;
   }
   .swatch-grid {
     display: flex;
