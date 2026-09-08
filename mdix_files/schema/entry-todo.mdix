@@ -43,12 +43,21 @@
   title        = "Grandma's Chili"
   lastModified = 2026-08-07T18:30:00Z
   isBookmarked = true
+  encrypted    = false
 
   // See entry-note.mdix's comment on this same trio of fields —
   // identical shape and identical reasoning here.
   isPinned     = false
   theme        = Themes.theme_preset("sunset")
   reminder     = null
+
+  // See entry-note.mdix's comment on this same trio. On a todo,
+  // steps/annotations (not just content) move into the encrypted
+  // payload alongside tags when locked — see utils/lockFlow.ts's
+  // buildPlaintextPayload.
+  lockKeyMode   = null
+  lockedPayload = null
+  lockedKeyFile = null
 
   tags::
     "dinner", "comfort-food"

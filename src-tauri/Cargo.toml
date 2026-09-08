@@ -25,3 +25,31 @@ tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
+# Real DixScript-Rust encryption for the Lock feature (src-tauri/src/data/crypto.rs)
+# — published on crates.io as "dixscript" (confirmed via the crates.io API; same
+# crate as https://github.com/Mid-D-Man/DixScript-Rust's `dixscript/` directory).
+dixscript = "1.0"
+# Needed to construct DixData::from_ast's compile_time argument (crypto.rs) — a
+# dependency of dixscript itself, but Rust doesn't let a crate use another
+# crate's *dependency* types without depending on it directly too.
+chrono = "0.4"
+# Locked payloads are base64-wrapped before being embedded as a DixScript
+# string literal (see crypto.rs's doc comment for why) and unwrapped on
+# unlock — this is the standard, actively maintained base64 crate, not
+# something dixscript already pulls in.
+base64 = "0.23"
+
+# Real DixScript-Rust encryption for the Lock feature (src-tauri/src/data/crypto.rs)
+# — published on crates.io as "dixscript" (confirmed via the crates.io API; same
+# crate as https://github.com/Mid-D-Man/DixScript-Rust's `dixscript/` directory).
+dixscript = "1.0"
+# Needed to construct DixData::from_ast's compile_time argument (crypto.rs) — a
+# dependency of dixscript itself, but Rust doesn't let a crate use another
+# crate's *dependency* types without depending on it directly too.
+chrono = "0.4"
+# Locked payloads are base64-wrapped before being embedded as a DixScript
+# string literal (see crypto.rs's doc comment for why) and unwrapped on
+# unlock — this is the standard, actively maintained base64 crate, not
+# something dixscript already pulls in.
+base64 = "0.23"
+

@@ -7,19 +7,30 @@
     itemLabel,
     struck = false,
     pinned = false,
+    encrypted = false,
     onDelete,
     onDownload,
     onToggleStrikethrough,
     onTogglePin,
+    onToggleLock,
   }: {
     // "note" or "todo" — copy only ("Delete note?").
     itemLabel: string;
     struck?: boolean;
     pinned?: boolean;
+    encrypted?: boolean;
     onDelete: () => void;
     onDownload: () => void;
     onToggleStrikethrough: () => void;
     onTogglePin: () => void;
+    // Async — lockFlow.ts's lockEntry()/unlockEntry() show their own
+    // dialogs (choice + password) and may take a while / get cancelled
+    // partway through. Not awaited here on purpose: this menu just
+    // fires the request and closes itself immediately, same as every
+    // other action here — the dialogs it triggers are already global
+    // (LockPrompt.svelte, mounted in +layout.svelte), not something
+    // this menu needs to stay open or block on.
+    onToggleLock: () => void;
   } = $props();
 
   let open = $state(false);
@@ -98,6 +109,18 @@
           <path d="M9 16.5c.7 1.4 2.3 2 4.2 2 2.5 0 4.3-1.1 4.3-3" />
         </svg>
         <span>{struck ? "Remove strikethrough" : "Strikethrough"}</span>
+      </button>
+      <button class="menu-item" onclick={() => pick(onToggleLock, "lock")}>
+        {#if encrypted}
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 9.9-1" />
+          </svg>
+        {:else}
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" />
+          </svg>
+        {/if}
+        <span>{encrypted ? "Unlock" : "Lock"}</span>
       </button>
       <button class="menu-item" onclick={() => pick(onDownload, "download")}>
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">

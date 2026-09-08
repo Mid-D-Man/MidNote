@@ -1,6 +1,7 @@
 <script lang="ts">
   import "../lib/tokens.css";
   import Toast from "$lib/components/ui/Toast/Toast.svelte";
+  import LockPrompt from "$lib/components/shared/LockPrompt/LockPrompt.svelte";
   import DebugPanel from "$lib/components/debug/DebugPanel.svelte";
   import { installGlobalCapture } from "$lib/debug/log.svelte";
   import { debugPanelVisible } from "$lib/stores/settings.svelte";
@@ -18,6 +19,7 @@
 
 {@render children()}
 <Toast />
+<LockPrompt />
 {#if debugPanelVisible.value}
   <DebugPanel />
 {/if}

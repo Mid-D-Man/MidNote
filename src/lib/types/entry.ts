@@ -35,6 +35,8 @@ export interface CustomTheme {
   createdAt: string;
 }
 
+export type LockKeyMode = "app" | "custom";
+
 export interface EntryRef {
   id: string;
   title: string;
@@ -58,9 +60,24 @@ export interface EntryRef {
   // Per-entry visual theme, selected from the same Actions sheet as
   // Share/Duplicate. Distinct from settings.svelte.ts's appTheme, which
   // is the landing-page-wide default — this overrides it for one
-  // specific note/todo. Was a schema-only placeholder before this; see
-  // entry-note.mdix/entry-todo.mdix.
+  // specific note/todo.
   theme: ThemeRef;
+  // Lock — real DixScript-Rust AES-256-GCM/Argon2id encryption via
+  // src-tauri/src/data/crypto.rs, not a client-side shim. `encrypted`
+  // above is the existing is-this-entry-locked flag (already had a
+  // schema home before this feature); the three fields below are new.
+  // While locked: `content` (notes) / `steps`+`annotations` (todos) AND
+  // `tags` are cleared on the visible entry (matches notes_index.mdix's
+  // existing "encrypted entries keep their real title but empty tags"
+  // convention) and moved into the encrypted payload instead, so
+  // nothing is lost — unlocking restores them from there, not from
+  // anywhere else. `lockKeyMode` records which password this specific
+  // entry needs, purely so the unlock prompt can ask for the right
+  // thing ("your app password" vs "this note's password") — see
+  // stores/lockSession.svelte.ts and utils/lockFlow.ts.
+  lockKeyMode: LockKeyMode | null;
+  lockedPayload: string | null;
+  lockedKeyFile: string | null;
 }
 
 export interface Note extends EntryRef {

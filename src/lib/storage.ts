@@ -48,6 +48,13 @@ export function loadEntries(): Entry[] {
       if (typeof e.struck !== "boolean") e.struck = false;
       if (typeof e.isPinned !== "boolean") e.isPinned = false;
       if (!e.theme || typeof e.theme !== "object" || typeof e.theme.kind !== "string") e.theme = { ...NO_THEME };
+      // Lock fields are newest — same migration-default treatment.
+      // encrypted already existed (always defaulted false already, see
+      // above); an entry saved before Lock existed won't have these
+      // three at all.
+      if (e.lockKeyMode !== "app" && e.lockKeyMode !== "custom") e.lockKeyMode = null;
+      if (typeof e.lockedPayload !== "string") e.lockedPayload = null;
+      if (typeof e.lockedKeyFile !== "string") e.lockedKeyFile = null;
       valid.push(e);
     }
     return valid;
@@ -98,6 +105,9 @@ export function createNote(): Note {
     struck: false,
     isPinned: false,
     theme: { ...NO_THEME },
+    lockKeyMode: null,
+    lockedPayload: null,
+    lockedKeyFile: null,
   };
 }
 
@@ -113,6 +123,9 @@ export function createTodo(): Todo {
     struck: false,
     isPinned: false,
     theme: { ...NO_THEME },
+    lockKeyMode: null,
+    lockedPayload: null,
+    lockedKeyFile: null,
     categories: ["Steps"],
     steps: [],
     annotations: [],

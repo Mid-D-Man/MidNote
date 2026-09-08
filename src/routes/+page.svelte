@@ -22,6 +22,7 @@
   import { resolveTheme, hexToRgba } from "$lib/utils/themePalette";
   import { customThemes } from "$lib/stores/customThemes.svelte";
   import { appTheme } from "$lib/stores/settings.svelte";
+  import { lockEntry, unlockEntry } from "$lib/utils/lockFlow";
 
   let isLoading = $state(true);
   let activeView = $state<"notes" | "todos">("notes");
@@ -181,6 +182,16 @@
     if (!item) return;
     await downloadFiles(buildExportFiles([item], "separate"));
     pushToast({ title: "Downloaded" });
+  }
+
+  // NoteCard's own onToggleLock passes the Note object it already has;
+  // the inline todo row (Todo has no dedicated component of its own)
+  // does the same with a Todo — either way this just picks the right
+  // direction and hands off to lockFlow.ts, which owns the actual
+  // dialogs/invoke calls/entry mutation.
+  async function handleToggleLock(item: Note | Todo) {
+    if (item.encrypted) await unlockEntry(item);
+    else await lockEntry(item);
   }
 
   async function handleSendSelected() {
@@ -390,15 +401,23 @@
                         itemLabel="todo"
                         struck={item.struck}
                         pinned={item.isPinned}
+                        encrypted={item.encrypted}
                         onDelete={() => handleDeleteSingle(item.id)}
                         onDownload={() => handleDownloadSingle(item.id)}
                         onToggleStrikethrough={() => toggleStrikethrough(item.id)}
                         onTogglePin={() => togglePinned(item.id)}
+                        onToggleLock={() => handleToggleLock(item)}
                       />
                     </div>
                   {/if}
                   <strong class:struck={item.struck}>{item.title || "Untitled"}</strong>
-                  <span class="meta">{item.steps.length} step{item.steps.length === 1 ? "" : "s"} · {new Date(item.lastModified).toLocaleDateString()}</span>
+                  <span class="meta">
+                    {#if item.encrypted}
+                      🔒 Locked
+                    {:else}
+                      {item.steps.length} step{item.steps.length === 1 ? "" : "s"} · {new Date(item.lastModified).toLocaleDateString()}
+                    {/if}
+                  </span>
                 </div>
               {/if}
             {/each}

@@ -10,6 +10,7 @@
   import { todoTags, sync as syncTags } from "$lib/stores/tags.svelte";
   import { createTodo, getEntry, generateId } from "$lib/storage";
   import { breadcrumb } from "$lib/debug/log.svelte";
+  import { unlockEntry } from "$lib/utils/lockFlow";
   import type { Todo } from "$lib/types/entry";
 
   const id = $derived($page.params.id);
@@ -127,6 +128,16 @@
   }
 
   const stepsForCategory = $derived(todo.steps.filter((s) => s.category === currentCategory));
+
+  let unlocking = $state(false);
+  async function handleUnlock() {
+    unlocking = true;
+    try {
+      await unlockEntry(todo);
+    } finally {
+      unlocking = false;
+    }
+  }
 </script>
 
 <svelte:head>
@@ -150,42 +161,55 @@
     onShowNotes={() => (notesOpen = true)}
   />
 
-  <div class="title-row">
-    <input
-      type="text"
-      bind:value={todo.title}
-      onblur={persist}
-      placeholder="Todo title..."
-      class="todo-title"
+  {#if todo.encrypted}
+    <div class="locked-state">
+      <div class="lock-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.5">
+          <rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 9.9-1" />
+        </svg>
+      </div>
+      <p><strong>This todo is locked.</strong></p>
+      <p class="locked-detail">Unlock it to view or edit its steps.</p>
+      <button class="unlock-btn" onclick={handleUnlock} disabled={unlocking}>{unlocking ? "Unlocking…" : "Unlock"}</button>
+    </div>
+  {:else}
+    <div class="title-row">
+      <input
+        type="text"
+        bind:value={todo.title}
+        onblur={persist}
+        placeholder="Todo title..."
+        class="todo-title"
+      />
+    </div>
+
+    <TodoCategoryTabs
+      categories={todo.categories}
+      {currentCategory}
+      onCategoryChange={(c) => (currentCategory = c)}
+      onAddCategory={addCategory}
+      onRemoveCategory={removeCategory}
     />
-  </div>
 
-  <TodoCategoryTabs
-    categories={todo.categories}
-    {currentCategory}
-    onCategoryChange={(c) => (currentCategory = c)}
-    onAddCategory={addCategory}
-    onRemoveCategory={removeCategory}
-  />
+    <div class="body">
+      <TodoStepsSection
+        steps={stepsForCategory}
+        category={currentCategory}
+        onAddStep={addStep}
+        onUpdateStep={updateStep}
+        onDeleteStep={deleteStep}
+      />
+    </div>
 
-  <div class="body">
-    <TodoStepsSection
-      steps={stepsForCategory}
-      category={currentCategory}
-      onAddStep={addStep}
-      onUpdateStep={updateStep}
-      onDeleteStep={deleteStep}
+    <TodoAnnotationsSidebar
+      bind:open={notesOpen}
+      annotations={todo.annotations}
+      {currentCategory}
+      onAddAnnotation={addAnnotation}
+      onUpdateAnnotation={updateAnnotation}
+      onDeleteAnnotation={deleteAnnotation}
     />
-  </div>
-
-  <TodoAnnotationsSidebar
-    bind:open={notesOpen}
-    annotations={todo.annotations}
-    {currentCategory}
-    onAddAnnotation={addAnnotation}
-    onUpdateAnnotation={updateAnnotation}
-    onDeleteAnnotation={deleteAnnotation}
-  />
+  {/if}
   {/if}
 </main>
 
@@ -254,5 +278,41 @@
     border-radius: var(--radius-sm);
     font-weight: 500;
     cursor: pointer;
+  }
+  .locked-state {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    padding: var(--space-5);
+    text-align: center;
+  }
+  .lock-icon {
+    color: var(--text-faint);
+    margin-bottom: var(--space-2);
+  }
+  .locked-state p {
+    color: var(--text-hi);
+    margin: 0;
+  }
+  .locked-state p.locked-detail {
+    color: var(--text-lo);
+    font-size: 13px;
+  }
+  .unlock-btn {
+    margin-top: var(--space-3);
+    padding: var(--space-2) var(--space-5);
+    background: var(--accent);
+    color: var(--bg);
+    border: none;
+    border-radius: var(--radius-sm);
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .unlock-btn:disabled {
+    opacity: 0.6;
+    cursor: default;
   }
 </style>

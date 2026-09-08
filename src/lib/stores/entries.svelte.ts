@@ -24,6 +24,9 @@ function seedIfEmpty(): Entry[] {
       struck: false,
       isPinned: false,
       theme: { ...NO_THEME },
+      lockKeyMode: null,
+      lockedPayload: null,
+      lockedKeyFile: null,
     },
     {
       id: storage.generateId(),
@@ -37,6 +40,9 @@ function seedIfEmpty(): Entry[] {
       struck: false,
       isPinned: false,
       theme: { ...NO_THEME },
+      lockKeyMode: null,
+      lockedPayload: null,
+      lockedKeyFile: null,
     },
   ];
   sample.forEach((n) => {

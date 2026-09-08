@@ -10,3 +10,4 @@
 pub mod entries;
 pub mod index;
 pub mod tags;
+pub mod crypto;

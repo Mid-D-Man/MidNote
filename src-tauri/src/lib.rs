@@ -16,6 +16,8 @@ pub fn run() {
             commands::todos::get_todos_index,
             commands::todos::get_todo,
             commands::todos::save_todo,
+            commands::crypto::lock_payload,
+            commands::crypto::unlock_payload,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,6 +1,7 @@
 <script lang="ts">
   import Card from "$lib/components/ui/Card/Card.svelte";
   import CardOverflowMenu from "$lib/components/shared/CardOverflowMenu/CardOverflowMenu.svelte";
+  import { lockEntry, unlockEntry } from "$lib/utils/lockFlow";
   import { stripHtml } from "$lib/utils/richText";
   import { createLongPressHandlers } from "$lib/utils/longPress";
   import { resolveTheme, hexToRgba } from "$lib/utils/themePalette";
@@ -39,8 +40,11 @@
   } = $props();
 
   // note.content is HTML now (see NoteContent.svelte) — strip tags for
-  // the plain-text card preview rather than showing raw markup.
-  const preview = $derived(stripHtml(note.content).slice(0, 120));
+  // the plain-text card preview rather than showing raw markup. Locked
+  // notes have an empty content field (the real content lives inside
+  // lockedPayload instead — see utils/lockFlow.ts), so show an explicit
+  // placeholder rather than a blank card that looks broken.
+  const preview = $derived(note.encrypted ? "🔒 Locked" : stripHtml(note.content).slice(0, 120));
   const dateLabel = $derived(new Date(note.lastModified).toLocaleDateString());
 
   const resolved = $derived(resolveTheme(note.theme, customThemes));
@@ -88,6 +92,11 @@
     onLongPress: handleLongPress,
     onTap: handleTap,
   });
+
+  async function handleToggleLock() {
+    if (note.encrypted) await unlockEntry(note);
+    else await lockEntry(note);
+  }
 </script>
 
 <Card class="note-card {selected ? 'selected' : ''} {resolved.kind === 'image' ? 'has-image-theme' : ''}" style={cardStyle} onclick={handleClick} {...pressHandlers}>
@@ -108,10 +117,12 @@
         itemLabel="note"
         struck={note.struck}
         pinned={note.isPinned}
+        encrypted={note.encrypted}
         onDelete={() => onDelete(note.id)}
         onDownload={() => onDownload(note.id)}
         onToggleStrikethrough={() => onToggleStrikethrough(note.id)}
         onTogglePin={() => onTogglePin(note.id)}
+        onToggleLock={handleToggleLock}
       />
       {#if note.isPinned}
         <span class="pin-indicator" aria-label="Pinned" title="Pinned">

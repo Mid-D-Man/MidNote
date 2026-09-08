@@ -22,6 +22,11 @@
   content      = "Milk, eggs, bread, coffee"
   lastModified = 2026-08-08T09:15:00Z
   isBookmarked = false
+  // Was already a field on EntryRef/notes_index.mdix's note_ref before
+  // this, but had no home in the full entry schema's own @DATA sample
+  // — adding it now since it's finally directly relevant (see the Lock
+  // trio right below, which are meaningless without it).
+  encrypted    = false
 
   // ⋮ overflow menu — pinned entries float to the top of the browse
   // list (see +page.svelte's sortedItems), suspended while the search
@@ -37,6 +42,21 @@
   // shape as lastModified, so no separate "hasReminder" flag is needed.
   theme        = Themes.theme_preset("sunset")
   reminder     = null
+
+  // Lock — real DixScript-Rust encryption via
+  // src-tauri/src/data/crypto.rs (AES-256-GCM, Argon2id-derived key
+  // from a password — the same mechanism dixscript's own CLI uses for
+  // "encrypted secrets bundle" configs, not a hand-rolled cipher).
+  // Deliberately NOT in notes_index.mdix/todos_index.mdix: the index is
+  // a lightweight list-view row, and lockedPayload/lockedKeyFile can be
+  // arbitrarily large — the list only ever needs `encrypted` (above) to
+  // know whether to show a lock icon, never these three. null/null/null
+  // when not locked; when locked, `content` above (and `tags`) are
+  // cleared and their real values move inside the encrypted payload
+  // instead, restored on unlock — see utils/lockFlow.ts.
+  lockKeyMode   = null
+  lockedPayload = null
+  lockedKeyFile = null
 
   tags::
     "personal"
