@@ -13,6 +13,7 @@
     onToggleStrikethrough,
     onTogglePin,
     onToggleLock,
+    onOpenTags,
   }: {
     // "note" or "todo" — copy only ("Delete note?").
     itemLabel: string;
@@ -23,14 +24,12 @@
     onDownload: () => void;
     onToggleStrikethrough: () => void;
     onTogglePin: () => void;
-    // Async — lockFlow.ts's lockEntry()/unlockEntry() show their own
-    // dialogs (choice + password) and may take a while / get cancelled
-    // partway through. Not awaited here on purpose: this menu just
-    // fires the request and closes itself immediately, same as every
-    // other action here — the dialogs it triggers are already global
-    // (LockPrompt.svelte, mounted in +layout.svelte), not something
-    // this menu needs to stay open or block on.
     onToggleLock: () => void;
+    // Hidden while encrypted (see the Tags row below) — a locked
+    // entry's real tags live inside its encrypted payload, not on the
+    // visible record, so there's nothing meaningful to edit here until
+    // it's unlocked.
+    onOpenTags: () => void;
   } = $props();
 
   let open = $state(false);
@@ -102,6 +101,15 @@
         </svg>
         <span>{pinned ? "Unpin" : "Pin to top"}</span>
       </button>
+      {#if !encrypted}
+        <button class="menu-item" onclick={() => pick(onOpenTags, "tags")}>
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M20.59 13.41 11 3.83A2 2 0 0 0 9.59 3.24L3 3v6.59a2 2 0 0 0 .59 1.41l9.59 9.59a2 2 0 0 0 2.82 0l4.59-4.59a2 2 0 0 0 0-2.82z" />
+            <circle cx="7.5" cy="7.5" r="1" fill="currentColor" />
+          </svg>
+          <span>Tags</span>
+        </button>
+      {/if}
       <button class="menu-item" onclick={() => pick(onToggleStrikethrough, "strikethrough")}>
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
           <line x1="4" y1="12" x2="20" y2="12" />

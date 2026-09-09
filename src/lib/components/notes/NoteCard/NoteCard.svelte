@@ -1,7 +1,10 @@
 <script lang="ts">
   import Card from "$lib/components/ui/Card/Card.svelte";
   import CardOverflowMenu from "$lib/components/shared/CardOverflowMenu/CardOverflowMenu.svelte";
+  import TagsPopup from "$lib/components/shared/TagsPopup/TagsPopup.svelte";
   import { lockEntry, unlockEntry } from "$lib/utils/lockFlow";
+  import { noteTags, registerTag, unregisterTag } from "$lib/stores/tags.svelte";
+  import { saveEntry } from "$lib/stores/entries.svelte";
   import { stripHtml } from "$lib/utils/richText";
   import { createLongPressHandlers } from "$lib/utils/longPress";
   import { resolveTheme, hexToRgba } from "$lib/utils/themePalette";
@@ -97,6 +100,17 @@
     if (note.encrypted) await unlockEntry(note);
     else await lockEntry(note);
   }
+
+  let tagsOpen = $state(false);
+  function handleAddTag(tag: string) {
+    note.tags = [...note.tags, tag];
+    registerTag("notes", tag);
+    saveEntry(note);
+  }
+  function handleRemoveTag(tag: string) {
+    note.tags = note.tags.filter((t) => t !== tag);
+    saveEntry(note);
+  }
 </script>
 
 <Card class="note-card {selected ? 'selected' : ''} {resolved.kind === 'image' ? 'has-image-theme' : ''}" style={cardStyle} onclick={handleClick} {...pressHandlers}>
@@ -123,6 +137,7 @@
         onToggleStrikethrough={() => onToggleStrikethrough(note.id)}
         onTogglePin={() => onTogglePin(note.id)}
         onToggleLock={handleToggleLock}
+        onOpenTags={() => (tagsOpen = true)}
       />
       {#if note.isPinned}
         <span class="pin-indicator" aria-label="Pinned" title="Pinned">
@@ -163,6 +178,8 @@
     </div>
   {/if}
 </Card>
+
+<TagsPopup bind:open={tagsOpen} tags={note.tags} availableTags={noteTags} onAddTag={handleAddTag} onRemoveTag={handleRemoveTag} />
 
 <style>
   :global(.note-card) {

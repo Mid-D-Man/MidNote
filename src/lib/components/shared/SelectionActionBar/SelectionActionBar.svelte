@@ -9,6 +9,7 @@
     selectedCount,
     itemLabel,
     canMerge,
+    selectionHasEncrypted = false,
     onCancel,
     onDelete,
     onSend,
@@ -19,6 +20,12 @@
     // "note" or "todo" — only used for copy ("3 notes selected").
     itemLabel: string;
     canMerge: boolean;
+    // Only changes the tooltip text — the actual block is canMerge
+    // already being false (+page.svelte folds this in). Kept separate
+    // here purely so the disabled-state explanation can be specific
+    // ("unlock or deselect it") rather than the generic
+    // not-enough-items copy when that's not actually why it's disabled.
+    selectionHasEncrypted?: boolean;
     onCancel: () => void;
     onDelete: () => void;
     onSend: () => void;
@@ -76,7 +83,7 @@
       }}
       aria-label="Merge"
       disabled={!canMerge}
-      title={canMerge ? "Merge selected" : "Select 2+ items of the same type to merge"}
+      title={canMerge ? "Merge selected" : selectionHasEncrypted ? "Unlock or deselect the locked item to merge" : "Select 2+ items of the same type to merge"}
     >
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M6 3v12a3 3 0 0 0 3 3h6" /><path d="m15 6 3-3 3 3" /><path d="M18 3v18" />

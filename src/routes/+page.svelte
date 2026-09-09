@@ -9,6 +9,7 @@
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog/ConfirmDialog.svelte";
   import SelectionActionBar from "$lib/components/shared/SelectionActionBar/SelectionActionBar.svelte";
   import CardOverflowMenu from "$lib/components/shared/CardOverflowMenu/CardOverflowMenu.svelte";
+  import TagsPopup from "$lib/components/shared/TagsPopup/TagsPopup.svelte";
   import { entries, saveEntry, removeEntry, toggleBookmark, toggleStrikethrough, togglePinned } from "$lib/stores/entries.svelte";
   import type { Note, Todo, Entry } from "$lib/types/entry";
   import { noteTags, todoTags, sync as syncTags, registerTag, unregisterTag } from "$lib/stores/tags.svelte";
@@ -104,7 +105,16 @@
   }
 
   const selectedEntries = $derived(entries.filter((e) => selectedIds.has(e.id)));
-  const canMerge = $derived(selectedIds.size >= 2);
+  const selectionHasEncrypted = $derived(selectedEntries.some((e) => e.encrypted));
+  // Merging concatenates content/steps directly (see selectionActions.ts)
+  // — a locked entry's real content lives inside its encrypted payload,
+  // not in those fields (they're cleared while locked), so merging one
+  // in would silently produce a merged item missing that entry's actual
+  // content entirely, and then — since a merge normally offers to
+  // delete its sources afterward — risk the original locked content
+  // being deleted with nothing real ever having made it into the
+  // result. Blocked outright rather than merging "around" it.
+  const canMerge = $derived(selectedIds.size >= 2 && !selectionHasEncrypted);
 
   function switchView(view: "notes" | "todos") {
     activeView = view;
@@ -194,6 +204,27 @@
     else await lockEntry(item);
   }
 
+  // Tags popup for the TODO inline row specifically — NoteCard handles
+  // its own equivalent internally (it already owns `note` directly),
+  // but the todo row has no dedicated component of its own, so this
+  // page tracks which one (if any) currently has the popup open.
+  // Kept as two separate pieces of state on purpose: tagsPopupOpen is
+  // what TagsPopup actually bind:opens (so its own internal close —
+  // tapping the scrim — correctly flows back here); tagsPopupFor just
+  // tracks which todo it's for and is fine staying stale once closed,
+  // same as this page's pendingMerge already does.
+  let tagsPopupFor = $state<Todo | null>(null);
+  let tagsPopupOpen = $state(false);
+  function handleAddTagTo(todo: Todo, tag: string) {
+    todo.tags = [...todo.tags, tag];
+    registerTag("todos", tag);
+    saveEntry(todo);
+  }
+  function handleRemoveTagFrom(todo: Todo, tag: string) {
+    todo.tags = todo.tags.filter((t) => t !== tag);
+    saveEntry(todo);
+  }
+
   async function handleSendSelected() {
     const files = buildExportFiles(selectedEntries, "separate");
     const title = files.length === 1 ? files[0].name : `${files.length} items from MidNote`;
@@ -215,6 +246,10 @@
   }
 
   function handleMergeSelected() {
+    if (selectionHasEncrypted) {
+      pushToast({ title: "Can't merge a locked item", description: "Unlock it first, or deselect it to merge the rest.", variant: "destructive" });
+      return;
+    }
     if (!canMerge) return;
     breadcrumb(`selection: merging ${selectedIds.size} ${activeView}`);
     const sourceIds = [...selectedIds];
@@ -407,6 +442,10 @@
                         onToggleStrikethrough={() => toggleStrikethrough(item.id)}
                         onTogglePin={() => togglePinned(item.id)}
                         onToggleLock={() => handleToggleLock(item)}
+                        onOpenTags={() => {
+                          tagsPopupFor = item;
+                          tagsPopupOpen = true;
+                        }}
                       />
                     </div>
                   {/if}
@@ -432,6 +471,7 @@
       selectedCount={selectedIds.size}
       itemLabel={activeView === "notes" ? "note" : "todo"}
       {canMerge}
+      {selectionHasEncrypted}
       onCancel={exitSelectMode}
       onDelete={handleDeleteSelected}
       onSend={handleSendSelected}
@@ -448,6 +488,14 @@
     danger
     onconfirm={confirmDeleteMergeSources}
     oncancel={keepMergeSources}
+  />
+
+  <TagsPopup
+    bind:open={tagsPopupOpen}
+    tags={tagsPopupFor?.tags ?? []}
+    availableTags={todoTags}
+    onAddTag={(tag) => tagsPopupFor && handleAddTagTo(tagsPopupFor, tag)}
+    onRemoveTag={(tag) => tagsPopupFor && handleRemoveTagFrom(tagsPopupFor, tag)}
   />
 {/if}
 
