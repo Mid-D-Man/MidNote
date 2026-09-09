@@ -1,32 +1,46 @@
 <script lang="ts">
   import Sheet from "$lib/components/ui/Sheet/Sheet.svelte";
   import Switch from "$lib/components/ui/Switch/Switch.svelte";
-  import ThemePicker from "$lib/components/shared/ThemePicker/ThemePicker.svelte";
-  import { debugPanelVisible, setDebugPanelVisible, noteLinesEnabled, setNoteLinesEnabled, appTheme, setAppTheme } from "$lib/stores/settings.svelte";
+  import ThemeSectionsSheet from "$lib/components/shared/ThemeSectionsSheet/ThemeSectionsSheet.svelte";
+  import {
+    debugPanelVisible,
+    setDebugPanelVisible,
+    noteLinesEnabled,
+    setNoteLinesEnabled,
+    appHeaderTheme,
+    appBodyTheme,
+    setAppHeaderTheme,
+    setAppBodyTheme,
+  } from "$lib/stores/settings.svelte";
   import { resolveTheme } from "$lib/utils/themePalette";
   import { customThemes } from "$lib/stores/customThemes.svelte";
   import { breadcrumb } from "$lib/debug/log.svelte";
 
   let { open = $bindable(false) }: { open?: boolean } = $props();
 
-  let themePickerOpen = $state(false);
-  const resolvedAppTheme = $derived(resolveTheme(appTheme.value, customThemes));
+  let themeSheetOpen = $state(false);
+  // Swatch preview on this row shows the HEADER slot specifically — it's
+  // the one visible everywhere at a glance (the tab bar), while body is
+  // the scrollable area behind the list. Both are still editable once
+  // the sheet opens; this preview is just which one gets a shorthand
+  // glance from the settings list itself, same as before the split.
+  const resolvedAppTheme = $derived(resolveTheme(appHeaderTheme.value, customThemes));
 
-  function handleOpenThemePicker() {
+  function handleOpenThemeSheet() {
     breadcrumb("settings: theme row tapped");
     // Sequential sheet swap — same reasoning as NoteEditorHeader/
     // TodoHeader's Theme row: close this Sheet, open the next.
     open = false;
-    themePickerOpen = true;
+    themeSheetOpen = true;
   }
 </script>
 
 <Sheet bind:open side="left" title="Settings">
   <div class="settings-list">
-    <button class="settings-row settings-row-button" onclick={handleOpenThemePicker}>
+    <button class="settings-row settings-row-button" onclick={handleOpenThemeSheet}>
       <div class="row-text">
         <span class="row-label">Theme</span>
-        <span class="row-desc">Default background for the notes &amp; todos list.</span>
+        <span class="row-desc">Header &amp; body background for the notes &amp; todos list.</span>
       </div>
       <span
         class="theme-swatch"
@@ -70,7 +84,18 @@
   </div>
 </Sheet>
 
-<ThemePicker bind:open={themePickerOpen} title="Landing page theme" value={appTheme.value} onChange={setAppTheme} />
+<!-- No icon/onIconChange passed — the landing page has no icon slot,
+     see entry.ts's `icon` comment. ThemeSectionsSheet hides that row
+     entirely when the prop is simply omitted like this. -->
+<ThemeSectionsSheet
+  bind:open={themeSheetOpen}
+  title="Landing page theme"
+  headerTheme={appHeaderTheme.value}
+  bodyTheme={appBodyTheme.value}
+  onHeaderChange={setAppHeaderTheme}
+  onBodyChange={setAppBodyTheme}
+  bodyAllowCustom={true}
+/>
 
 <style>
   .settings-list {

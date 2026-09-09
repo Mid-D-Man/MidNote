@@ -7,7 +7,7 @@
   import { saveEntry } from "$lib/stores/entries.svelte";
   import { stripHtml } from "$lib/utils/richText";
   import { createLongPressHandlers } from "$lib/utils/longPress";
-  import { resolveTheme, hexToRgba } from "$lib/utils/themePalette";
+  import { resolveTheme, hexToRgba, getIconGlyph } from "$lib/utils/themePalette";
   import { customThemes } from "$lib/stores/customThemes.svelte";
   import type { Note } from "$lib/types/entry";
 
@@ -50,7 +50,7 @@
   const preview = $derived(note.encrypted ? "🔒 Locked" : stripHtml(note.content).slice(0, 120));
   const dateLabel = $derived(new Date(note.lastModified).toLocaleDateString());
 
-  const resolved = $derived(resolveTheme(note.theme, customThemes));
+  const resolved = $derived(resolveTheme(note.headerTheme, customThemes));
   // Left-edge stripe + faint wash for a color theme; full cover image +
   // scrim for a custom upload. "none" leaves cardStyle empty so the card
   // keeps its ordinary --surface background untouched.
@@ -61,6 +61,7 @@
         ? `background-image: url(${resolved.dataUrl}); background-size: cover; background-position: center;`
         : "",
   );
+  const iconGlyph = $derived(getIconGlyph(note.icon));
 
   // Pointer-driven taps fire this (via onpointerup) before the browser's
   // own native `click` event has a chance to. suppressClick consumes
@@ -166,7 +167,12 @@
     </button>
   {/if}
 
-  <h3 class="title" class:struck={note.struck}>{note.title || "Untitled"}</h3>
+  <div class="title-row">
+    {#if iconGlyph}
+      <span class="icon-badge" aria-hidden="true">{iconGlyph}</span>
+    {/if}
+    <h3 class="title" class:struck={note.struck}>{note.title || "Untitled"}</h3>
+  </div>
   <p class="preview">{preview}</p>
   <p class="date">{dateLabel}</p>
 
@@ -257,17 +263,39 @@
     background: var(--accent);
     border-color: var(--accent);
   }
+  .title-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+    /* Left margin reserves room for corner-actions (overflow trigger +
+       the pin indicator badge that sits next to it when pinned) so a
+       long title never runs underneath either — space-6 alone (used on
+       the right, under just the bookmark icon) isn't quite wide enough
+       once the pin badge is showing too. Carried over unchanged from
+       when this margin lived directly on .title, before the icon badge
+       needed a row to sit in next to it. */
+    margin: 0 var(--space-6) var(--space-2) 48px;
+  }
+  .icon-badge {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--surface-raised);
+    font-size: 13px;
+    line-height: 1;
+    flex-shrink: 0;
+  }
   .title {
     font-family: var(--font-display);
     font-size: 15px;
     font-weight: 600;
     color: var(--text-hi);
-    /* Left margin reserves room for corner-actions (overflow trigger +
-       the pin indicator badge that sits next to it when pinned) so a
-       long title never runs underneath either — space-6 alone (used on
-       the right, under just the bookmark icon) isn't quite wide enough
-       once the pin badge is showing too. */
-    margin: 0 var(--space-6) var(--space-2) 48px;
+    min-width: 0;
+    flex: 1;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

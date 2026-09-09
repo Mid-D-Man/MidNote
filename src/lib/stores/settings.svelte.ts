@@ -72,32 +72,66 @@ export function setNoteLinesEnabled(enabled: boolean) {
 
 // Landing-page theme — the list/notes-and-todos page's own background,
 // set from Settings. Deliberately separate from any single entry's
-// `theme` field (entry.ts): a note/todo's own theme, when set, overrides
-// this for that one card/editor; this is just the default the landing
-// page itself paints with. Same {kind,name,customThemeId} pointer shape
-// as an entry's theme — see themePalette.ts's resolveTheme, which both
-// consume identically.
+// headerTheme/bodyTheme (entry.ts): a note/todo's own theme, when set,
+// overrides these for that one card/editor; these are just the defaults
+// the landing page itself paints with. Same {kind,name,customThemeId}
+// pointer shape as an entry's theme — see themePalette.ts's
+// resolveTheme, which every slot (entry or app-wide) consumes
+// identically.
+//
+// Two independent slots, matching entry.ts's header/body split:
+// appHeaderTheme washes the top app-bar/view-tabs region, appBodyTheme
+// washes the scrollable list background underneath it. This used to be
+// one flat appTheme applied to both — split out so they can genuinely
+// differ, same as a per-entry theme now can. No icon slot here: an icon
+// is pinned to one specific note/todo, there's no "landing page icon"
+// equivalent.
 import type { ThemeRef } from "$lib/types/entry";
 import { NO_THEME } from "$lib/types/entry";
 
-const APP_THEME_KEY = "midnote:app-theme";
+const APP_THEME_KEY = "midnote:app-theme"; // old, pre-split key — read once for migration, never written again.
+const APP_HEADER_THEME_KEY = "midnote:app-header-theme";
+const APP_BODY_THEME_KEY = "midnote:app-body-theme";
 
-function loadAppTheme(): ThemeRef {
-  if (typeof localStorage === "undefined") return { ...NO_THEME };
+function isValidThemeRef(v: unknown): v is ThemeRef {
+  return !!v && typeof v === "object" && typeof (v as { kind?: unknown }).kind === "string";
+}
+
+function readThemeKey(key: string): ThemeRef | null {
+  if (typeof localStorage === "undefined") return null;
   try {
-    const raw = localStorage.getItem(APP_THEME_KEY);
-    if (!raw) return { ...NO_THEME };
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
     const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === "object" && typeof parsed.kind === "string") return parsed as ThemeRef;
-    return { ...NO_THEME };
+    return isValidThemeRef(parsed) ? parsed : null;
   } catch {
-    return { ...NO_THEME };
+    return null;
   }
 }
 
-export const appTheme = $state<{ value: ThemeRef }>({ value: loadAppTheme() });
+// Pre-split installs have `midnote:app-theme` but neither new key yet —
+// that old single value was always the header/card-facing wash (same
+// "old flat field IS the header slot" migration as entry.ts's theme ->
+// headerTheme), so it becomes the seed for appHeaderTheme specifically,
+// never appBodyTheme. Only runs once in practice: after this, both new
+// keys exist and this branch is never reached again for this device.
+function loadAppHeaderTheme(): ThemeRef {
+  return readThemeKey(APP_HEADER_THEME_KEY) ?? readThemeKey(APP_THEME_KEY) ?? { ...NO_THEME };
+}
 
-export function setAppTheme(theme: ThemeRef) {
-  appTheme.value = theme;
-  if (typeof localStorage !== "undefined") localStorage.setItem(APP_THEME_KEY, JSON.stringify(theme));
+function loadAppBodyTheme(): ThemeRef {
+  return readThemeKey(APP_BODY_THEME_KEY) ?? { ...NO_THEME };
+}
+
+export const appHeaderTheme = $state<{ value: ThemeRef }>({ value: loadAppHeaderTheme() });
+export const appBodyTheme = $state<{ value: ThemeRef }>({ value: loadAppBodyTheme() });
+
+export function setAppHeaderTheme(theme: ThemeRef) {
+  appHeaderTheme.value = theme;
+  if (typeof localStorage !== "undefined") localStorage.setItem(APP_HEADER_THEME_KEY, JSON.stringify(theme));
+}
+
+export function setAppBodyTheme(theme: ThemeRef) {
+  appBodyTheme.value = theme;
+  if (typeof localStorage !== "undefined") localStorage.setItem(APP_BODY_THEME_KEY, JSON.stringify(theme));
 }

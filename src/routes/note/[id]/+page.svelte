@@ -26,6 +26,8 @@
   import { breadcrumb } from "$lib/debug/log.svelte";
   import { stripHtml } from "$lib/utils/richText";
   import { unlockEntry } from "$lib/utils/lockFlow";
+  import { resolveTheme, hexToRgba } from "$lib/utils/themePalette";
+  import { customThemes } from "$lib/stores/customThemes.svelte";
   import type { Note } from "$lib/types/entry";
 
   const id = $derived($page.params.id);
@@ -125,6 +127,20 @@
       unlocking = false;
     }
   }
+
+  // New: the writing surface itself now carries its own theme,
+  // independent of the header bar (see NoteEditorHeader.svelte / the
+  // ThemeSectionsSheet that sets note.bodyTheme). Deliberately only
+  // ever renders a solid-color wash here — bodyTheme can't actually BE
+  // an image kind today (ThemePicker's allowCustom={false} for this
+  // slot keeps the picker itself from ever offering one), but resolving
+  // through the same shared resolveTheme() as everywhere else means
+  // this stays correct on its own even if that restriction ever
+  // changes elsewhere without this file being touched — it would just
+  // silently do nothing for an image kind rather than paint one behind
+  // live Tiptap text unverified.
+  const resolvedBodyTheme = $derived(resolveTheme(note.bodyTheme, customThemes));
+  const bodyStyle = $derived(resolvedBodyTheme.kind === "color" ? `background: ${hexToRgba(resolvedBodyTheme.color, 0.14)};` : "");
 </script>
 
 <svelte:head>
@@ -153,7 +169,7 @@
         <button class="unlock-btn" onclick={handleUnlock} disabled={unlocking}>{unlocking ? "Unlocking…" : "Unlock"}</button>
       </div>
     {:else}
-      <div class="scroll-area">
+      <div class="scroll-area" style={bodyStyle}>
         <div class="inner">
           <NoteTitle bind:value={note.title} />
           <NoteContent bind:value={note.content} bind:editor bind:tick bind:hasSelection baseFontSize={fontSize.value} {syncToken} />

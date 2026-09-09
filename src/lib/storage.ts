@@ -47,7 +47,20 @@ export function loadEntries(): Entry[] {
       // the two newest fields and get identical treatment.
       if (typeof e.struck !== "boolean") e.struck = false;
       if (typeof e.isPinned !== "boolean") e.isPinned = false;
-      if (!e.theme || typeof e.theme !== "object" || typeof e.theme.kind !== "string") e.theme = { ...NO_THEME };
+      // Theme v2 migration: v1 stored one flat `theme` field, which is
+      // exactly what's now `headerTheme` (see entry.ts's comment on
+      // headerTheme — the card/editor-header treatment is unchanged,
+      // only renamed/re-scoped). An entry saved under v1 has `e.theme`
+      // but not `e.headerTheme`; carry its value over rather than
+      // resetting it to none, so nobody's existing theme choice
+      // silently vanishes on upgrade. `bodyTheme` and `icon` are both
+      // genuinely new — no prior value to migrate, default them fresh.
+      const isValidThemeRef = (t: unknown): t is { kind: string } => !!t && typeof t === "object" && typeof (t as { kind?: unknown }).kind === "string";
+      if (!isValidThemeRef(e.headerTheme)) {
+        e.headerTheme = isValidThemeRef(e.theme) ? e.theme : { ...NO_THEME };
+      }
+      if (!isValidThemeRef(e.bodyTheme)) e.bodyTheme = { ...NO_THEME };
+      if (typeof e.icon !== "string") e.icon = null;
       // Lock fields are newest — same migration-default treatment.
       // encrypted already existed (always defaulted false already, see
       // above); an entry saved before Lock existed won't have these
@@ -104,7 +117,9 @@ export function createNote(): Note {
     encrypted: false,
     struck: false,
     isPinned: false,
-    theme: { ...NO_THEME },
+    headerTheme: { ...NO_THEME },
+    bodyTheme: { ...NO_THEME },
+    icon: null,
     lockKeyMode: null,
     lockedPayload: null,
     lockedKeyFile: null,
@@ -122,7 +137,9 @@ export function createTodo(): Todo {
     encrypted: false,
     struck: false,
     isPinned: false,
-    theme: { ...NO_THEME },
+    headerTheme: { ...NO_THEME },
+    bodyTheme: { ...NO_THEME },
+    icon: null,
     lockKeyMode: null,
     lockedPayload: null,
     lockedKeyFile: null,

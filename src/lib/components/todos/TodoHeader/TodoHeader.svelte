@@ -5,7 +5,7 @@
   import Sheet from "$lib/components/ui/Sheet/Sheet.svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog/ConfirmDialog.svelte";
   import TagSelector from "$lib/components/shared/TagSelector/TagSelector.svelte";
-  import ThemePicker from "$lib/components/shared/ThemePicker/ThemePicker.svelte";
+  import ThemeSectionsSheet from "$lib/components/shared/ThemeSectionsSheet/ThemeSectionsSheet.svelte";
   import { pushToast } from "$lib/stores/toast.svelte";
   import { removeEntry, saveEntry } from "$lib/stores/entries.svelte";
   import { createTodo } from "$lib/storage";
@@ -42,29 +42,37 @@
   // specific header, so there was no single "same place as Share" to
   // put Theme into without picking one first.
   let moreOpen = $state(false);
-  let themePickerOpen = $state(false);
+  let themeSheetOpen = $state(false);
 
-  const resolvedTheme = $derived(resolveTheme(todo.theme, customThemes));
+  const resolvedHeaderTheme = $derived(resolveTheme(todo.headerTheme, customThemes));
   const headerStyle = $derived(
-    resolvedTheme.kind === "color"
-      ? `background: ${hexToRgba(resolvedTheme.color, 0.14)}; border-bottom-color: ${resolvedTheme.color};`
-      : resolvedTheme.kind === "image"
-        ? `background-image: linear-gradient(rgba(4,6,16,0.35), rgba(4,6,16,0.35)), url(${resolvedTheme.dataUrl}); background-size: cover; background-position: center;`
+    resolvedHeaderTheme.kind === "color"
+      ? `background: ${hexToRgba(resolvedHeaderTheme.color, 0.14)}; border-bottom-color: ${resolvedHeaderTheme.color};`
+      : resolvedHeaderTheme.kind === "image"
+        ? `background-image: linear-gradient(rgba(4,6,16,0.35), rgba(4,6,16,0.35)), url(${resolvedHeaderTheme.dataUrl}); background-size: cover; background-position: center;`
         : "",
   );
 
-  function handleOpenThemePicker() {
+  function handleOpenThemeSheet() {
     breadcrumb("todo header: Theme tapped");
     moreOpen = false;
-    themePickerOpen = true;
+    themeSheetOpen = true;
   }
 
   // BUGFIX — see NoteEditorHeader.svelte's identical comment: `todo`
   // here is /todo/[id]/+page.svelte's own local $state (loaded via
   // getEntry()), a different object from the entries store's array
   // item. The old setEntryTheme(todo.id, theme) mutated the wrong one.
-  function handleThemeChange(theme: ThemeRef) {
-    todo.theme = theme;
+  function handleHeaderThemeChange(theme: ThemeRef) {
+    todo.headerTheme = theme;
+    saveEntry(todo);
+  }
+  function handleBodyThemeChange(theme: ThemeRef) {
+    todo.bodyTheme = theme;
+    saveEntry(todo);
+  }
+  function handleIconChange(icon: string | null) {
+    todo.icon = icon;
     saveEntry(todo);
   }
 
@@ -189,7 +197,7 @@
       </svg>
       <span>Download as text</span>
     </button>
-    <button class="action-row" onclick={handleOpenThemePicker}>
+    <button class="action-row" onclick={handleOpenThemeSheet}>
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
         <circle cx="12" cy="12" r="9" /><path d="M12 3a6 6 0 0 0 0 12 3 3 0 0 1 0 6 9 9 0 1 1 0-18z" />
         <circle cx="7.5" cy="10.5" r="1" fill="currentColor" /><circle cx="12" cy="7.5" r="1" fill="currentColor" /><circle cx="16.5" cy="10.5" r="1" fill="currentColor" />
@@ -199,7 +207,16 @@
   </div>
 </Sheet>
 
-<ThemePicker bind:open={themePickerOpen} value={todo.theme} onChange={handleThemeChange} />
+<ThemeSectionsSheet
+  bind:open={themeSheetOpen}
+  title="Theme &amp; Icon"
+  headerTheme={todo.headerTheme}
+  bodyTheme={todo.bodyTheme}
+  icon={todo.icon}
+  onHeaderChange={handleHeaderThemeChange}
+  onBodyChange={handleBodyThemeChange}
+  onIconChange={handleIconChange}
+/>
 
 <ConfirmDialog
   bind:open={showDeleteConfirm}

@@ -58,10 +58,31 @@ export interface EntryRef {
   // hide or reorder an actual search result you went looking for.
   isPinned: boolean;
   // Per-entry visual theme, selected from the same Actions sheet as
-  // Share/Duplicate. Distinct from settings.svelte.ts's appTheme, which
-  // is the landing-page-wide default — this overrides it for one
-  // specific note/todo.
-  theme: ThemeRef;
+  // Share/Duplicate. Distinct from settings.svelte.ts's appHeaderTheme/
+  // appBodyTheme, which are the landing-page-wide defaults — these
+  // override them for one specific note/todo.
+  //
+  // Split into two independent slots (was a single flat `theme` field):
+  // headerTheme is what NoteCard/the todo row paint themselves with in
+  // the list, AND what the editor's own header bar (NoteEditorHeader/
+  // TodoHeader) tints — i.e. exactly the old `theme` field's behavior,
+  // just renamed and re-scoped now that there's a second slot next to
+  // it. bodyTheme is new: it paints the editor's actual writing surface
+  // (see routes/note/[id]/+page.svelte's .scroll-area / the todo
+  // equivalent). Deliberately restricted to solid-color presets only
+  // for now (ThemePicker's `allowCustom={false}` for this slot) — an
+  // uploaded image sitting directly behind live Tiptap caret/selection
+  // rendering hasn't been verified safe yet, so custom images stay
+  // header-only until that gets its own tested pass. See themePalette.ts's
+  // resolveTheme, which both slots resolve through identically.
+  headerTheme: ThemeRef;
+  bodyTheme: ThemeRef;
+  // Small glyph badge shown next to the entry's title (list card only,
+  // for now) — a preset name from themePalette.ts's ICON_PRESETS, or
+  // null for no icon. Entry-only: there's no landing-page equivalent
+  // (settings.svelte.ts's app-wide theme has just header+body, no icon
+  // slot — an icon only makes sense pinned to one specific note/todo).
+  icon: string | null;
   // Lock — real DixScript-Rust AES-256-GCM/Argon2id encryption via
   // src-tauri/src/data/crypto.rs, not a client-side shim. `encrypted`
   // above is the existing is-this-entry-locked flag (already had a

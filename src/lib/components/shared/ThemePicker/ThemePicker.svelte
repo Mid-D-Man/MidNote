@@ -23,11 +23,21 @@
     title = "Theme",
     value,
     onChange,
+    allowCustom = true,
   }: {
     open?: boolean;
     title?: string;
     value: ThemeRef;
     onChange: (theme: ThemeRef) => void;
+    // false hides the "Your uploads" section + upload tile entirely,
+    // leaving only the preset swatches. Used for the editor body-theme
+    // slot specifically (see entry.ts's bodyTheme comment) — an
+    // uploaded image sitting directly behind live Tiptap caret/
+    // selection rendering hasn't been verified safe yet, so that slot
+    // stays presets-only until that gets its own tested pass. Every
+    // other call site (header theme, landing page header/body) keeps
+    // the default of true, unchanged from before this prop existed.
+    allowCustom?: boolean;
   } = $props();
 
   let fileInput = $state<HTMLInputElement | null>(null);
@@ -100,37 +110,41 @@
       {/each}
     </div>
 
-    <div class="section-label">Your uploads</div>
-    <p class="upload-hint">Any photo works — it's resized to 720px on the long edge before saving. Landscape/wide shots fit a card background best; very tall portrait photos will get cropped.</p>
-    <div class="swatch-grid">
-      {#each customThemes as ct (ct.id)}
-        <div class="custom-swatch-wrap">
-          <button
-            type="button"
-            class="swatch custom-swatch"
-            class:active={value.kind === "custom" && value.customThemeId === ct.id}
-            style={`background-image:url(${ct.data})`}
-            aria-label="Uploaded theme"
-            onclick={() => pickCustom(ct.id)}
-          ></button>
-          <button type="button" class="remove-custom" aria-label="Delete this uploaded theme" onclick={(e) => handleDeleteCustom(e, ct.id)}>
-            <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3">
-              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+    {#if allowCustom}
+      <div class="section-label">Your uploads</div>
+      <p class="upload-hint">Any photo works — it's resized to 720px on the long edge before saving. Landscape/wide shots fit a card background best; very tall portrait photos will get cropped.</p>
+      <div class="swatch-grid">
+        {#each customThemes as ct (ct.id)}
+          <div class="custom-swatch-wrap">
+            <button
+              type="button"
+              class="swatch custom-swatch"
+              class:active={value.kind === "custom" && value.customThemeId === ct.id}
+              style={`background-image:url(${ct.data})`}
+              aria-label="Uploaded theme"
+              onclick={() => pickCustom(ct.id)}
+            ></button>
+            <button type="button" class="remove-custom" aria-label="Delete this uploaded theme" onclick={(e) => handleDeleteCustom(e, ct.id)}>
+              <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3">
+                <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
+        {/each}
+        <button type="button" class="upload-tile" disabled={uploading} onclick={() => fileInput?.click()}>
+          {#if uploading}
+            <span class="spinner" aria-hidden="true"></span>
+          {:else}
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 5v14M5 12h14" />
             </svg>
-          </button>
-        </div>
-      {/each}
-      <button type="button" class="upload-tile" disabled={uploading} onclick={() => fileInput?.click()}>
-        {#if uploading}
-          <span class="spinner" aria-hidden="true"></span>
-        {:else}
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12 5v14M5 12h14" />
-          </svg>
-        {/if}
-      </button>
-      <input bind:this={fileInput} type="file" accept="image/*" class="file-input" onchange={handleFileChange} />
-    </div>
+          {/if}
+        </button>
+        <input bind:this={fileInput} type="file" accept="image/*" class="file-input" onchange={handleFileChange} />
+      </div>
+    {:else}
+      <p class="upload-hint">Photo backgrounds aren't available for the writing area yet — coming in a later update. Solid colors only for now.</p>
+    {/if}
   </div>
 </Sheet>
 

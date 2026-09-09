@@ -20,9 +20,9 @@
   import { shareFiles } from "$lib/utils/share";
   import { pushToast } from "$lib/stores/toast.svelte";
   import { breadcrumb } from "$lib/debug/log.svelte";
-  import { resolveTheme, hexToRgba } from "$lib/utils/themePalette";
+  import { resolveTheme, hexToRgba, getIconGlyph } from "$lib/utils/themePalette";
   import { customThemes } from "$lib/stores/customThemes.svelte";
-  import { appTheme } from "$lib/stores/settings.svelte";
+  import { appHeaderTheme, appBodyTheme } from "$lib/stores/settings.svelte";
   import { lockEntry, unlockEntry } from "$lib/utils/lockFlow";
 
   let isLoading = $state(true);
@@ -79,26 +79,37 @@
     return [...pinned, ...rest];
   });
 
-  // Landing-page theme (Settings) — applied as a subtle wash behind the
-  // whole list page. Same resolveTheme() as every per-entry theme, just
-  // fed the app-wide pointer instead of one entry's own.
-  const appThemeResolved = $derived(resolveTheme(appTheme.value, customThemes));
-  const pageStyle = $derived(
-    appThemeResolved.kind === "color"
+  // Landing-page theme (Settings) — now two independent washes instead
+  // of one flat value applied to both regions (see settings.svelte.ts's
+  // header comment on the split). appHeaderTheme washes .view-tabs (the
+  // top app-bar), appBodyTheme washes .page (the scrollable list
+  // background behind it) — same resolveTheme() as every per-entry
+  // theme, just fed the app-wide pointers instead of one entry's own.
+  const appHeaderResolved = $derived(resolveTheme(appHeaderTheme.value, customThemes));
+  const appBodyResolved = $derived(resolveTheme(appBodyTheme.value, customThemes));
+  const pageHeaderStyle = $derived(
+    appHeaderResolved.kind === "color"
       ? // BUGFIX: was 0.06 — confirmed on-device as imperceptible (this
         // app's layout is mostly opaque NoteCard/todo-item surfaces, so
         // the wash was only ever visible in thin gaps/padding to begin
         // with; at 6% alpha it read as "not working" rather than
         // "subtle"). 0.16 is roughly the same strength already used
         // for a themed note's own card wash.
-        `background: ${hexToRgba(appThemeResolved.color, 0.16)};`
-      : appThemeResolved.kind === "image"
-        ? `background-image: url(${appThemeResolved.dataUrl}); background-size: cover; background-attachment: fixed;`
+        `background: ${hexToRgba(appHeaderResolved.color, 0.16)};`
+      : appHeaderResolved.kind === "image"
+        ? `background-image: url(${appHeaderResolved.dataUrl}); background-size: cover; background-attachment: fixed;`
+        : "",
+  );
+  const pageBodyStyle = $derived(
+    appBodyResolved.kind === "color"
+      ? `background: ${hexToRgba(appBodyResolved.color, 0.16)};`
+      : appBodyResolved.kind === "image"
+        ? `background-image: url(${appBodyResolved.dataUrl}); background-size: cover; background-attachment: fixed;`
         : "",
   );
 
   function todoItemStyle(todo: Todo): string {
-    const resolved = resolveTheme(todo.theme, customThemes);
+    const resolved = resolveTheme(todo.headerTheme, customThemes);
     if (resolved.kind === "color") return `border-left: 4px solid ${resolved.color}; background: ${hexToRgba(resolved.color, 0.08)};`;
     if (resolved.kind === "image") return `background-image: url(${resolved.dataUrl}); background-size: cover; background-position: center;`;
     return "";
@@ -324,10 +335,10 @@
 {#if isLoading}
   <LoadingScreen oncomplete={() => (isLoading = false)} />
 {:else}
-  <main class="page" style={pageStyle}>
+  <main class="page" style={pageBodyStyle}>
     <AppHeader />
 
-    <div class="view-tabs" style={pageStyle}>
+    <div class="view-tabs" style={pageHeaderStyle}>
       <button class:active={activeView === "notes"} onclick={() => switchView("notes")}>Notes</button>
       <button class:active={activeView === "todos"} onclick={() => switchView("todos")}>Todos</button>
     </div>
@@ -404,7 +415,7 @@
                 <div
                   class="todo-item"
                   class:selected={selectedIds.has(item.id)}
-                  class:has-image-theme={resolveTheme(item.theme, customThemes).kind === "image"}
+                  class:has-image-theme={resolveTheme(item.headerTheme, customThemes).kind === "image"}
                   style={todoItemStyle(item)}
                   role="button"
                   tabindex="0"
@@ -412,7 +423,7 @@
                   onkeydown={(e) => e.key === "Enter" && handleTodoClick(item.id)}
                   {...todoPressHandlers(item.id)}
                 >
-                  {#if resolveTheme(item.theme, customThemes).kind === "image"}
+                  {#if resolveTheme(item.headerTheme, customThemes).kind === "image"}
                     <div class="theme-scrim" aria-hidden="true"></div>
                   {/if}
                   {#if selectMode}
@@ -424,6 +435,11 @@
                       {/if}
                     </div>
                   {:else}
+                    <!-- Left corner, matching NoteCard's .corner-actions
+                         placement — moved from the right so the new
+                         bookmark star (below) can take the right
+                         corner, same as NoteCard, instead of the two
+                         fighting over the same spot. -->
                     <div class="todo-overflow">
                       {#if item.isPinned}
                         <span class="pin-indicator" aria-label="Pinned" title="Pinned">
@@ -448,8 +464,34 @@
                         }}
                       />
                     </div>
+                    <!-- Todos never had this at all before — NoteCard's
+                         had one since Pin/Theme v1, this was just a gap.
+                         Same markup/behavior as NoteCard's own bookmark
+                         button, just wired to this item instead. -->
+                    <button
+                      class="bookmark"
+                      class:active={item.isBookmarked}
+                      onclick={(e) => {
+                        e.stopPropagation();
+                        toggleBookmark(item.id);
+                      }}
+                      onpointerdown={(e) => e.stopPropagation()}
+                      onpointerup={(e) => e.stopPropagation()}
+                      onpointermove={(e) => e.stopPropagation()}
+                      onpointercancel={(e) => e.stopPropagation()}
+                      aria-label="Toggle bookmark"
+                    >
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill={item.isBookmarked ? "currentColor" : "none"} stroke="currentColor" stroke-width="2">
+                        <polygon points="12 2 15.09 8.63 22 9.24 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.24 8.91 8.63 12 2" />
+                      </svg>
+                    </button>
                   {/if}
-                  <strong class:struck={item.struck}>{item.title || "Untitled"}</strong>
+                  <div class="title-row">
+                    {#if getIconGlyph(item.icon)}
+                      <span class="icon-badge" aria-hidden="true">{getIconGlyph(item.icon)}</span>
+                    {/if}
+                    <strong class:struck={item.struck}>{item.title || "Untitled"}</strong>
+                  </div>
                   <span class="meta">
                     {#if item.encrypted}
                       🔒 Locked
@@ -699,7 +741,7 @@
   .todo-item .todo-overflow {
     position: absolute;
     top: var(--space-2);
-    right: var(--space-2);
+    left: var(--space-2);
     display: flex;
     align-items: center;
     gap: 2px;
@@ -712,6 +754,62 @@
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
+  }
+  /* Same markup/behavior/look as NoteCard.svelte's own .bookmark — this
+     is that same feature, just missing from todos until now. Right
+     corner, matching NoteCard, now that .todo-overflow (above) has
+     moved to the left to make room for it. */
+  .todo-item .bookmark {
+    position: absolute;
+    top: var(--space-2);
+    right: var(--space-2);
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-sm);
+    color: var(--text-faint);
+    cursor: pointer;
+  }
+  .todo-item .bookmark:hover {
+    background: var(--surface-raised);
+  }
+  .todo-item .bookmark.active {
+    color: var(--accent-2);
+  }
+  /* Same title-row/icon-badge pattern as NoteCard.svelte — the icon
+     badge (when set) sits just before the title text. Margin here
+     reserves room for the corner-actions cluster now on the left and
+     the bookmark star on the right, same reasoning as NoteCard's own
+     title-row margin. */
+  .todo-item .title-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+    margin: 0 var(--space-6) 0 48px;
+  }
+  .todo-item .icon-badge {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--surface-raised);
+    font-size: 13px;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+  .todo-item .title-row strong {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .todo-item strong.struck {
     text-decoration: line-through;

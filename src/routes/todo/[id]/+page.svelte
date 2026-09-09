@@ -11,6 +11,8 @@
   import { createTodo, getEntry, generateId } from "$lib/storage";
   import { breadcrumb } from "$lib/debug/log.svelte";
   import { unlockEntry } from "$lib/utils/lockFlow";
+  import { resolveTheme, hexToRgba } from "$lib/utils/themePalette";
+  import { customThemes } from "$lib/stores/customThemes.svelte";
   import type { Todo } from "$lib/types/entry";
 
   const id = $derived($page.params.id);
@@ -138,6 +140,12 @@
       unlocking = false;
     }
   }
+
+  // Same reasoning as note/[id]/+page.svelte's identical bodyStyle —
+  // see that file's comment for why this only ever paints a solid
+  // color, never an image.
+  const resolvedBodyTheme = $derived(resolveTheme(todo.bodyTheme, customThemes));
+  const bodyStyle = $derived(resolvedBodyTheme.kind === "color" ? `background: ${hexToRgba(resolvedBodyTheme.color, 0.14)};` : "");
 </script>
 
 <svelte:head>
@@ -191,7 +199,7 @@
       onRemoveCategory={removeCategory}
     />
 
-    <div class="body">
+    <div class="body" style={bodyStyle}>
       <TodoStepsSection
         steps={stepsForCategory}
         category={currentCategory}

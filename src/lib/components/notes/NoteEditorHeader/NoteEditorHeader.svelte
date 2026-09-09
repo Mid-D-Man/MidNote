@@ -11,7 +11,7 @@
   import { breadcrumb } from "$lib/debug/log.svelte";
   import { htmlToPlainText } from "$lib/utils/richText";
   import { shareFiles } from "$lib/utils/share";
-  import ThemePicker from "$lib/components/shared/ThemePicker/ThemePicker.svelte";
+  import ThemeSectionsSheet from "$lib/components/shared/ThemeSectionsSheet/ThemeSectionsSheet.svelte";
   import { resolveTheme, hexToRgba } from "$lib/utils/themePalette";
   import { customThemes } from "$lib/stores/customThemes.svelte";
   import type { Note, ThemeRef } from "$lib/types/entry";
@@ -41,52 +41,51 @@
   let isSaving = $state(false);
   let showDeleteConfirm = $state(false);
   let moreOpen = $state(false);
-  let themePickerOpen = $state(false);
+  let themeSheetOpen = $state(false);
 
   // Same resolveTheme() as the card preview — a visible (but
-  // deliberately contained, see header comment above ThemePicker's
-  // callsite below) echo of the selected theme in the editor itself,
-  // not just the list. Scoped to the header bar only, not the actual
-  // writing surface: an uploaded photo sitting directly behind live
-  // Tiptap text/caret/selection is a real legibility risk that hasn't
-  // been tried on-device, so this stays out of scope for now rather
-  // than guessing it's fine.
-  const resolvedTheme = $derived(resolveTheme(note.theme, customThemes));
+  // deliberately contained, see ThemeSectionsSheet's callsite below)
+  // echo of the selected theme in the editor itself, not just the
+  // list. Scoped to the header bar only — headerTheme, not bodyTheme:
+  // the writing surface (see the route page's own bodyStyle) is a
+  // separate, independent slot now.
+  const resolvedHeaderTheme = $derived(resolveTheme(note.headerTheme, customThemes));
   const headerStyle = $derived(
-    resolvedTheme.kind === "color"
-      ? `background: ${hexToRgba(resolvedTheme.color, 0.14)}; border-bottom-color: ${resolvedTheme.color};`
-      : resolvedTheme.kind === "image"
-        ? `background-image: linear-gradient(rgba(4,6,16,0.35), rgba(4,6,16,0.35)), url(${resolvedTheme.dataUrl}); background-size: cover; background-position: center;`
+    resolvedHeaderTheme.kind === "color"
+      ? `background: ${hexToRgba(resolvedHeaderTheme.color, 0.14)}; border-bottom-color: ${resolvedHeaderTheme.color};`
+      : resolvedHeaderTheme.kind === "image"
+        ? `background-image: linear-gradient(rgba(4,6,16,0.35), rgba(4,6,16,0.35)), url(${resolvedHeaderTheme.dataUrl}); background-size: cover; background-position: center;`
         : "",
   );
 
-  function handleOpenThemePicker() {
+  function handleOpenThemeSheet() {
     breadcrumb("note header: Theme tapped");
     // Sequential, not nested — same pattern CardOverflowMenu already
     // uses for its delete-confirm flow (close the sheet you're in,
     // open the next one), rather than two Sheets open at once, which
     // Sheet.svelte was never built or tested to support.
     moreOpen = false;
-    themePickerOpen = true;
+    themeSheetOpen = true;
   }
 
-  // BUGFIX: this used to call the entries store's setEntryTheme(note.id,
-  // theme), which looks the entry up in the `entries` STORE array —
-  // a completely different object from this page's own local `note`
-  // (see /note/[id]/+page.svelte: `note` is loaded via getEntry(), not
-  // pulled from the store). That meant the theme genuinely saved to
-  // localStorage correctly, but headerStyle (derived from this exact
-  // `note` prop) never saw the change, so nothing visibly updated —
-  // confirmed on-device as "theme doesn't work" for notes/todos.
-  // Mutating `note` directly here works because it's the SAME reactive
-  // object the parent page declared with $state (objects pass by
-  // reference as props, Svelte doesn't clone them), so this also
-  // immediately updates whatever the parent derives from note.theme.
-  // saveEntry() then persists it AND refreshes the entries store so the
-  // list view picks up the change too, same as Save/Duplicate/Delete
-  // already do on this page.
-  function handleThemeChange(theme: ThemeRef) {
-    note.theme = theme;
+  // BUGFIX (carried over from the old single-theme version): mutate
+  // `note` directly rather than going through the entries STORE's own
+  // copy — see /note/[id]/+page.svelte, `note` is loaded via
+  // getEntry(), a different object from the store's `entries` array.
+  // Mutating this exact reactive object means headerStyle/bodyStyle
+  // (both $derived from `note` directly) update immediately; saveEntry()
+  // then persists it AND refreshes the entries store so the list view
+  // picks up the change too.
+  function handleHeaderThemeChange(theme: ThemeRef) {
+    note.headerTheme = theme;
+    saveEntry(note);
+  }
+  function handleBodyThemeChange(theme: ThemeRef) {
+    note.bodyTheme = theme;
+    saveEntry(note);
+  }
+  function handleIconChange(icon: string | null) {
+    note.icon = icon;
     saveEntry(note);
   }
 
@@ -224,7 +223,7 @@
       </svg>
       <span>Duplicate</span>
     </button>
-    <button class="action-row" onclick={handleOpenThemePicker}>
+    <button class="action-row" onclick={handleOpenThemeSheet}>
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
         <circle cx="12" cy="12" r="9" /><path d="M12 3a6 6 0 0 0 0 12 3 3 0 0 1 0 6 9 9 0 1 1 0-18z" />
         <circle cx="7.5" cy="10.5" r="1" fill="currentColor" /><circle cx="12" cy="7.5" r="1" fill="currentColor" /><circle cx="16.5" cy="10.5" r="1" fill="currentColor" />
@@ -234,7 +233,16 @@
   </div>
 </Sheet>
 
-<ThemePicker bind:open={themePickerOpen} value={note.theme} onChange={handleThemeChange} />
+<ThemeSectionsSheet
+  bind:open={themeSheetOpen}
+  title="Theme &amp; Icon"
+  headerTheme={note.headerTheme}
+  bodyTheme={note.bodyTheme}
+  icon={note.icon}
+  onHeaderChange={handleHeaderThemeChange}
+  onBodyChange={handleBodyThemeChange}
+  onIconChange={handleIconChange}
+/>
 
 <ConfirmDialog
   bind:open={showDeleteConfirm}

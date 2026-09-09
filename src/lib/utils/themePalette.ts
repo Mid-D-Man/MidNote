@@ -34,6 +34,47 @@ export function getPresetColor(name: string): string | null {
   return THEME_PRESETS.find((p) => p.name === name)?.color ?? null;
 }
 
+// Per-entry icon badge — a small glyph shown next to a note/todo's
+// title on its card (see requested_redesign's "icon_per_entry"). Kept
+// as a plain curated emoji set rather than an uploaded-image asset (like
+// custom theme images are): it's a tiny badge, not a background, so
+// there's nothing to downscale/decode, and emoji render natively and
+// consistently across the Android system WebView with zero bundled
+// assets. entry.ts's `icon` field stores just the `name` below (or
+// null for no icon); the actual glyph is looked up here at render time,
+// same "pointer, not the value" shape ThemeRef already uses for presets.
+// This list is a starting curation, not a hard schema — add/remove
+// entries here freely, nothing else needs to change to support it.
+export interface IconPreset {
+  name: string;
+  label: string;
+  // Emoji glyph, or null for "none" (matches THEME_PRESETS's "none"
+  // shape — a real preset entry, not a missing/undefined icon).
+  glyph: string | null;
+}
+
+export const ICON_PRESETS: IconPreset[] = [
+  { name: "none", label: "None", glyph: null },
+  { name: "idea", label: "Idea", glyph: "💡" },
+  { name: "important", label: "Important", glyph: "⭐" },
+  { name: "urgent", label: "Urgent", glyph: "🔥" },
+  { name: "work", label: "Work", glyph: "💼" },
+  { name: "personal", label: "Personal", glyph: "❤️" },
+  { name: "home", label: "Home", glyph: "🏠" },
+  { name: "study", label: "Study", glyph: "🎓" },
+  { name: "shopping", label: "Shopping", glyph: "🛒" },
+  { name: "money", label: "Money", glyph: "💰" },
+  { name: "health", label: "Health", glyph: "🩺" },
+  { name: "travel", label: "Travel", glyph: "✈️" },
+  { name: "goal", label: "Goal", glyph: "🎯" },
+  { name: "celebrate", label: "Celebrate", glyph: "🎉" },
+];
+
+export function getIconGlyph(name: string | null | undefined): string | null {
+  if (!name) return null;
+  return ICON_PRESETS.find((p) => p.name === name)?.glyph ?? null;
+}
+
 // Plain #rrggbb -> rgba(...) with a given alpha. Used for the wash
 // behind a themed card's text rather than painting the full preset
 // color flat across the card — a full-strength preset color behind

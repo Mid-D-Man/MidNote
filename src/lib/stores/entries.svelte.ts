@@ -23,7 +23,9 @@ function seedIfEmpty(): Entry[] {
       encrypted: false,
       struck: false,
       isPinned: false,
-      theme: { ...NO_THEME },
+      headerTheme: { ...NO_THEME },
+      bodyTheme: { ...NO_THEME },
+      icon: null,
       lockKeyMode: null,
       lockedPayload: null,
       lockedKeyFile: null,
@@ -39,7 +41,9 @@ function seedIfEmpty(): Entry[] {
       encrypted: false,
       struck: false,
       isPinned: false,
-      theme: { ...NO_THEME },
+      headerTheme: { ...NO_THEME },
+      bodyTheme: { ...NO_THEME },
+      icon: null,
       lockKeyMode: null,
       lockedPayload: null,
       lockedKeyFile: null,
@@ -118,7 +122,8 @@ export function togglePinned(id: string) {
 // (typechecked, ran without error) but silently mutated the wrong
 // object — confirmed on-device as "theme doesn't work" for notes/
 // todos. NoteEditorHeader/TodoHeader now mutate their own local
-// note.theme/todo.theme directly and call saveEntry() themselves. If a
+// note.headerTheme/note.bodyTheme (and the todo equivalents) directly
+// and call saveEntry() themselves. If a
 // future screen needs to set an entry's theme from OUTSIDE its own
 // editor (operating on a genuine `entries` array item), it's safe to
 // add a function like this back — just for that caller, matching the
