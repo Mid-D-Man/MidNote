@@ -113,7 +113,8 @@
         showDeleteConfirm = true;
       }}
       aria-label="Delete"
-      disabled={selectedCount === 0}
+      disabled={selectedCount === 0 || selectionHasEncrypted}
+      title={selectionHasEncrypted ? "Unlock or deselect the locked item to delete" : "Delete selected"}
     >
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
         <polyline points="3 6 5 6 21 6" />

@@ -28,6 +28,7 @@
   import { unlockEntry } from "$lib/utils/lockFlow";
   import { resolveTheme, hexToRgba } from "$lib/utils/themePalette";
   import { customThemes } from "$lib/stores/customThemes.svelte";
+  import Spinner from "$lib/components/ui/Spinner/Spinner.svelte";
   import type { Note } from "$lib/types/entry";
 
   const id = $derived($page.params.id);
@@ -166,7 +167,12 @@
         </div>
         <p><strong>This note is locked.</strong></p>
         <p class="locked-detail">Unlock it to view or edit the content.</p>
-        <button class="unlock-btn" onclick={handleUnlock} disabled={unlocking}>{unlocking ? "Unlocking…" : "Unlock"}</button>
+        <button class="unlock-btn" onclick={handleUnlock} disabled={unlocking}>
+          {#if unlocking}
+            <Spinner class="unlock-spinner" />
+          {/if}
+          {unlocking ? "Unlocking…" : "Unlock"}
+        </button>
       </div>
     {:else}
       <div class="scroll-area" style={bodyStyle}>
@@ -272,10 +278,33 @@
     border-radius: var(--radius-sm);
     font-weight: 500;
     cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
   }
   .unlock-btn:disabled {
     opacity: 0.6;
     cursor: default;
+  }
+  /* Spinner.svelte defaults to --hairline/--accent for its two arcs,
+     which both read poorly against this button's solid --accent fill —
+     override both to --bg (same color the button's own text already
+     uses here) so it reads as one coherent white-on-accent spinner
+     instead of the default two-tone look disappearing into the button.
+     Plain opacity, not color-mix() — this app's target Android WebView
+     (Galaxy A13) trails desktop Chromium and color-mix() isn't safe to
+     assume there (same reasoning as themePalette.ts's hand-written
+     hexToRgba over CSS color-mix()). */
+  :global(.unlock-spinner) {
+    width: 16px !important;
+    height: 16px !important;
+  }
+  :global(.unlock-spinner circle) {
+    stroke: var(--bg);
+    opacity: 0.35;
+  }
+  :global(.unlock-spinner path) {
+    stroke: var(--bg);
   }
 
   @media (max-width: 480px) {

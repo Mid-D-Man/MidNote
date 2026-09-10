@@ -37,6 +37,14 @@
   // showing a selection that's no longer even visible, so it clears.
   let selectMode = $state(false);
   let selectedIds = $state<Set<string>>(new Set());
+  // Per-item, not a single flag — the list can hold many todos, and
+  // only the one actually mid-invoke() should show a spinner/block taps.
+  // NoteCard tracks this itself internally (it owns exactly one item);
+  // there's no dedicated Todo component to own an equivalent, so it
+  // lives here instead. Reassigned (not mutated in place) each time so
+  // Svelte's reactivity actually notices the Set changed — `.add()`/
+  // `.delete()` alone on a $state Set don't trigger a re-render.
+  let lockBusyIds = $state<Set<string>>(new Set());
   let showMergeConfirm = $state(false);
   let pendingMerge = $state<{ merged: Entry; sourceIds: string[] } | null>(null);
 
@@ -211,8 +219,18 @@
   // direction and hands off to lockFlow.ts, which owns the actual
   // dialogs/invoke calls/entry mutation.
   async function handleToggleLock(item: Note | Todo) {
-    if (item.encrypted) await unlockEntry(item);
-    else await lockEntry(item);
+    // Same new-Set-reassignment pattern as toggleSelect above — Svelte 5
+    // $state doesn't fire on in-place Set.add()/.delete(), only on
+    // reassigning the binding itself.
+    lockBusyIds = new Set(lockBusyIds).add(item.id);
+    try {
+      if (item.encrypted) await unlockEntry(item);
+      else await lockEntry(item);
+    } finally {
+      const next = new Set(lockBusyIds);
+      next.delete(item.id);
+      lockBusyIds = next;
+    }
   }
 
   // Tags popup for the TODO inline row specifically — NoteCard handles
@@ -323,6 +341,7 @@
   }
 
   function handleTodoClick(id: string) {
+    if (lockBusyIds.has(id)) return;
     if (suppressTodoClick.has(id)) {
       suppressTodoClick.delete(id);
       return;
@@ -453,6 +472,7 @@
                         struck={item.struck}
                         pinned={item.isPinned}
                         encrypted={item.encrypted}
+                        busy={lockBusyIds.has(item.id)}
                         onDelete={() => handleDeleteSingle(item.id)}
                         onDownload={() => handleDownloadSingle(item.id)}
                         onToggleStrikethrough={() => toggleStrikethrough(item.id)}

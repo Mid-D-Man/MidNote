@@ -13,6 +13,7 @@
   import { unlockEntry } from "$lib/utils/lockFlow";
   import { resolveTheme, hexToRgba } from "$lib/utils/themePalette";
   import { customThemes } from "$lib/stores/customThemes.svelte";
+  import Spinner from "$lib/components/ui/Spinner/Spinner.svelte";
   import type { Todo } from "$lib/types/entry";
 
   const id = $derived($page.params.id);
@@ -178,7 +179,12 @@
       </div>
       <p><strong>This todo is locked.</strong></p>
       <p class="locked-detail">Unlock it to view or edit its steps.</p>
-      <button class="unlock-btn" onclick={handleUnlock} disabled={unlocking}>{unlocking ? "Unlocking…" : "Unlock"}</button>
+      <button class="unlock-btn" onclick={handleUnlock} disabled={unlocking}>
+        {#if unlocking}
+          <Spinner class="unlock-spinner" />
+        {/if}
+        {unlocking ? "Unlocking…" : "Unlock"}
+      </button>
     </div>
   {:else}
     <div class="title-row">
@@ -318,9 +324,25 @@
     border-radius: var(--radius-sm);
     font-weight: 500;
     cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
   }
   .unlock-btn:disabled {
     opacity: 0.6;
     cursor: default;
+  }
+  /* Same reasoning as note/[id]/+page.svelte's identical override —
+     see that file's comment for why plain opacity, not color-mix(). */
+  :global(.unlock-spinner) {
+    width: 16px !important;
+    height: 16px !important;
+  }
+  :global(.unlock-spinner circle) {
+    stroke: var(--bg);
+    opacity: 0.35;
+  }
+  :global(.unlock-spinner path) {
+    stroke: var(--bg);
   }
 </style>

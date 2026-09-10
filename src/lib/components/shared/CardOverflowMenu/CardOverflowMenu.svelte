@@ -1,6 +1,7 @@
 <script lang="ts">
   import Sheet from "$lib/components/ui/Sheet/Sheet.svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog/ConfirmDialog.svelte";
+  import Spinner from "$lib/components/ui/Spinner/Spinner.svelte";
   import { breadcrumb } from "$lib/debug/log.svelte";
 
   let {
@@ -14,6 +15,7 @@
     onTogglePin,
     onToggleLock,
     onOpenTags,
+    busy = false,
   }: {
     // "note" or "todo" — copy only ("Delete note?").
     itemLabel: string;
@@ -30,6 +32,17 @@
     // visible record, so there's nothing meaningful to edit here until
     // it's unlocked.
     onOpenTags: () => void;
+    // True while THIS specific entry's lock_payload/unlock_payload
+    // invoke() is in flight (Argon2id is deliberately slow — real
+    // wall-clock time, not instant). The caller (NoteCard.svelte / the
+    // todo row in +page.svelte) owns this state, since it's the one
+    // that knows when the await actually resolves; this component just
+    // renders whatever it's told. Swaps the ⋮ trigger for a spinner and
+    // disables it, rather than adding a busy row inside the menu itself
+    // — the menu's already closed by the time the slow part starts
+    // (pick() closes it immediately on tap), so the trigger is the only
+    // thing still on-screen to show it on.
+    busy?: boolean;
   } = $props();
 
   let open = $state(false);
@@ -56,6 +69,7 @@
 
   function openMenu(e: Event) {
     e.stopPropagation();
+    if (busy) return;
     breadcrumb(`card overflow: opened (${itemLabel})`);
     open = true;
   }
@@ -83,13 +97,18 @@
   <button
     class="trigger"
     onclick={openMenu}
-    aria-label="More options"
+    disabled={busy}
+    aria-label={busy ? "Working…" : "More options"}
   >
-    <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
-      <circle cx="12" cy="5" r="1.8" />
-      <circle cx="12" cy="12" r="1.8" />
-      <circle cx="12" cy="19" r="1.8" />
-    </svg>
+    {#if busy}
+      <Spinner class="trigger-spinner" />
+    {:else}
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+        <circle cx="12" cy="5" r="1.8" />
+        <circle cx="12" cy="12" r="1.8" />
+        <circle cx="12" cy="19" r="1.8" />
+      </svg>
+    {/if}
   </button>
 
   <Sheet bind:open side="bottom" title="Options">
@@ -186,6 +205,18 @@
   .trigger:hover {
     background: var(--surface-raised);
     color: var(--text-hi);
+  }
+  .trigger:disabled {
+    cursor: default;
+  }
+  /* Spinner.svelte is 20px by default — sized down slightly here so it
+     doesn't visually outgrow the 16px ⋮ icon it's replacing. :global +
+     !important because Svelte's own scoped-style specificity on
+     Spinner's internal .spinner rule otherwise wins over a plain class
+     selector from this component's stylesheet. */
+  :global(.trigger-spinner) {
+    width: 16px !important;
+    height: 16px !important;
   }
   .menu-list {
     display: flex;

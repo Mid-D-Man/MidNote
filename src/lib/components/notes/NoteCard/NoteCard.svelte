@@ -71,19 +71,25 @@
   // events at all, so it reaches handleClick with the flag still false
   // and works normally; this is what actually calls onclick.
   let suppressClick = false;
+  // See handleToggleLock below — true only while THIS card's own
+  // lock/unlock invoke() is actually in flight.
+  let lockBusy = $state(false);
 
   function handleTap() {
+    if (lockBusy) return;
     suppressClick = true;
     if (selectionMode) onToggleSelect?.(note.id);
     else onClick(note.id);
   }
 
   function handleLongPress() {
+    if (lockBusy) return;
     suppressClick = true;
     onEnterSelectMode?.(note.id);
   }
 
   function handleClick() {
+    if (lockBusy) return;
     if (suppressClick) {
       suppressClick = false;
       return;
@@ -98,8 +104,18 @@
   });
 
   async function handleToggleLock() {
-    if (note.encrypted) await unlockEntry(note);
-    else await lockEntry(note);
+    // Argon2id is deliberately slow — this is a real, perceptible wait
+    // on real hardware, not a formality. lockBusy drives CardOverflowMenu's
+    // trigger spinner (see that component's `busy` prop) and blocks card
+    // taps below, so a mid-flight tap can't navigate into an entry whose
+    // encrypted flag is about to flip out from under it.
+    lockBusy = true;
+    try {
+      if (note.encrypted) await unlockEntry(note);
+      else await lockEntry(note);
+    } finally {
+      lockBusy = false;
+    }
   }
 
   let tagsOpen = $state(false);
@@ -133,6 +149,7 @@
         struck={note.struck}
         pinned={note.isPinned}
         encrypted={note.encrypted}
+        busy={lockBusy}
         onDelete={() => onDelete(note.id)}
         onDownload={() => onDownload(note.id)}
         onToggleStrikethrough={() => onToggleStrikethrough(note.id)}

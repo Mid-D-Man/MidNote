@@ -88,6 +88,20 @@
     onBack();
   }
 
+  // BUGFIX (data-safety) — same fix as NoteEditorHeader.svelte's
+  // identical handleDeleteTapped; see that file's comment for why this
+  // icon needs its own gate despite the landing-page list already being
+  // gated (direct navigation to a locked todo's editor route skips
+  // that).
+  function handleDeleteTapped() {
+    breadcrumb(`todo header: Delete icon tapped (encrypted=${todo.encrypted})`);
+    if (todo.encrypted) {
+      pushToast({ title: "Unlock first", description: "Unlock this todo before deleting it.", variant: "destructive" });
+      return;
+    }
+    showDeleteConfirm = true;
+  }
+
   function handleDelete() {
     removeEntry(todo.id);
     pushToast({ title: "Todo deleted", description: "Your todo has been deleted.", variant: "destructive" });
@@ -142,7 +156,7 @@
         </svg>
       </Button>
 
-      <Button variant="ghost" size="icon" onclick={() => (showDeleteConfirm = true)}>
+      <Button variant="ghost" size="icon" onclick={handleDeleteTapped}>
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
           <polyline points="3 6 5 6 21 6" />
           <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
