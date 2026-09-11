@@ -70,10 +70,38 @@
     }
     dragPx = 0;
   }
+
+  // BUGFIX: the scrim below used to call `() => (open = false)` directly,
+  // with no guard at all. On a real touchscreen, the SAME tap that
+  // opens a Sheet (e.g. tapping ⋮ to open CardOverflowMenu) can have its
+  // trailing click land on this scrim once it's rendered — the scrim is
+  // position:fixed;inset:0, so it covers the exact point that was just
+  // tapped, and some WebViews deliver that gesture's click AFTER the
+  // scrim has already mounted rather than strictly to the original
+  // target. Symptom: the sheet visibly flashes open then immediately
+  // closes on every single tap, no matter how many times you try.
+  // Ignoring scrim clicks for a brief window right after opening (but
+  // NOT touching the drag-to-close gesture above, which is a distinct,
+  // deliberate motion) absorbs that stray trailing click without adding
+  // any perceptible delay to a genuine "tap outside to dismiss" later.
+  let scrimGuardActive = $state(false);
+  $effect(() => {
+    if (!open) return;
+    scrimGuardActive = true;
+    const timer = setTimeout(() => {
+      scrimGuardActive = false;
+    }, 300);
+    return () => clearTimeout(timer);
+  });
+
+  function handleScrimClick() {
+    if (scrimGuardActive) return;
+    open = false;
+  }
 </script>
 
 {#if open}
-  <div class="scrim" onclick={() => (open = false)} role="presentation"></div>
+  <div class="scrim" onclick={handleScrimClick} role="presentation"></div>
   <div class="sheet {side}" class:dragging bind:this={sheetEl} style="transform: {dragTransform}">
     {#if side === "bottom"}
       <div

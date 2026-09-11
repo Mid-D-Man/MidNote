@@ -15,14 +15,36 @@
   // identity via a plain variable rather than $effect, since this only
   // ever needs to happen once per request, not track ongoing changes.
   let lastSeenRequest: unknown = null;
+  // BUGFIX — same class of bug as Sheet.svelte's identical fix (see its
+  // comment for the full mechanism): this dialog is opened from a card
+  // tap that's itself driving an async unlock flow (NoteCard/+page.svelte's
+  // handleClick), and its scrim is position:fixed;inset:0 same as
+  // Sheet's — so the SAME originating tap's trailing click could land
+  // on the scrim and dismiss the password prompt the instant it opens.
+  // Symptom reported: "password entry shows up and then vanishes
+  // immediately, no matter how many times I click." Guards the SCRIM
+  // only — the explicit Cancel button below is a deliberate, separate
+  // tap once the dialog is already visible and should never be delayed.
+  let scrimGuardActive = $state(false);
   $effect(() => {
     if (lockPromptRequest.value !== lastSeenRequest) {
       lastSeenRequest = lockPromptRequest.value;
       password = "";
       confirmPassword = "";
       localError = null;
+      if (lockPromptRequest.value) {
+        scrimGuardActive = true;
+        setTimeout(() => {
+          scrimGuardActive = false;
+        }, 300);
+      }
     }
   });
+
+  function handleScrimClick() {
+    if (scrimGuardActive) return;
+    cancel();
+  }
 
   function submitPassword() {
     const req = lockPromptRequest.value;
@@ -66,7 +88,7 @@
 </script>
 
 {#if lockPromptRequest.value}
-  <div class="scrim" onclick={cancel} role="presentation"></div>
+  <div class="scrim" onclick={handleScrimClick} role="presentation"></div>
   <div class="dialog" role="alertdialog" aria-modal="true">
     {#if lockPromptRequest.value.kind === "choice"}
       <h2>Lock with which password?</h2>
