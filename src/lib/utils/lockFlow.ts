@@ -32,10 +32,17 @@ interface LockedPayloadResult {
 }
 
 function buildPlaintextPayload(entry: Note | Todo): string {
+  // Tags used to travel inside this payload (see clearPlaintextFields'
+  // old comment) because locking cleared them from the visible entry.
+  // That's no longer true — tags now stay visible on a locked card (see
+  // clearPlaintextFields below) — so a NEW lock has no reason to
+  // duplicate them in here too. applyDecryptedPayload still reads
+  // `payload.tags` as a fallback purely for entries locked BEFORE this
+  // change, whose stored payload already has them from that older lock.
   if (entry.type === "regular") {
-    return JSON.stringify({ content: entry.content, tags: entry.tags });
+    return JSON.stringify({ content: entry.content });
   }
-  return JSON.stringify({ steps: entry.steps, annotations: entry.annotations, tags: entry.tags });
+  return JSON.stringify({ steps: entry.steps, annotations: entry.annotations });
 }
 
 function applyDecryptedPayload(entry: Note | Todo, plaintextJson: string) {
@@ -46,7 +53,19 @@ function applyDecryptedPayload(entry: Note | Todo, plaintextJson: string) {
     entry.steps = payload.steps;
     entry.annotations = payload.annotations;
   }
-  entry.tags = payload.tags ?? [];
+  // BUGFIX/BACKWARD-COMPAT: tags now stay on the visible entry through a
+  // lock (see clearPlaintextFields), so for anything locked under THAT
+  // scheme entry.tags already holds the real tags and this payload has
+  // no tags field at all to conflict with them. Only entries locked
+  // BEFORE this change have both `entry.tags === []` (the old
+  // clear-on-lock behavior) AND a real tags array inside their stored
+  // payload (the old carry-tags-in-payload behavior) — restore from
+  // there ONLY in that specific case, so those older locked notes don't
+  // come back from their first post-upgrade unlock with tags silently
+  // missing.
+  if (entry.tags.length === 0 && Array.isArray(payload.tags)) {
+    entry.tags = payload.tags;
+  }
 }
 
 function clearPlaintextFields(entry: Note | Todo) {
@@ -56,11 +75,15 @@ function clearPlaintextFields(entry: Note | Todo) {
     entry.steps = [];
     entry.annotations = [];
   }
-  // Matches notes_index.mdix/todos_index.mdix's existing convention:
-  // a locked entry keeps its real title but shows no tags — the real
-  // tags travel inside the encrypted payload instead (see
-  // buildPlaintextPayload) so nothing is actually lost.
-  entry.tags = [];
+  // BUGFIX: tags used to be cleared here too (matching
+  // notes_index.mdix/todos_index.mdix's old "encrypted keeps title,
+  // empties tags" convention) — a locked card showed literally nothing
+  // to go on besides its title. Tags aren't sensitive content the way a
+  // note's body is, and being able to see them is genuinely useful for
+  // finding/organizing a locked note without unlocking it — so they now
+  // stay exactly as they were at lock time. The Tags row in
+  // CardOverflowMenu stays hidden while encrypted regardless (see that
+  // component) — visible, not editable, until unlocked.
 }
 
 /** Locks `entry` in place (mutates it) and persists via saveEntry(). Returns whether it actually got locked (false = the user cancelled somewhere). */

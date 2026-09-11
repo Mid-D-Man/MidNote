@@ -23,6 +23,7 @@
     onDownload,
     onToggleStrikethrough,
     onTogglePin,
+    unlockingToOpen = false,
   }: {
     note: Note;
     onToggleBookmark: (id: string) => void;
@@ -40,6 +41,17 @@
     onDownload: (id: string) => void;
     onToggleStrikethrough: (id: string) => void;
     onTogglePin: (id: string) => void;
+    // True while the PARENT page's onClick (=handleClick in
+    // +page.svelte) is mid-unlock for this exact note — that function,
+    // not this component, owns the "don't navigate into a locked note
+    // until the password's been entered" gate (see its own header
+    // comment), since it's the single choke point both NoteCard's
+    // onClick and the todo row's click funnel through. This prop exists
+    // purely so THIS card's own spinner/tap-blocking (below) reacts to
+    // that external wait the same way it already does for its own
+    // internal handleToggleLock — one consistent "this card is busy"
+    // signal on screen, regardless of which of the two things caused it.
+    unlockingToOpen?: boolean;
   } = $props();
 
   // note.content is HTML now (see NoteContent.svelte) — strip tags for
@@ -76,20 +88,20 @@
   let lockBusy = $state(false);
 
   function handleTap() {
-    if (lockBusy) return;
+    if (lockBusy || unlockingToOpen) return;
     suppressClick = true;
     if (selectionMode) onToggleSelect?.(note.id);
     else onClick(note.id);
   }
 
   function handleLongPress() {
-    if (lockBusy) return;
+    if (lockBusy || unlockingToOpen) return;
     suppressClick = true;
     onEnterSelectMode?.(note.id);
   }
 
   function handleClick() {
-    if (lockBusy) return;
+    if (lockBusy || unlockingToOpen) return;
     if (suppressClick) {
       suppressClick = false;
       return;
@@ -149,7 +161,7 @@
         struck={note.struck}
         pinned={note.isPinned}
         encrypted={note.encrypted}
-        busy={lockBusy}
+        busy={lockBusy || unlockingToOpen}
         onDelete={() => onDelete(note.id)}
         onDownload={() => onDownload(note.id)}
         onToggleStrikethrough={() => onToggleStrikethrough(note.id)}
@@ -190,8 +202,15 @@
     {/if}
     <h3 class="title" class:struck={note.struck}>{note.title || "Untitled"}</h3>
   </div>
-  <p class="preview">{preview}</p>
-  <p class="date">{dateLabel}</p>
+  <!-- While locked, a card shows ONLY its name, icon, and tags — no
+       content preview, no date. There's genuinely nothing else safe or
+       useful to show: content stays cleared until unlocked either way,
+       and the date wasn't asked for here, so it's hidden along with it
+       rather than left dangling on its own. -->
+  {#if !note.encrypted}
+    <p class="preview">{preview}</p>
+    <p class="date">{dateLabel}</p>
+  {/if}
 
   {#if note.tags.length > 0}
     <div class="tags">

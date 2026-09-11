@@ -535,13 +535,25 @@
                     {/if}
                     <strong class:struck={item.struck}>{item.title || "Untitled"}</strong>
                   </div>
-                  <span class="meta">
-                    {#if item.encrypted}
-                      🔒 Locked
-                    {:else}
+                  <!-- Same as NoteCard.svelte: while locked, only name +
+                       icon + tags show. Todos never showed tags at all
+                       before this (a pre-existing gap unrelated to
+                       encryption, on top of the actual bug) — added
+                       here unconditionally, same as NoteCard, rather
+                       than only while locked, which would have made a
+                       locked todo show MORE than an unlocked one. -->
+                  {#if !item.encrypted}
+                    <span class="meta">
                       {item.steps.length} step{item.steps.length === 1 ? "" : "s"} · {new Date(item.lastModified).toLocaleDateString()}
-                    {/if}
-                  </span>
+                    </span>
+                  {/if}
+                  {#if item.tags.length > 0}
+                    <div class="tags">
+                      {#each item.tags as tag (tag)}
+                        <span class="tag">{tag}</span>
+                      {/each}
+                    </div>
+                  {/if}
                 </div>
               {/if}
             {/each}
@@ -762,6 +774,21 @@
   .todo-item .meta {
     font-size: 12px;
     color: var(--text-faint);
+  }
+  /* Same rules as NoteCard.svelte's .tags/.tag — todos never had a tags
+     display of their own before this. */
+  .todo-item .tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+  }
+  .todo-item .tag {
+    font-size: 11px;
+    padding: 2px var(--space-2);
+    border-radius: 999px;
+    background: var(--accent-wash);
+    color: var(--accent);
+    font-weight: 500;
   }
   .todo-item .select-check {
     position: absolute;
