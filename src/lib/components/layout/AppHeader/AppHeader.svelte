@@ -4,10 +4,30 @@
   import AuthDialog from "$lib/components/layout/AuthDialog/AuthDialog.svelte";
   import SettingsSheet from "$lib/components/layout/SettingsSheet/SettingsSheet.svelte";
   import { pushToast } from "$lib/stores/toast.svelte";
+  import { appHeaderTheme } from "$lib/stores/settings.svelte";
+  import { resolveTheme, hexToRgba } from "$lib/utils/themePalette";
+  import { customThemes } from "$lib/stores/customThemes.svelte";
 
   let menuOpen = $state(false);
   let authOpen = $state(false);
   let settingsOpen = $state(false);
+
+  // This <header> — hamburger, "MidNote" wordmark, sync icon — is what
+  // the landing-page "Header" theme slot actually means (confirmed
+  // against a real annotated screenshot: this bar specifically, not the
+  // Notes/Todos tab row below it, which is genuinely part of "Body"
+  // now — see +page.svelte's pageBodyStyle comment). Self-contained,
+  // same pattern as NoteEditorHeader/TodoHeader's own headerStyle:
+  // this component owns its own theme resolution rather than the
+  // parent computing and passing down a style string.
+  const resolvedHeaderTheme = $derived(resolveTheme(appHeaderTheme.value, customThemes));
+  const headerStyle = $derived(
+    resolvedHeaderTheme.kind === "color"
+      ? `background: ${hexToRgba(resolvedHeaderTheme.color, 0.16)};`
+      : resolvedHeaderTheme.kind === "image"
+        ? `background-image: linear-gradient(rgba(4,6,16,0.35), rgba(4,6,16,0.35)), url(${resolvedHeaderTheme.dataUrl}); background-size: cover; background-position: center;`
+        : "",
+  );
 
   // TODO: real Supabase auth + the Storage-bucket sync described in the
   // sync-architecture discussion — this just tells the user honestly that
@@ -20,7 +40,7 @@
   }
 </script>
 
-<header class="app-header">
+<header class="app-header" style={headerStyle}>
   <Button variant="ghost" size="icon" onclick={() => (menuOpen = true)}>
     <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
       <line x1="3" y1="6" x2="21" y2="6" />

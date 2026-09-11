@@ -22,7 +22,7 @@
   import { breadcrumb } from "$lib/debug/log.svelte";
   import { resolveTheme, hexToRgba, getIconGlyph } from "$lib/utils/themePalette";
   import { customThemes } from "$lib/stores/customThemes.svelte";
-  import { appHeaderTheme, appBodyTheme } from "$lib/stores/settings.svelte";
+  import { appBodyTheme } from "$lib/stores/settings.svelte";
   import { lockEntry, unlockEntry } from "$lib/utils/lockFlow";
 
   let isLoading = $state(true);
@@ -87,27 +87,18 @@
     return [...pinned, ...rest];
   });
 
-  // Landing-page theme (Settings) — now two independent washes instead
-  // of one flat value applied to both regions (see settings.svelte.ts's
-  // header comment on the split). appHeaderTheme washes .view-tabs (the
-  // top app-bar), appBodyTheme washes .page (the scrollable list
-  // background behind it) — same resolveTheme() as every per-entry
-  // theme, just fed the app-wide pointers instead of one entry's own.
-  const appHeaderResolved = $derived(resolveTheme(appHeaderTheme.value, customThemes));
+  // Landing-page BODY theme (Settings) — everything on this page except
+  // the top app-bar. CORRECTED mapping, confirmed against an annotated
+  // screenshot: "Header" is specifically AppHeader.svelte's own <header>
+  // (hamburger, "MidNote" wordmark, sync icon) — that component now
+  // resolves appHeaderTheme itself (see its own header comment), so
+  // there's nothing to compute for it here. "Body" is genuinely
+  // everything else, including the Notes/Todos tab row below
+  // AppHeader — .view-tabs deliberately gets NO wash of its own below;
+  // it's a transparent child sitting inside this same <main>, so
+  // .page's background-attachment:fixed image/color already shows
+  // straight through it, which is exactly the desired look.
   const appBodyResolved = $derived(resolveTheme(appBodyTheme.value, customThemes));
-  const pageHeaderStyle = $derived(
-    appHeaderResolved.kind === "color"
-      ? // BUGFIX: was 0.06 — confirmed on-device as imperceptible (this
-        // app's layout is mostly opaque NoteCard/todo-item surfaces, so
-        // the wash was only ever visible in thin gaps/padding to begin
-        // with; at 6% alpha it read as "not working" rather than
-        // "subtle"). 0.16 is roughly the same strength already used
-        // for a themed note's own card wash.
-        `background: ${hexToRgba(appHeaderResolved.color, 0.16)};`
-      : appHeaderResolved.kind === "image"
-        ? `background-image: url(${appHeaderResolved.dataUrl}); background-size: cover; background-attachment: fixed;`
-        : "",
-  );
   const pageBodyStyle = $derived(
     appBodyResolved.kind === "color"
       ? `background: ${hexToRgba(appBodyResolved.color, 0.16)};`
@@ -115,6 +106,14 @@
         ? `background-image: url(${appBodyResolved.dataUrl}); background-size: cover; background-attachment: fixed;`
         : "",
   );
+  // .view-tabs has its own deliberate --surface background in its base
+  // CSS (a shade lighter than .page's --bg, by design, in the
+  // untheened default look) — that's unrelated to theming and stays
+  // untouched when no body theme is set. Only override it to transparent
+  // when a body theme actually IS active, so .page's background (image
+  // or color, whichever was picked) shows straight through instead of
+  // this row cutting a solid-colored gap out of it.
+  const viewTabsStyle = $derived(appBodyResolved.kind !== "none" ? "background: transparent;" : "");
 
   function todoItemStyle(todo: Todo): string {
     const resolved = resolveTheme(todo.headerTheme, customThemes);
@@ -142,9 +141,32 @@
     exitSelectMode();
   }
 
-  function handleClick(id: string) {
+  // BUGFIX (data-safety): this used to navigate straight into a locked
+  // entry's editor route regardless of encrypted state — harmless to
+  // VIEW (the locked-placeholder screen shows no real content until
+  // unlocked, same as before), but it meant a locked note/todo could be
+  // fully opened, and from there even deleted (see CardOverflowMenu's
+  // now-gated Delete), without ever proving you know its password.
+  // Unlocking right here, before navigating at all, closes that for
+  // both notes and todos through this one shared entry point — NoteCard
+  // routes its own tap through this exact function via its `onClick`
+  // prop, so nothing extra is needed on that side beyond the
+  // `unlockingToOpen` prop below for matching spinner feedback.
+  async function handleClick(id: string) {
     const item = [...notes, ...todos].find((i) => i.id === id);
-    goto(item?.type === "todo" ? `/todo/${id}` : `/note/${id}`);
+    if (!item) return;
+    if (item.encrypted) {
+      lockBusyIds = new Set(lockBusyIds).add(id);
+      try {
+        const unlocked = await unlockEntry(item);
+        if (!unlocked) return; // cancelled or gave up — stay on the list, never navigate
+      } finally {
+        const next = new Set(lockBusyIds);
+        next.delete(id);
+        lockBusyIds = next;
+      }
+    }
+    goto(item.type === "todo" ? `/todo/${id}` : `/note/${id}`);
   }
 
   function handleAddTag() {
@@ -357,7 +379,7 @@
   <main class="page" style={pageBodyStyle}>
     <AppHeader />
 
-    <div class="view-tabs" style={pageHeaderStyle}>
+    <div class="view-tabs" style={viewTabsStyle}>
       <button class:active={activeView === "notes"} onclick={() => switchView("notes")}>Notes</button>
       <button class:active={activeView === "todos"} onclick={() => switchView("todos")}>Todos</button>
     </div>
@@ -429,6 +451,7 @@
                   onDownload={handleDownloadSingle}
                   onToggleStrikethrough={toggleStrikethrough}
                   onTogglePin={togglePinned}
+                  unlockingToOpen={lockBusyIds.has(item.id)}
                 />
               {:else}
                 <div

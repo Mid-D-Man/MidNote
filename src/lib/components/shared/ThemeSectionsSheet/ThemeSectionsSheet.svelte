@@ -34,6 +34,8 @@
     icon,
     onIconChange,
     bodyAllowCustom = false,
+    headerDescription = "The card in the list, and the editor's top bar.",
+    bodyDescription,
   }: {
     open?: boolean;
     title?: string;
@@ -53,6 +55,14 @@
     // it — the same risk profile as any header theme — so it passes
     // true to get the normal full picker (presets + uploads).
     bodyAllowCustom?: boolean;
+    // BUGFIX: both row descriptions used to be hardcoded for the
+    // per-entry case only ("the card in the list, and the editor's top
+    // bar") — accurate for NoteEditorHeader/TodoHeader, flatly wrong
+    // for SettingsSheet's landing-page usage (there is no "card" or
+    // "editor" on that screen). Defaults here keep the existing
+    // per-entry wording as-is; SettingsSheet passes its own.
+    headerDescription?: string;
+    bodyDescription?: string;
   } = $props();
 
   const showIcon = $derived(icon !== undefined);
@@ -64,6 +74,9 @@
   const resolvedHeader = $derived(resolveTheme(headerTheme, customThemes));
   const resolvedBody = $derived(resolveTheme(bodyTheme, customThemes));
   const iconGlyph = $derived(getIconGlyph(icon ?? null));
+  const resolvedBodyDescription = $derived(
+    bodyDescription ?? (bodyAllowCustom ? "The scrollable background behind the list." : "The writing area itself. Solid colors only for now."),
+  );
 
   function openHeaderPicker() {
     open = false;
@@ -84,7 +97,7 @@
     <button type="button" class="section-row" onclick={openHeaderPicker}>
       <div class="row-text">
         <span class="row-label">Header</span>
-        <span class="row-desc">The card in the list, and the editor's top bar.</span>
+        <span class="row-desc">{headerDescription}</span>
       </div>
       <span
         class="swatch-preview"
@@ -101,7 +114,7 @@
     <button type="button" class="section-row" onclick={openBodyPicker}>
       <div class="row-text">
         <span class="row-label">Body</span>
-        <span class="row-desc">{bodyAllowCustom ? "The scrollable background behind the list." : "The writing area itself. Solid colors only for now."}</span>
+        <span class="row-desc">{resolvedBodyDescription}</span>
       </div>
       <span
         class="swatch-preview"

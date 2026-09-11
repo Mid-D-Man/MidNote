@@ -95,6 +95,8 @@
   onHeaderChange={setAppHeaderTheme}
   onBodyChange={setAppBodyTheme}
   bodyAllowCustom={true}
+  headerDescription="The top bar — menu, title, and sync icon."
+  bodyDescription="Everything else — tabs, tags, and your notes list."
 />
 
 <style>
