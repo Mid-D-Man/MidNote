@@ -33,6 +33,19 @@ export interface CustomTheme {
   width: number;
   height: number;
   createdAt: string;
+  // Precomputed once at upload time (storage.ts's storeCustomThemeImage,
+  // via colorthief's real pixel-sampling — not guessed) — "#ffffff" or
+  // "#000000", whichever reads legibly over this image's actual sampled
+  // color. Computed once and stored rather than recomputed on every
+  // render because getting it requires decoding the image into a canvas,
+  // which is inherently async in a browser — not something any of this
+  // app's synchronous $derived theme-resolution code (resolveTheme,
+  // called from plain reactive expressions all over the app) could ever
+  // do on the fly. Optional because it doesn't exist on any CustomTheme
+  // uploaded before this field existed — see resolveTheme's fallback for
+  // exactly what happens then (nothing regresses; old uploads keep their
+  // pre-existing look).
+  textColor?: string;
 }
 
 export type LockKeyMode = "app" | "custom";

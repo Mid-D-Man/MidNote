@@ -143,10 +143,17 @@
   }
 
   // Same reasoning as note/[id]/+page.svelte's identical bodyStyle —
-  // see that file's comment for why this only ever paints a solid
-  // color, never an image.
+  // see that file's comment for the full design (opaque text panel,
+  // not raw compositing over the photo).
   const resolvedBodyTheme = $derived(resolveTheme(todo.bodyTheme, customThemes));
-  const bodyStyle = $derived(resolvedBodyTheme.kind === "color" ? `background: ${hexToRgba(resolvedBodyTheme.color, 0.14)};` : "");
+  const bodyStyle = $derived(
+    resolvedBodyTheme.kind === "color"
+      ? `background: ${hexToRgba(resolvedBodyTheme.color, 0.14)};`
+      : resolvedBodyTheme.kind === "image"
+        ? `background-image: url(${resolvedBodyTheme.dataUrl}); background-size: cover; background-position: center; background-attachment: fixed;`
+        : "",
+  );
+  const bodyHasImage = $derived(resolvedBodyTheme.kind === "image");
 </script>
 
 <svelte:head>
@@ -206,13 +213,15 @@
     />
 
     <div class="body" style={bodyStyle}>
-      <TodoStepsSection
-        steps={stepsForCategory}
-        category={currentCategory}
-        onAddStep={addStep}
-        onUpdateStep={updateStep}
-        onDeleteStep={deleteStep}
-      />
+      <div class="inner" class:inner-panel={bodyHasImage}>
+        <TodoStepsSection
+          steps={stepsForCategory}
+          category={currentCategory}
+          onAddStep={addStep}
+          onUpdateStep={updateStep}
+          onDeleteStep={deleteStep}
+        />
+      </div>
     </div>
 
     <TodoAnnotationsSidebar
@@ -262,6 +271,24 @@
   .body {
     flex: 1;
     min-height: 0;
+    overflow: hidden;
+  }
+  /* Neutral flex passthrough for the "no theme"/color cases — same
+     effective layout TodoStepsSection had as .body's direct child
+     before this wrapper existed. .inner-panel is purely additive for
+     the image case; see note/[id]/+page.svelte's identical .inner-panel
+     comment for the full reasoning. */
+  .inner {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .inner.inner-panel {
+    background: rgba(var(--surface-rgb), 0.93);
+    border-radius: var(--radius-md);
+    margin: var(--space-3);
+    box-shadow: 0 2px 24px rgba(0, 0, 0, 0.25);
     overflow: hidden;
   }
   .error-state {

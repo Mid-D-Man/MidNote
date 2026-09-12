@@ -33,7 +33,7 @@
     onBodyChange,
     icon,
     onIconChange,
-    bodyAllowCustom = false,
+    bodyAllowCustom = true,
     headerDescription = "The card in the list, and the editor's top bar.",
     bodyDescription,
   }: {
@@ -45,15 +45,13 @@
     onBodyChange: (theme: ThemeRef) => void;
     icon?: string | null;
     onIconChange?: (icon: string | null) => void;
-    // Default false: the per-entry editor body sits directly behind
-    // live Tiptap caret/selection rendering, where an uploaded photo is
-    // an unverified legibility risk (see entry.ts's bodyTheme comment)
-    // — that's the common case (NoteEditorHeader/TodoHeader), so it's
-    // the default rather than something every call site has to
-    // remember to pass. SettingsSheet's landing-page body is just a
-    // scrollable list background with no live-editing surface behind
-    // it — the same risk profile as any header theme — so it passes
-    // true to get the normal full picker (presets + uploads).
+    // Default true as of note/[id] and todo/[id]'s route pages wrapping
+    // the actual editable text in its own high-opacity panel (see
+    // note/[id]/+page.svelte's .inner-panel) rather than ever
+    // compositing live Tiptap caret/selection rendering directly over a
+    // raw photo — that was the specific, narrow risk this flag existed
+    // to guard against, not custom images for body themes in general,
+    // which every context now supports the same way.
     bodyAllowCustom?: boolean;
     // BUGFIX: both row descriptions used to be hardcoded for the
     // per-entry case only ("the card in the list, and the editor's top
@@ -74,9 +72,9 @@
   const resolvedHeader = $derived(resolveTheme(headerTheme, customThemes));
   const resolvedBody = $derived(resolveTheme(bodyTheme, customThemes));
   const iconGlyph = $derived(getIconGlyph(icon ?? null));
-  const resolvedBodyDescription = $derived(
-    bodyDescription ?? (bodyAllowCustom ? "The scrollable background behind the list." : "The writing area itself. Solid colors only for now."),
-  );
+  // Only NoteEditorHeader/TodoHeader ever rely on this fallback now —
+  // SettingsSheet always passes its own explicit bodyDescription.
+  const resolvedBodyDescription = $derived(bodyDescription ?? "The writing area itself.");
 
   function openHeaderPicker() {
     open = false;

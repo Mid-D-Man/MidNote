@@ -22,6 +22,7 @@
   /* Surfaces */
   --bg: #0a0e1f;
   --surface: #10152b;
+  --surface-rgb: 16, 21, 43; /* same color as --surface above, as r,g,b — see routes/note/[id]/+page.svelte's .inner-panel for why this needs to exist as raw channels rather than just using color-mix() on --surface directly (not safe to assume on this app's target Android WebView). Keep in sync with --surface by hand if that hex ever changes. */
   --surface-raised: #171d3a;
   --hairline: #262e52;
 
@@ -50,6 +51,7 @@
   /* Surfaces — cool vellum, not warm cream */
   --bg: #f6f7fc;
   --surface: #ffffff;
+  --surface-rgb: 255, 255, 255; /* see dark mode's identical comment above */
   --surface-raised: #eef0fa;
   --hairline: #dde1f2;
 

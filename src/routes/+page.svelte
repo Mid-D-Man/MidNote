@@ -20,7 +20,7 @@
   import { shareFiles } from "$lib/utils/share";
   import { pushToast } from "$lib/stores/toast.svelte";
   import { breadcrumb } from "$lib/debug/log.svelte";
-  import { resolveTheme, hexToRgba, getIconGlyph } from "$lib/utils/themePalette";
+  import { resolveTheme, hexToRgba, getIconGlyph, getImageTextColorVars } from "$lib/utils/themePalette";
   import { customThemes } from "$lib/stores/customThemes.svelte";
   import { appBodyTheme } from "$lib/stores/settings.svelte";
   import { lockEntry, unlockEntry } from "$lib/utils/lockFlow";
@@ -103,7 +103,14 @@
     appBodyResolved.kind === "color"
       ? `background: ${hexToRgba(appBodyResolved.color, 0.16)};`
       : appBodyResolved.kind === "image"
-        ? `background-image: url(${appBodyResolved.dataUrl}); background-size: cover; background-attachment: fixed;`
+        ? // BUGFIX: text/UI sitting directly on the body area (the Tags
+          // section's heading and "Add Tag" button specifically — see
+          // .tags-header/.btn-outline overrides below) had no contrast
+          // handling at all before this; getImageTextColorVars gives
+          // every descendant the right --theme-text-*/--theme-tag-*
+          // variables to use, picked per-image via colorthief rather
+          // than assumed.
+          `background-image: url(${appBodyResolved.dataUrl}); background-size: cover; background-attachment: fixed; ${getImageTextColorVars(appBodyResolved.textColor)}`
         : "",
   );
   // .view-tabs has its own deliberate --surface background in its base
@@ -118,7 +125,12 @@
   function todoItemStyle(todo: Todo): string {
     const resolved = resolveTheme(todo.headerTheme, customThemes);
     if (resolved.kind === "color") return `border-left: 4px solid ${resolved.color}; background: ${hexToRgba(resolved.color, 0.08)};`;
-    if (resolved.kind === "image") return `background-image: url(${resolved.dataUrl}); background-size: cover; background-position: center;`;
+    // BUGFIX — same as NoteCard.svelte's identical fix: text used to be
+    // forced to a fixed white hierarchy unconditionally for ANY image
+    // theme; now it's the earned, per-image textColor from colorthief
+    // (computed once at upload — see CustomTheme.textColor).
+    if (resolved.kind === "image")
+      return `background-image: url(${resolved.dataUrl}); background-size: cover; background-position: center; ${getImageTextColorVars(resolved.textColor)}`;
     return "";
   }
 
@@ -376,7 +388,7 @@
 {#if isLoading}
   <LoadingScreen oncomplete={() => (isLoading = false)} />
 {:else}
-  <main class="page" style={pageBodyStyle}>
+  <main class="page" class:body-has-image={appBodyResolved.kind === "image"} style={pageBodyStyle}>
     <AppHeader />
 
     <div class="view-tabs" style={viewTabsStyle}>
@@ -692,6 +704,23 @@
     color: var(--text-hi);
     margin: 0;
   }
+  /* BUGFIX: "Add Tag" is a Button variant="outline" — background:
+     transparent, just a hairline border — genuinely illegible against a
+     busy or light part of a body image (this is the exact thing flagged
+     from a screenshot). :global() reaches into Button.svelte's own
+     scoped class from here, since body-has-image is set on this file's
+     .page, an ancestor outside Button's own component boundary. Scoped
+     to body-has-image specifically so nothing changes for the
+     untheemed default look or a color-preset body theme (the low-alpha
+     wash there was never the actual problem). */
+  .body-has-image .tags-header h3 {
+    color: var(--theme-text-hi);
+  }
+  .body-has-image :global(.btn-outline) {
+    background: var(--theme-tag-bg);
+    border-color: var(--theme-text-lo);
+    color: var(--theme-text-hi);
+  }
   .tag-chips {
     display: flex;
     flex-wrap: wrap;
@@ -891,15 +920,19 @@
     background: linear-gradient(180deg, rgba(4, 6, 16, 0.15) 0%, rgba(4, 6, 16, 0.72) 100%);
     border-radius: inherit;
   }
-  /* Same reasoning as NoteCard.svelte's has-image-theme override — the
-     scrim guarantees a dark backdrop no matter the app's light/dark
-     mode, so text over it needs to be forced light rather than left on
-     the ordinary tokens (which flip to near-black in light mode). */
+  /* --theme-text-hi/mid/lo and --theme-tag-bg/text are set inline via
+     todoItemStyle (see getImageTextColorVars) — light or dark depending
+     on this specific image's actual sampled color, not assumed. Same
+     reasoning as NoteCard.svelte's identical override. */
   .todo-item.has-image-theme {
-    color: rgba(255, 255, 255, 0.95);
+    color: var(--theme-text-hi);
   }
   .todo-item.has-image-theme .meta {
-    color: rgba(255, 255, 255, 0.6);
+    color: var(--theme-text-lo);
+  }
+  .todo-item.has-image-theme .tag {
+    background: var(--theme-tag-bg);
+    color: var(--theme-tag-text);
   }
 
   @media (max-width: 480px) {

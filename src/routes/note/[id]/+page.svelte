@@ -129,19 +129,41 @@
     }
   }
 
-  // New: the writing surface itself now carries its own theme,
-  // independent of the header bar (see NoteEditorHeader.svelte / the
-  // ThemeSectionsSheet that sets note.bodyTheme). Deliberately only
-  // ever renders a solid-color wash here — bodyTheme can't actually BE
-  // an image kind today (ThemePicker's allowCustom={false} for this
-  // slot keeps the picker itself from ever offering one), but resolving
-  // through the same shared resolveTheme() as everywhere else means
-  // this stays correct on its own even if that restriction ever
-  // changes elsewhere without this file being touched — it would just
-  // silently do nothing for an image kind rather than paint one behind
-  // live Tiptap text unverified.
+  // The writing surface's own theme, independent of the header bar (see
+  // NoteEditorHeader.svelte / the ThemeSectionsSheet that sets
+  // note.bodyTheme). Image themes are allowed here now — see
+  // ThemeSectionsSheet.svelte's bodyAllowCustom comment for why that was
+  // restricted before and what changed: the actual editable text
+  // (.inner, below) gets its own high-opacity panel rather than sitting
+  // directly on the photo, so live Tiptap caret/selection rendering is
+  // never actually compositing pixel-for-pixel over an image — the
+  // photo shows as a framing backdrop around the edges, not literally
+  // behind the letters being typed.
   const resolvedBodyTheme = $derived(resolveTheme(note.bodyTheme, customThemes));
-  const bodyStyle = $derived(resolvedBodyTheme.kind === "color" ? `background: ${hexToRgba(resolvedBodyTheme.color, 0.14)};` : "");
+  // NoteContent.svelte's ruled-paper lines read var(--rule-color, <fixed
+  // sepia default>) — that fixed default is a nice match for the plain
+  // --surface background it was designed against, but reads as an
+  // arbitrary, unrelated color once the body itself has a theme. Tie it
+  // to whatever's actually behind it instead: the theme's own accent for
+  // a color theme, or a light/dark-appropriate neutral (same textColor
+  // decision as everywhere else) for an image — never derived from the
+  // image's actual color, since .inner-panel's near-opaque backing means
+  // the lines are sitting on --surface either way, not on the photo.
+  const ruleColorVar = $derived(
+    resolvedBodyTheme.kind === "color"
+      ? `--rule-color: ${hexToRgba(resolvedBodyTheme.color, 0.4)};`
+      : resolvedBodyTheme.kind === "image"
+        ? `--rule-color: ${resolvedBodyTheme.textColor === "#000000" ? "rgba(0, 0, 0, 0.25)" : "rgba(255, 255, 255, 0.3)"};`
+        : "",
+  );
+  const bodyStyle = $derived(
+    resolvedBodyTheme.kind === "color"
+      ? `background: ${hexToRgba(resolvedBodyTheme.color, 0.14)}; ${ruleColorVar}`
+      : resolvedBodyTheme.kind === "image"
+        ? `background-image: url(${resolvedBodyTheme.dataUrl}); background-size: cover; background-position: center; background-attachment: fixed; ${ruleColorVar}`
+        : "",
+  );
+  const bodyHasImage = $derived(resolvedBodyTheme.kind === "image");
 </script>
 
 <svelte:head>
@@ -176,7 +198,7 @@
       </div>
     {:else}
       <div class="scroll-area" style={bodyStyle}>
-        <div class="inner">
+        <div class="inner" class:inner-panel={bodyHasImage}>
           <NoteTitle bind:value={note.title} />
           <NoteContent bind:value={note.content} bind:editor bind:tick bind:hasSelection baseFontSize={fontSize.value} {syncToken} />
         </div>
@@ -214,6 +236,20 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
+  }
+  /* High-opacity, not fully solid — enough that the ordinary --text-hi/
+     --text-lo tokens stay genuinely safe over ANY photo without needing
+     a dynamic per-image text color the way NoteCard's image theme does,
+     since the actual live-editing surface (caret, selection, rich-text
+     formatting) is far more surface area to get right than a card's
+     title/preview text. rgba(var(--surface-rgb), …) rather than
+     color-mix(--surface, …) for the same Android WebView compatibility
+     reason as themePalette.ts's hexToRgba. */
+  .inner.inner-panel {
+    background: rgba(var(--surface-rgb), 0.93);
+    border-radius: var(--radius-md);
+    padding: var(--space-4);
+    box-shadow: 0 2px 24px rgba(0, 0, 0, 0.25);
   }
   .error-state {
     flex: 1;

@@ -75,6 +75,27 @@ export function getIconGlyph(name: string | null | undefined): string | null {
   return ICON_PRESETS.find((p) => p.name === name)?.glyph ?? null;
 }
 
+// Drives readable text/tag styling over an image theme, from resolveTheme's
+// single "#ffffff"/"#000000" textColor call. Centralized here rather than
+// duplicated in NoteCard, the todo row, and the editor headers — every
+// image-themed surface derives its light/dark text hierarchy from exactly
+// the same opacity levels this way, one set of numbers instead of several
+// slowly drifting copies. Returns a CSS custom-property declaration
+// string; consumers apply it via their own inline `style` and reference
+// the variables from their own CSS (see NoteCard.svelte's
+// .has-image-theme rules for the reference usage).
+export function getImageTextColorVars(textColor: string): string {
+  const isLight = textColor !== "#000000";
+  const rgb = isLight ? "255,255,255" : "0,0,0";
+  return (
+    `--theme-text-hi: rgba(${rgb},0.95); ` +
+    `--theme-text-mid: rgba(${rgb},0.78); ` +
+    `--theme-text-lo: rgba(${rgb},0.6); ` +
+    `--theme-tag-bg: rgba(${rgb},${isLight ? "0.16" : "0.12"}); ` +
+    `--theme-tag-text: rgba(${rgb},${isLight ? "0.92" : "0.85"});`
+  );
+}
+
 // Plain #rrggbb -> rgba(...) with a given alpha. Used for the wash
 // behind a themed card's text rather than painting the full preset
 // color flat across the card — a full-strength preset color behind
@@ -96,7 +117,16 @@ export function hexToRgba(hex: string, alpha: number): string {
 // NoteCard, the todo list row, and the editor header can all resolve
 // the exact same way instead of three slightly-different copies of this
 // logic drifting apart.
-export type ResolvedTheme = { kind: "none" } | { kind: "color"; color: string } | { kind: "image"; dataUrl: string };
+//
+// "image" always carries a textColor — either the real one computed at
+// upload time (see CustomTheme.textColor's comment for why it can't be
+// computed here instead), or "#ffffff" as a fallback for any custom
+// theme uploaded before that field existed. That fallback deliberately
+// matches what every image-themed surface already assumed unconditionally
+// before this existed (NoteCard's old .has-image-theme always forced
+// light text) — old uploads keep looking exactly as they already do;
+// only new ones get an actually-earned answer instead of a guess.
+export type ResolvedTheme = { kind: "none" } | { kind: "color"; color: string } | { kind: "image"; dataUrl: string; textColor: string };
 
 export function resolveTheme(theme: ThemeRef | null | undefined, customThemes: CustomTheme[]): ResolvedTheme {
   if (!theme) return { kind: "none" };
@@ -105,7 +135,7 @@ export function resolveTheme(theme: ThemeRef | null | undefined, customThemes: C
     // Referenced custom theme was deleted out from under this entry —
     // fall back to no theme rather than throwing or showing a broken
     // image icon.
-    return found ? { kind: "image", dataUrl: found.data } : { kind: "none" };
+    return found ? { kind: "image", dataUrl: found.data, textColor: found.textColor ?? "#ffffff" } : { kind: "none" };
   }
   const color = getPresetColor(theme.name ?? "none");
   return color ? { kind: "color", color } : { kind: "none" };

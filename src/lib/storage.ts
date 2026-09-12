@@ -7,6 +7,7 @@
 // what a Tauri-backed version would expose too.
 import type { CustomTheme, Entry, Note, Todo } from "$lib/types/entry";
 import { NO_THEME } from "$lib/types/entry";
+import { getColorSync } from "colorthief";
 
 const ENTRIES_KEY = "midnote:entries";
 const TAGS_KEY = "midnote:known-tags";
@@ -247,12 +248,33 @@ export function storeCustomThemeImage(file: File): Promise<CustomTheme> {
           return;
         }
         ctx.drawImage(img, 0, 0, width, height);
+        // Contrast text color, computed once here rather than on every
+        // render — see CustomTheme.textColor's comment for why it can't
+        // be done lazily in resolveTheme instead (image decode is
+        // inherently async; resolveTheme is called from synchronous
+        // $derived expressions all over the app). The canvas above
+        // already has the fully-decoded, already-downscaled image drawn
+        // into it for the JPEG re-encode step, so colorthief reads
+        // directly off THAT — no second decode, no extra cost. Wrapped
+        // in try/catch because canvas pixel reads can fail on some
+        // browser/security configurations; if it does, textColor stays
+        // undefined and resolveTheme's own fallback ("#ffffff") takes
+        // over, matching this image's pre-existing always-light-text
+        // behavior rather than the upload failing outright over a
+        // cosmetic-only feature.
+        let textColor: string | undefined;
+        try {
+          textColor = getColorSync(canvas)?.textColor;
+        } catch (err) {
+          console.error("storeCustomThemeImage: colorthief sampling failed, falling back to default text color:", err);
+        }
         const theme: CustomTheme = {
           id: generateId(),
           data: canvas.toDataURL("image/jpeg", THEME_JPEG_QUALITY),
           width,
           height,
           createdAt: new Date().toISOString(),
+          textColor,
         };
         const themes = loadCustomThemes();
         themes.push(theme);

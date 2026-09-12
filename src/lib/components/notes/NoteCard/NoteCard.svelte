@@ -7,7 +7,7 @@
   import { saveEntry } from "$lib/stores/entries.svelte";
   import { stripHtml } from "$lib/utils/richText";
   import { createLongPressHandlers } from "$lib/utils/longPress";
-  import { resolveTheme, hexToRgba, getIconGlyph } from "$lib/utils/themePalette";
+  import { resolveTheme, hexToRgba, getIconGlyph, getImageTextColorVars } from "$lib/utils/themePalette";
   import { customThemes } from "$lib/stores/customThemes.svelte";
   import type { Note } from "$lib/types/entry";
 
@@ -70,7 +70,13 @@
     resolved.kind === "color"
       ? `border-left: 4px solid ${resolved.color}; background: ${hexToRgba(resolved.color, 0.08)};`
       : resolved.kind === "image"
-        ? `background-image: url(${resolved.dataUrl}); background-size: cover; background-position: center;`
+        ? // BUGFIX: text/tags used to be forced to a fixed white-based
+          // hierarchy unconditionally for ANY image theme (see the old
+          // .has-image-theme rules) — a real risk for a bright/light
+          // photo, which is exactly the case this earned, per-image
+          // textColor (colorthief, computed once at upload — see
+          // CustomTheme.textColor) exists to get right instead of assumed.
+          `background-image: url(${resolved.dataUrl}); background-size: cover; background-position: center; ${getImageTextColorVars(resolved.textColor)}`
         : "",
   );
   const iconGlyph = $derived(getIconGlyph(note.icon));
@@ -366,23 +372,26 @@
     font-weight: 500;
   }
 
-  /* The scrim guarantees a dark backdrop regardless of the app's own
-     light/dark mode setting, so text drawn over it needs to be forced
-     light too — the ordinary --text-hi/--text-lo tokens flip to
-     near-black in light mode and would be unreadable here otherwise. */
+  /* --theme-text-hi/mid/lo and --theme-tag-bg/text are set inline via
+     cardStyle (see getImageTextColorVars) — light or dark depending on
+     this specific image's actual sampled color, not assumed. The scrim
+     still guarantees enough backdrop contrast either way; this is just
+     about which SIDE of that contrast the text sits on, since the
+     ordinary --text-hi/--text-lo tokens flip with the app's own light/
+     dark mode setting and have no relationship to what's in the photo. */
   :global(.note-card.has-image-theme) .title,
   :global(.note-card.has-image-theme) .preview,
   :global(.note-card.has-image-theme) .date {
-    color: rgba(255, 255, 255, 0.95);
+    color: var(--theme-text-hi);
   }
   :global(.note-card.has-image-theme) .preview {
-    color: rgba(255, 255, 255, 0.78);
+    color: var(--theme-text-mid);
   }
   :global(.note-card.has-image-theme) .date {
-    color: rgba(255, 255, 255, 0.6);
+    color: var(--theme-text-lo);
   }
   :global(.note-card.has-image-theme) .tag {
-    background: rgba(255, 255, 255, 0.16);
-    color: rgba(255, 255, 255, 0.92);
+    background: var(--theme-tag-bg);
+    color: var(--theme-tag-text);
   }
 </style>

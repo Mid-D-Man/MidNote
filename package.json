@@ -28,6 +28,7 @@
     "@tiptap/extensions": "^3.31.2",
     "@tiptap/pm": "^3.31.2",
     "@tiptap/starter-kit": "^3.31.2",
+    "colorthief": "^3.5.0",
     "fflate": "^0.8.3"
   },
   "devDependencies": {
