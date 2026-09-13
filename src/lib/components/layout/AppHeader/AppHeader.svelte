@@ -5,7 +5,7 @@
   import SettingsSheet from "$lib/components/layout/SettingsSheet/SettingsSheet.svelte";
   import { pushToast } from "$lib/stores/toast.svelte";
   import { appHeaderTheme } from "$lib/stores/settings.svelte";
-  import { resolveTheme, hexToRgba } from "$lib/utils/themePalette";
+  import { resolveTheme, hexToRgba, getImageTextColorVars } from "$lib/utils/themePalette";
   import { customThemes } from "$lib/stores/customThemes.svelte";
 
   let menuOpen = $state(false);
@@ -25,7 +25,13 @@
     resolvedHeaderTheme.kind === "color"
       ? `background: ${hexToRgba(resolvedHeaderTheme.color, 0.16)};`
       : resolvedHeaderTheme.kind === "image"
-        ? `background-image: linear-gradient(rgba(4,6,16,0.35), rgba(4,6,16,0.35)), url(${resolvedHeaderTheme.dataUrl}); background-size: cover; background-position: center;`
+        ? // BUGFIX: this was written in the same round that fixed the
+          // header/body mapping (before the colorthief contrast system
+          // existed) and never got backfilled — the h1/icon buttons
+          // below had no dynamic contrast handling at all until now,
+          // same class of gap as NoteEditorHeader/TodoHeader's identical
+          // fix.
+          `background-image: linear-gradient(rgba(4,6,16,0.35), rgba(4,6,16,0.35)), url(${resolvedHeaderTheme.dataUrl}); background-size: cover; background-position: center; ${getImageTextColorVars(resolvedHeaderTheme.textColor)}`
         : "",
   );
 
@@ -90,7 +96,10 @@
   h1 {
     font-family: var(--font-display);
     font-size: 17px;
-    color: var(--text-hi);
+    /* Same fallback pattern as Button.svelte's .btn-ghost — see that
+       file's comment. Falls back to the normal token when no header
+       theme (or a non-image one) is active. */
+    color: var(--theme-text-hi, var(--text-hi));
     margin: 0;
   }
   .menu-nav {

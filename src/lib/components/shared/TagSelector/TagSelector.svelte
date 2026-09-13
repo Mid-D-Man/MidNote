@@ -25,6 +25,28 @@
     isOpen = false;
     searchInput = "";
   }
+
+  // BUGFIX — same bug class as Sheet.svelte/LockPrompt.svelte (see
+  // Sheet's comment for the full mechanism): this dropdown has its own
+  // separate position:fixed;inset:0 scrim, missed when fixing those two
+  // since this is a bespoke implementation, not built on Sheet. Same
+  // fix: ignore the scrim's dismiss-click for a brief window right
+  // after opening, so the same tap that opened "Add Tag" can't also
+  // have its trailing click land on the scrim and instantly close it.
+  let scrimGuardActive = $state(false);
+  $effect(() => {
+    if (!isOpen) return;
+    scrimGuardActive = true;
+    const timer = setTimeout(() => {
+      scrimGuardActive = false;
+    }, 300);
+    return () => clearTimeout(timer);
+  });
+
+  function handleScrimClick() {
+    if (scrimGuardActive) return;
+    isOpen = false;
+  }
 </script>
 
 <div class="tag-selector">
@@ -41,7 +63,7 @@
     </button>
 
     {#if isOpen}
-      <div class="scrim" onclick={() => (isOpen = false)} role="presentation"></div>
+      <div class="scrim" onclick={handleScrimClick} role="presentation"></div>
       <div class="dropdown">
         <input type="text" placeholder="Search tags..." bind:value={searchInput} />
         <div class="list">
@@ -70,8 +92,14 @@
     align-items: center;
     gap: var(--space-1);
     padding: 4px var(--space-2);
-    background: var(--accent-wash);
-    color: var(--accent);
+    /* Falls back to the original fixed values when no themed ancestor
+       sets --theme-tag-bg/--theme-text-hi (the normal case everywhere
+       this component is used) — see NoteEditorHeader.svelte/
+       TodoHeader.svelte's has-image-theme block for the one place that
+       does set them. Native CSS custom-property fallback, not
+       color-mix() — safe for this app's target Android WebView. */
+    background: var(--theme-tag-bg, var(--accent-wash));
+    color: var(--theme-tag-text, var(--accent));
     border-radius: 999px;
     font-size: 12px;
     font-weight: 500;
@@ -92,10 +120,14 @@
     gap: 4px;
     font-size: 12px;
     padding: 4px var(--space-3);
-    background: transparent;
-    border: 1px solid var(--hairline);
+    /* BUGFIX: was unconditionally transparent — genuinely illegible
+       against a busy or light header image (the same class of issue as
+       the landing page's "Add Tag" button, flagged from a screenshot).
+       Same fallback approach as .selected-tag above. */
+    background: var(--theme-tag-bg, transparent);
+    border: 1px solid var(--theme-text-lo, var(--hairline));
     border-radius: 999px;
-    color: var(--text-hi);
+    color: var(--theme-text-hi, var(--text-hi));
     cursor: pointer;
   }
   .chevron {

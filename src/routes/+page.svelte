@@ -704,21 +704,16 @@
     color: var(--text-hi);
     margin: 0;
   }
-  /* BUGFIX: "Add Tag" is a Button variant="outline" — background:
-     transparent, just a hairline border — genuinely illegible against a
-     busy or light part of a body image (this is the exact thing flagged
-     from a screenshot). :global() reaches into Button.svelte's own
-     scoped class from here, since body-has-image is set on this file's
-     .page, an ancestor outside Button's own component boundary. Scoped
-     to body-has-image specifically so nothing changes for the
-     untheemed default look or a color-preset body theme (the low-alpha
-     wash there was never the actual problem). */
+  /* BUGFIX: the "Tags" heading has no background of its own (it's a
+     plain <h3>, not a themed component), so it still needs an explicit
+     override here — unlike "Add Tag" (a Button variant="outline"),
+     which now picks up --theme-tag-bg/--theme-text-hi automatically via
+     Button.svelte's own CSS var fallback, since those vars are already
+     set on this file's .page (an ancestor) whenever body-has-image is
+     active. Scoped to body-has-image specifically so nothing changes
+     for the untheemed default look or a color-preset body theme (the
+     low-alpha wash there was never the actual problem). */
   .body-has-image .tags-header h3 {
-    color: var(--theme-text-hi);
-  }
-  .body-has-image :global(.btn-outline) {
-    background: var(--theme-tag-bg);
-    border-color: var(--theme-text-lo);
     color: var(--theme-text-hi);
   }
   .tag-chips {

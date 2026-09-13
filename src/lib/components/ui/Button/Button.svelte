@@ -60,16 +60,24 @@
 
   .btn-ghost {
     background: transparent;
-    color: var(--text-hi);
+    /* Falls back to the original fixed value when no themed ancestor
+       sets --theme-text-hi (true almost everywhere Button is used) —
+       see NoteEditorHeader.svelte/TodoHeader.svelte's has-image-theme
+       block and +page.svelte's body-has-image block for the two
+       places that do set it, over a header/body image theme
+       respectively. Baked in here rather than a per-caller :global()
+       override so ANY future themed context automatically gets
+       legible icon buttons for free, not just these two. */
+    color: var(--theme-text-hi, var(--text-hi));
   }
   .btn-ghost:hover:not(:disabled) {
     background: var(--surface-raised);
   }
 
   .btn-outline {
-    background: transparent;
-    border-color: var(--hairline);
-    color: var(--text-hi);
+    background: var(--theme-tag-bg, transparent);
+    border-color: var(--theme-text-lo, var(--hairline));
+    color: var(--theme-text-hi, var(--text-hi));
   }
   .btn-outline:hover:not(:disabled) {
     background: var(--surface-raised);

@@ -10,7 +10,7 @@
   import { removeEntry, saveEntry } from "$lib/stores/entries.svelte";
   import { createTodo } from "$lib/storage";
   import { breadcrumb } from "$lib/debug/log.svelte";
-  import { resolveTheme, hexToRgba } from "$lib/utils/themePalette";
+  import { resolveTheme, hexToRgba, getImageTextColorVars } from "$lib/utils/themePalette";
   import { customThemes } from "$lib/stores/customThemes.svelte";
   import type { Todo, ThemeRef } from "$lib/types/entry";
 
@@ -49,7 +49,9 @@
     resolvedHeaderTheme.kind === "color"
       ? `background: ${hexToRgba(resolvedHeaderTheme.color, 0.14)}; border-bottom-color: ${resolvedHeaderTheme.color};`
       : resolvedHeaderTheme.kind === "image"
-        ? `background-image: linear-gradient(rgba(4,6,16,0.35), rgba(4,6,16,0.35)), url(${resolvedHeaderTheme.dataUrl}); background-size: cover; background-position: center;`
+        ? // Same fix as NoteEditorHeader.svelte's identical headerStyle
+          // — see that file's comment for the full reasoning.
+          `background-image: linear-gradient(rgba(4,6,16,0.35), rgba(4,6,16,0.35)), url(${resolvedHeaderTheme.dataUrl}); background-size: cover; background-position: center; ${getImageTextColorVars(resolvedHeaderTheme.textColor)}`
         : "",
   );
 

@@ -12,7 +12,7 @@
   import { htmlToPlainText } from "$lib/utils/richText";
   import { shareFiles } from "$lib/utils/share";
   import ThemeSectionsSheet from "$lib/components/shared/ThemeSectionsSheet/ThemeSectionsSheet.svelte";
-  import { resolveTheme, hexToRgba } from "$lib/utils/themePalette";
+  import { resolveTheme, hexToRgba, getImageTextColorVars } from "$lib/utils/themePalette";
   import { customThemes } from "$lib/stores/customThemes.svelte";
   import type { Note, ThemeRef } from "$lib/types/entry";
 
@@ -54,7 +54,15 @@
     resolvedHeaderTheme.kind === "color"
       ? `background: ${hexToRgba(resolvedHeaderTheme.color, 0.14)}; border-bottom-color: ${resolvedHeaderTheme.color};`
       : resolvedHeaderTheme.kind === "image"
-        ? `background-image: linear-gradient(rgba(4,6,16,0.35), rgba(4,6,16,0.35)), url(${resolvedHeaderTheme.dataUrl}); background-size: cover; background-position: center;`
+        ? // BUGFIX: the icon buttons (Back/Delete/Save/Export/More) and
+          // TagSelector below used to just rely on the fixed 35% scrim
+          // plus the app's own normal --text-hi token — genuinely risky
+          // for a bright/light header photo, same class of issue as
+          // NoteCard's old always-light hack. getImageTextColorVars
+          // gives Button.svelte and TagSelector.svelte's own CSS-var
+          // fallbacks (see their respective files) the right values to
+          // pick up automatically — no :global() overrides needed here.
+          `background-image: linear-gradient(rgba(4,6,16,0.35), rgba(4,6,16,0.35)), url(${resolvedHeaderTheme.dataUrl}); background-size: cover; background-position: center; ${getImageTextColorVars(resolvedHeaderTheme.textColor)}`
         : "",
   );
 
