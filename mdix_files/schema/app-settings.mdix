@@ -1,22 +1,33 @@
 // Brought to u by MidManStudio
 //
 // App-wide settings that aren't tied to any single note/todo — the
-// counterpart to entry-note.mdix/entry-todo.mdix's per-entry `theme`
-// field. Right now this only documents `theme` (the landing/list page's
-// own default background, set from the Settings sheet — see
-// settings.svelte.ts's appTheme). It deliberately does NOT also
-// retrofit a schema for fontSize/debugPanelVisible/noteLinesEnabled:
-// those already lived in settings.svelte.ts as plain localStorage
-// values with no .mdix mirror before this file existed, and folding
-// them in wasn't part of what this pass covered — doing that
-// unasked would be guessing at a schema for fields nobody's confirmed
-// need one yet. This file exists because `theme` specifically needed a
-// real DixScript home (it reuses Themes.theme_preset()/theme_custom()
-// from themes.mdix, same pointer shape as an entry's own theme), not as
-// a claim that app settings as a whole are DixScript-backed now — they
-// aren't; storage.ts/settings.svelte.ts are still the TEMPORARY
-// localStorage layer, same as everything else pending
-// src-tauri/src/data/entries.rs.
+// counterpart to entry-note.mdix/entry-todo.mdix's per-entry
+// headerTheme/bodyTheme fields. Right now this only documents those two
+// (the landing/list page's own default backgrounds, set from the
+// Settings sheet — see settings.svelte.ts's appHeaderTheme/
+// appBodyTheme). It deliberately does NOT also retrofit a schema for
+// fontSize/debugPanelVisible/noteLinesEnabled: those already lived in
+// settings.svelte.ts as plain localStorage values with no .mdix mirror
+// before this file existed, and folding them in wasn't part of what
+// this pass covered — doing that unasked would be guessing at a schema
+// for fields nobody's confirmed need one yet. This file exists because
+// the landing-page theme specifically needed a real DixScript home (it
+// reuses Themes.theme_preset()/theme_custom() from themes.mdix, same
+// pointer shape as an entry's own theme), not as a claim that app
+// settings as a whole are DixScript-backed now — they aren't;
+// storage.ts/settings.svelte.ts are still the TEMPORARY localStorage
+// layer, same as everything else pending src-tauri/src/data/entries.rs.
+//
+// REVISION: was a single `theme` field, applied identically to both the
+// top app-bar AND the scrollable list behind it — split into
+// appHeaderTheme (AppHeader.svelte's own <header> specifically —
+// confirmed against an annotated screenshot) and appBodyTheme
+// (everything else, including the Notes/Todos tab row, which turned out
+// to actually be part of "body" and not "header" — see
+// AppHeader.svelte/+page.svelte's own comments on this same
+// correction). No icon field here — see entry-note.mdix's icon comment:
+// an icon is pinned to one specific note/todo, there's no landing-page
+// equivalent.
 
 @CONFIG(
   version    -> "1.0.0"
@@ -30,5 +41,6 @@
 )
 
 @DATA(
-  theme = Themes.theme_preset("none")
+  appHeaderTheme = Themes.theme_preset("none")
+  appBodyTheme   = Themes.theme_preset("none")
 )

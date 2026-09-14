@@ -3,6 +3,7 @@
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog/ConfirmDialog.svelte";
   import Spinner from "$lib/components/ui/Spinner/Spinner.svelte";
   import { breadcrumb } from "$lib/debug/log.svelte";
+  import { pushToast } from "$lib/stores/toast.svelte";
 
   let {
     itemLabel,
@@ -78,6 +79,25 @@
     breadcrumb(`card overflow: ${label} tapped (${itemLabel})`);
     open = false;
     action();
+  }
+
+  // BUGFIX (data-safety): Delete had no gate at all before this — a
+  // locked entry could be destroyed without ever proving you know its
+  // password, which defeats the entire point of locking it in the
+  // first place. Download stays allowed while locked (a locked entry's
+  // visible content is already cleared, so there's nothing to leak either
+  // way — a past, deliberate decision, unaffected by this change);
+  // Delete is different because it's irreversible and needs no content
+  // exposure to do damage, so it gets its own explicit block instead of
+  // inheriting Download's reasoning.
+  function handleDeleteTapped() {
+    breadcrumb(`card overflow: delete tapped (${itemLabel}, encrypted=${encrypted})`);
+    open = false;
+    if (encrypted) {
+      pushToast({ title: "Unlock first", description: `Unlock this ${itemLabel} before deleting it.`, variant: "destructive" });
+      return;
+    }
+    showDeleteConfirm = true;
   }
 </script>
 
@@ -157,11 +177,7 @@
       </button>
       <button
         class="menu-item danger"
-        onclick={() => {
-          breadcrumb(`card overflow: delete tapped, confirm opening (${itemLabel})`);
-          open = false;
-          showDeleteConfirm = true;
-        }}
+        onclick={handleDeleteTapped}
       >
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
           <polyline points="3 6 5 6 21 6" />
@@ -198,7 +214,13 @@
     background: transparent;
     border: none;
     border-radius: var(--radius-sm);
-    color: var(--text-faint);
+    /* Same fallback pattern as Button.svelte's .btn-ghost — falls back
+       to the original fixed value everywhere this menu is used without
+       a themed ancestor (NoteCard.svelte / the todo row set
+       --theme-text-lo via getImageTextColorVars when their header theme
+       is an image). --text-faint's normal light/dark-mode value has no
+       relationship to what's actually behind an image-themed card. */
+    color: var(--theme-text-lo, var(--text-faint));
     cursor: pointer;
     flex-shrink: 0;
   }

@@ -26,13 +26,25 @@
 
 @QUICKFUNCS(
 
-  ~custom_theme<object>(_id, _data<blob>, _width<int>, _height<int>, _createdAt) {
+  // New: textColor, computed once at upload time via colorthief's real
+  // pixel sampling (not guessed) — "#ffffff" or "#000000", whichever
+  // reads legibly over this specific image's actual sampled color. See
+  // themePalette.ts's ResolvedTheme comment for the full reasoning, and
+  // storage.ts's storeCustomThemeImage for where this actually gets
+  // computed (same canvas the image is already being downscaled
+  // through — no second decode). Optional in the frontend type (any
+  // custom theme uploaded before this field existed won't have it —
+  // falls back to "#ffffff" there, matching what every image theme
+  // already assumed unconditionally before this existed) — required
+  // here since this schema always describes a fully-formed sample.
+  ~custom_theme<object>(_id, _data<blob>, _width<int>, _height<int>, _createdAt, _textColor) {
     return {
       id        = _id
       data      = _data
       width     = _width
       height    = _height
       createdAt = _createdAt
+      textColor = _textColor
     }
   }
 
@@ -40,5 +52,5 @@
 
 @DATA(
   customThemes::
-    custom_theme("ct1", b:("aGVsbG8gd29ybGQ="), 1080, 1920, 2026-08-20T10:00:00Z)
+    custom_theme("ct1", b:("aGVsbG8gd29ybGQ="), 1080, 1920, 2026-08-20T10:00:00Z, "#ffffff")
 )

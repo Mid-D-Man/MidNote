@@ -12,6 +12,7 @@
   import { htmlToPlainText } from "$lib/utils/richText";
   import { shareFiles } from "$lib/utils/share";
   import ThemeSectionsSheet from "$lib/components/shared/ThemeSectionsSheet/ThemeSectionsSheet.svelte";
+  import PagesPanel from "$lib/components/notes/PagesPanel/PagesPanel.svelte";
   import { resolveTheme, hexToRgba, getImageTextColorVars } from "$lib/utils/themePalette";
   import { customThemes } from "$lib/stores/customThemes.svelte";
   import type { Note, ThemeRef } from "$lib/types/entry";
@@ -30,18 +31,32 @@
     onTagsChange,
     onSave,
     onBack,
+    currentPageIndex,
+    onSwitchPage,
+    onAddPage,
+    onDeletePage,
   }: {
     note: Note;
     availableTags: string[];
     onTagsChange: (tags: string[]) => void;
     onSave: () => void;
     onBack: () => void;
+    // Page switching itself lives in the route page (it owns the actual
+    // content-binding logic — see note/[id]/+page.svelte's
+    // currentPageIndex comment); this header just surfaces the entry
+    // point (the "Pages" row below) and hands the callbacks down into
+    // PagesPanel.
+    currentPageIndex: number;
+    onSwitchPage: (index: number) => void;
+    onAddPage: () => void;
+    onDeletePage: (index: number) => void;
   } = $props();
 
   let isSaving = $state(false);
   let showDeleteConfirm = $state(false);
   let moreOpen = $state(false);
   let themeSheetOpen = $state(false);
+  let pagesOpen = $state(false);
 
   // Same resolveTheme() as the card preview — a visible (but
   // deliberately contained, see ThemeSectionsSheet's callsite below)
@@ -74,6 +89,12 @@
     // Sheet.svelte was never built or tested to support.
     moreOpen = false;
     themeSheetOpen = true;
+  }
+
+  function handleOpenPages() {
+    breadcrumb("note header: Pages tapped");
+    moreOpen = false;
+    pagesOpen = true;
   }
 
   // BUGFIX (carried over from the old single-theme version): mutate
@@ -154,8 +175,15 @@
   // text-only fallback, not assumed to just work).
   function buildExportBlob(): Blob {
     // note.content is HTML — convert back to plain text for export, or
-    // this would produce raw markup instead of readable text.
-    return new Blob([`${note.title}\n\n${htmlToPlainText(note.content)}`], { type: "text/plain" });
+    // this would produce raw markup instead of readable text. Additional
+    // pages (see entry.ts's Note.pages comment) are appended below the
+    // main content — exporting only page 1 would silently drop the rest
+    // of a multi-page note's actual content.
+    let text = `${note.title}\n\n${htmlToPlainText(note.content)}`;
+    note.pages.forEach((p, i) => {
+      text += `\n\n--- Page ${i + 2} ---\n\n${htmlToPlainText(p.content)}`;
+    });
+    return new Blob([text], { type: "text/plain" });
   }
 
   function handleDownload() {
@@ -255,8 +283,16 @@
       </svg>
       <span>Theme</span>
     </button>
+    <button class="action-row" onclick={handleOpenPages}>
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" />
+      </svg>
+      <span>Pages{note.pages.length > 0 ? ` (${1 + note.pages.length})` : ""}</span>
+    </button>
   </div>
 </Sheet>
+
+<PagesPanel bind:open={pagesOpen} {note} {currentPageIndex} {onSwitchPage} {onAddPage} {onDeletePage} />
 
 <ThemeSectionsSheet
   bind:open={themeSheetOpen}

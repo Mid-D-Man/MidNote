@@ -15,6 +15,17 @@
   Themes from "themes.mdix"
 )
 
+@QUICKFUNCS(
+
+  ~note_page<object>(_id, _content) {
+    return {
+      id      = _id
+      content = _content
+    }
+  }
+
+)
+
 @DATA(
   id           = "n1"
   type<enum>   = EntryType.REGULAR
@@ -33,14 +44,26 @@
   // box has text in it. Same field name/shape on notes and todos.
   isPinned     = false
 
-  // theme is wired up now (ThemePicker.svelte, resolved by
-  // themePalette.ts's resolveTheme) — still against storage.ts's
-  // TEMPORARY localStorage layer, not real DixScript-backed storage
-  // yet, since src-tauri/src/data/entries.rs is still stubbed. reminder
-  // stays an unwired schema-only placeholder for a future actions-menu
-  // item: null for "none set," otherwise a real timestamp literal, same
-  // shape as lastModified, so no separate "hasReminder" flag is needed.
-  theme        = Themes.theme_preset("sunset")
+  // REVISION: was a single `theme` field — split into independent
+  // header/body slots (see ThemeSectionsSheet.svelte). headerTheme is
+  // exactly what the old flat `theme` field meant (the card in the
+  // list, and the editor's own top bar); bodyTheme is new — the actual
+  // writing surface's own background, painted behind a near-opaque text
+  // panel rather than directly under live Tiptap caret/selection
+  // rendering (see note/[id]/+page.svelte's .inner-panel). Both resolve
+  // through the same Themes.theme_preset()/theme_custom() pointer shape
+  // — nothing about resolving a theme reference changed, only how many
+  // of them one entry carries.
+  headerTheme  = Themes.theme_preset("sunset")
+  bodyTheme    = Themes.theme_preset("none")
+
+  // New: a small glyph badge shown next to the title on this note's
+  // card (see themePalette.ts's ICON_PRESETS) — a plain preset name, not
+  // an object, since there's nothing to resolve beyond a lookup against
+  // a fixed curated list. null means no icon set, same "real value in
+  // this sample vs null in reminder below" distinction as headerTheme
+  // above.
+  icon         = "idea"
   reminder     = null
 
   // Lock — real DixScript-Rust encryption via
@@ -51,13 +74,27 @@
   // a lightweight list-view row, and lockedPayload/lockedKeyFile can be
   // arbitrarily large — the list only ever needs `encrypted` (above) to
   // know whether to show a lock icon, never these three. null/null/null
-  // when not locked; when locked, `content` above (and `tags`) are
-  // cleared and their real values move inside the encrypted payload
-  // instead, restored on unlock — see utils/lockFlow.ts.
+  // when not locked; when locked, `content` and `pages` above move
+  // inside the encrypted payload instead, restored on unlock — see
+  // utils/lockFlow.ts. REVISION: tags do NOT move into the payload
+  // anymore and are NOT cleared on lock — they stay visible on a locked
+  // card (genuinely useful for finding/organizing a locked note without
+  // unlocking it; they aren't sensitive the way the note's body is). A
+  // note previously locked under the old scheme still round-trips
+  // correctly — see lockFlow.ts's applyDecryptedPayload for the
+  // backward-compat path.
   lockKeyMode   = null
   lockedPayload = null
   lockedKeyFile = null
 
   tags::
     "personal"
+
+  // New: additional pages beyond this note's own `content` field above,
+  // which always stays "page 1" (see entry.ts's Note.pages comment for
+  // why it wasn't folded into one pages array covering everything).
+  // Empty here would mean "just the one page" — this sample has a
+  // second, to actually exercise the field.
+  pages::
+    note_page("n1p2", "Also need: paper towels, dish soap")
 )

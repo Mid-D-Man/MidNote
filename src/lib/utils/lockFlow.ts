@@ -39,8 +39,14 @@ function buildPlaintextPayload(entry: Note | Todo): string {
   // duplicate them in here too. applyDecryptedPayload still reads
   // `payload.tags` as a fallback purely for entries locked BEFORE this
   // change, whose stored payload already has them from that older lock.
+  //
+  // `pages` (notes only): additional pages beyond the note's own main
+  // content — see entry.ts's Note.pages comment. MUST travel inside this
+  // same encrypted payload alongside content, or locking a multi-page
+  // note would silently discard every page past the first the moment
+  // clearPlaintextFields runs, with no way back.
   if (entry.type === "regular") {
-    return JSON.stringify({ content: entry.content });
+    return JSON.stringify({ content: entry.content, pages: entry.pages });
   }
   return JSON.stringify({ steps: entry.steps, annotations: entry.annotations });
 }
@@ -49,6 +55,12 @@ function applyDecryptedPayload(entry: Note | Todo, plaintextJson: string) {
   const payload = JSON.parse(plaintextJson);
   if (entry.type === "regular") {
     entry.content = payload.content;
+    // Defensive fallback to [] rather than trusting payload.pages is
+    // always an array — this app never hand-edits stored ciphertext,
+    // but a malformed/foreign payload landing here shouldn't leave
+    // entry.pages as undefined and break every .pages.length /
+    // .pages[i] access elsewhere.
+    entry.pages = Array.isArray(payload.pages) ? payload.pages : [];
   } else {
     entry.steps = payload.steps;
     entry.annotations = payload.annotations;
@@ -71,6 +83,11 @@ function applyDecryptedPayload(entry: Note | Todo, plaintextJson: string) {
 function clearPlaintextFields(entry: Note | Todo) {
   if (entry.type === "regular") {
     entry.content = "";
+    // Same reasoning as content — the real pages live inside the
+    // encrypted payload now (see buildPlaintextPayload above), so the
+    // visible record is cleared the same way content is, not just left
+    // populated with plaintext page content while "locked".
+    entry.pages = [];
   } else {
     entry.steps = [];
     entry.annotations = [];

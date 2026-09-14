@@ -13,15 +13,31 @@
 
 @QUICKFUNCS(
 
-  // theme/reminder included here (not just in the full entry schema)
-  // because both are things the list view would plausibly want to show
-  // without loading the full entry — a themed card's color, or a bell
-  // icon for an upcoming reminder. Safe to include theme in full here:
-  // this is the small {kind, name, customThemeId} pointer object, never
-  // the uploaded image blob itself — see custom-themes.mdix. isPinned
-  // is here for the same reason: the list view needs it to sort pinned
-  // entries to the top without loading every full entry first.
-  ~note_ref<object>(_id, _title, _tags, _lastModified, _isBookmarked, _encrypted, _isPinned, _theme<object>, _reminder) {
+  // theme/reminder/icon included here (not just in the full entry
+  // schema) because they're things the list view would plausibly want
+  // to show without loading the full entry — a themed card's color, a
+  // bell icon for an upcoming reminder, or the small glyph badge next
+  // to the title. Safe to include in full here: these are all small
+  // pointer values (a {kind, name, customThemeId} object, or a plain
+  // preset-name string), never the uploaded image blob itself — see
+  // custom-themes.mdix. isPinned is here for the same reason: the list
+  // view needs it to sort pinned entries to the top without loading
+  // every full entry first.
+  //
+  // REVISION: was a single `_theme` param — split into `_headerTheme`
+  // and `_bodyTheme` (see entry-note.mdix's identical headerTheme/
+  // bodyTheme comment). Only headerTheme actually matters for what
+  // THIS object renders (see NoteCard.svelte — the card only ever paints
+  // itself with headerTheme, bodyTheme has no card-level appearance at
+  // all, it's the editor's own writing-surface background) — bodyTheme
+  // is included anyway purely for symmetry with the full entry schema,
+  // not because the card needs it.
+  //
+  // `pages` (the note-specific multi-page content field) is
+  // deliberately NOT here, same reasoning as `content` never having
+  // been here either — real page content, however many pages there are,
+  // belongs in the full entry schema only.
+  ~note_ref<object>(_id, _title, _tags, _lastModified, _isBookmarked, _encrypted, _isPinned, _headerTheme<object>, _bodyTheme<object>, _icon, _reminder) {
     return {
       id           = _id
       title        = _title
@@ -30,7 +46,9 @@
       isBookmarked = _isBookmarked
       encrypted    = _encrypted
       isPinned     = _isPinned
-      theme        = _theme
+      headerTheme  = _headerTheme
+      bodyTheme    = _bodyTheme
+      icon         = _icon
       reminder     = _reminder
     }
   }
@@ -39,6 +57,6 @@
 
 @DATA(
   notes::
-    note_ref("n1", "Grocery list", ["personal"], 2026-08-08T09:15:00Z, false, false, false, Themes.theme_preset("sunset"), null),
-    note_ref("n2", "Anniversary gift ideas", [], 2026-08-06T11:00:00Z, false, true, true, Themes.theme_preset("none"), null)
+    note_ref("n1", "Grocery list", ["personal"], 2026-08-08T09:15:00Z, false, false, false, Themes.theme_preset("sunset"), Themes.theme_preset("none"), "idea", null),
+    note_ref("n2", "Anniversary gift ideas", [], 2026-08-06T11:00:00Z, false, true, true, Themes.theme_preset("none"), Themes.theme_preset("none"), null, null)
 )

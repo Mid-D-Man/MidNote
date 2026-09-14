@@ -48,13 +48,21 @@
   // See entry-note.mdix's comment on this same trio of fields —
   // identical shape and identical reasoning here.
   isPinned     = false
-  theme        = Themes.theme_preset("sunset")
+  // REVISION: see entry-note.mdix's identical headerTheme/bodyTheme
+  // comment — same split, same reasoning, todos side. No pages field
+  // here: that's a notes-only concept (see entry.ts's Note.pages
+  // comment) — a todo's actual content is its steps/annotations below,
+  // which already have their own category-based organization.
+  headerTheme  = Themes.theme_preset("sunset")
+  bodyTheme    = Themes.theme_preset("none")
+  icon         = null
   reminder     = null
 
   // See entry-note.mdix's comment on this same trio. On a todo,
-  // steps/annotations (not just content) move into the encrypted
-  // payload alongside tags when locked — see utils/lockFlow.ts's
-  // buildPlaintextPayload.
+  // steps/annotations (not tags) move into the encrypted payload when
+  // locked — see utils/lockFlow.ts's buildPlaintextPayload. REVISION:
+  // tags do NOT move into the payload anymore and are NOT cleared on
+  // lock — see entry-note.mdix's identical note on this same change.
   lockKeyMode   = null
   lockedPayload = null
   lockedKeyFile = null

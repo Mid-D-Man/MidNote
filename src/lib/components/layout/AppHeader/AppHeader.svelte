@@ -55,7 +55,7 @@
     </svg>
   </Button>
 
-  <h1>MidNote</h1>
+  <h1><img src="/midnote-logo.svg" alt="" class="logo-mark" /> MidNote</h1>
 
   <Button variant="ghost" size="icon" onclick={handleSync}>
     <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
@@ -101,6 +101,24 @@
        theme (or a non-image one) is active. */
     color: var(--theme-text-hi, var(--text-hi));
     margin: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  /* The logo's own colors (black base, green/blue-violet accents) are
+     baked into the SVG's fill attributes, not currentColor — they can't
+     adapt to dark mode / a header theme the way the "MidNote" text next
+     to it does. A small light backdrop keeps the (mostly black) mark
+     visible against this app's dark-mode default (--surface is a
+     near-black navy there — a black logo directly on it would all but
+     disappear) without needing a second logo asset for now. */
+  .logo-mark {
+    width: 22px;
+    height: 22px;
+    padding: 2px;
+    border-radius: var(--radius-sm);
+    background: #ffffff;
+    flex-shrink: 0;
   }
   .menu-nav {
     display: flex;

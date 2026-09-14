@@ -69,6 +69,10 @@ export function loadEntries(): Entry[] {
       if (e.lockKeyMode !== "app" && e.lockKeyMode !== "custom") e.lockKeyMode = null;
       if (typeof e.lockedPayload !== "string") e.lockedPayload = null;
       if (typeof e.lockedKeyFile !== "string") e.lockedKeyFile = null;
+      // Pages: newest field, notes only. Missing entirely on any note
+      // saved before this existed — defaults to "just the one page"
+      // (empty array), which is exactly what those notes already are.
+      if (e.type === "regular" && !Array.isArray(e.pages)) e.pages = [];
       valid.push(e);
     }
     return valid;
@@ -112,6 +116,7 @@ export function createNote(): Note {
     // without this the first line would be the one exception with
     // nothing to attach a rule to. See NoteContent.svelte.
     content: "<div><br></div>",
+    pages: [],
     tags: [],
     lastModified: new Date().toISOString(),
     isBookmarked: false,

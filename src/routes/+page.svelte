@@ -865,7 +865,10 @@
     background: transparent;
     border: none;
     border-radius: var(--radius-sm);
-    color: var(--text-faint);
+    /* Same fallback as NoteCard.svelte's identical .bookmark rule — see
+       that file's comment for why only the unbookmarked/outline state
+       needs this, not .active below. */
+    color: var(--theme-text-lo, var(--text-faint));
     cursor: pointer;
   }
   .todo-item .bookmark:hover {

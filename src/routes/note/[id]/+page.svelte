@@ -22,7 +22,7 @@
   import { saveEntry } from "$lib/stores/entries.svelte";
   import { noteTags, sync as syncTags } from "$lib/stores/tags.svelte";
   import { fontSize } from "$lib/stores/settings.svelte";
-  import { createNote, getEntry } from "$lib/storage";
+  import { createNote, getEntry, generateId } from "$lib/storage";
   import { breadcrumb } from "$lib/debug/log.svelte";
   import { stripHtml } from "$lib/utils/richText";
   import { unlockEntry } from "$lib/utils/lockFlow";
@@ -35,6 +35,10 @@
 
   let note = $state<Note>(createNote());
   let loadError = $state<string | null>(null);
+  // 0 = note.content ("Page 1"), 1+ = note.pages[index - 1] — see
+  // entry.ts's Note.pages comment for why content itself stays "page 1"
+  // rather than everything living in one pages array.
+  let currentPageIndex = $state(0);
 
   // The live Tiptap instance and its reactivity signal, handed up from
   // NoteContent — see that file's header comment for why `tick` needs
@@ -82,6 +86,7 @@
   function load() {
     try {
       loadError = null;
+      currentPageIndex = 0;
       if (!id || id === "new") {
         note = createNote();
         syncToken = untrack(() => syncToken) + 1;
@@ -106,13 +111,55 @@
     // note.content's default is "<div><br></div>", not "" (see
     // storage.ts) — stripHtml it before checking emptiness, or a
     // never-touched new note would look non-empty and get saved anyway.
-    if (!note.title.trim() && !stripHtml(note.content)) return;
+    // BUGFIX: also check note.pages — a note with real content ONLY on
+    // page 2+ (title and page 1 both still empty) is NOT actually empty,
+    // and skipping the save here would silently discard it.
+    const hasAnyContent = stripHtml(note.content) || note.pages.some((p) => stripHtml(p.content));
+    if (!note.title.trim() && !hasAnyContent) return;
     saveEntry(note);
   }
 
   function setTags(tags: string[]) {
     note.tags = tags;
     persist();
+  }
+
+  // Switching pages reinitializes NoteContent's Tiptap editor from
+  // whichever page is now bound (see the {#if currentPageIndex === 0}
+  // block below) — same syncToken mechanism already used for loading a
+  // different note entirely (see NoteContent.svelte's syncToken comment).
+  // persist() first so whatever's on the page being switched AWAY from
+  // isn't lost if the user backs out before the next autosave point.
+  function switchToPage(index: number) {
+    persist();
+    currentPageIndex = index;
+    syncToken = untrack(() => syncToken) + 1;
+  }
+
+  function addPage() {
+    persist();
+    const newPage = { id: generateId(), content: "" };
+    note.pages = [...note.pages, newPage];
+    currentPageIndex = note.pages.length; // the page just added
+    syncToken = untrack(() => syncToken) + 1;
+    saveEntry(note);
+  }
+
+  function deletePage(index: number) {
+    if (index === 0) return; // page 1 (note.content) can't be deleted
+    const pageArrayIndex = index - 1;
+    note.pages = note.pages.filter((_, i) => i !== pageArrayIndex);
+    if (currentPageIndex === index) {
+      // The page being viewed was the one just deleted — fall back to
+      // page 1 rather than an index that no longer means anything.
+      currentPageIndex = 0;
+      syncToken = untrack(() => syncToken) + 1;
+    } else if (currentPageIndex > index) {
+      // An earlier page was removed — shift down so this still points
+      // at the same actual page it did before the delete.
+      currentPageIndex -= 1;
+    }
+    saveEntry(note);
   }
 
   let unlocking = $state(false);
@@ -178,7 +225,17 @@
       <button onclick={() => goto("/")}>Back to MidNote</button>
     </div>
   {:else}
-    <NoteEditorHeader {note} availableTags={noteTags} onTagsChange={setTags} onSave={persist} onBack={() => goto("/")} />
+    <NoteEditorHeader
+      {note}
+      availableTags={noteTags}
+      onTagsChange={setTags}
+      onSave={persist}
+      onBack={() => goto("/")}
+      {currentPageIndex}
+      onSwitchPage={switchToPage}
+      onAddPage={addPage}
+      onDeletePage={deletePage}
+    />
 
     {#if note.encrypted}
       <div class="locked-state">
@@ -200,7 +257,11 @@
       <div class="scroll-area" style={bodyStyle}>
         <div class="inner" class:inner-panel={bodyHasImage}>
           <NoteTitle bind:value={note.title} />
-          <NoteContent bind:value={note.content} bind:editor bind:tick bind:hasSelection baseFontSize={fontSize.value} {syncToken} />
+          {#if currentPageIndex === 0}
+            <NoteContent bind:value={note.content} bind:editor bind:tick bind:hasSelection baseFontSize={fontSize.value} {syncToken} />
+          {:else}
+            <NoteContent bind:value={note.pages[currentPageIndex - 1].content} bind:editor bind:tick bind:hasSelection baseFontSize={fontSize.value} {syncToken} />
+          {/if}
         </div>
       </div>
 

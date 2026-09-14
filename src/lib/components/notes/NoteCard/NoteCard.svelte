@@ -257,7 +257,12 @@
     background: transparent;
     border: none;
     border-radius: var(--radius-sm);
-    color: var(--text-faint);
+    /* Same fallback as CardOverflowMenu's .trigger — this is the
+       unbookmarked/outline state specifically; .active below keeps its
+       own fixed accent color unconditionally, since a bookmarked star
+       is meant to stand out as a flag regardless of theme, the same way
+       the danger/red delete color does. */
+    color: var(--theme-text-lo, var(--text-faint));
     cursor: pointer;
   }
   .bookmark:hover {

@@ -114,9 +114,22 @@ export interface EntryRef {
   lockedKeyFile: string | null;
 }
 
+export interface NotePage {
+  id: string;
+  content: string;
+}
+
 export interface Note extends EntryRef {
   type: "regular";
   content: string;
+  // Additional pages beyond this note's own main `content` field, which
+  // always stays "page 1" — deliberately not folded into a single
+  // `pages: NotePage[]` covering everything, so every existing note (and
+  // every piece of code already reading/writing note.content directly:
+  // search, NoteCard's preview, export, encryption) keeps working
+  // completely unchanged for the common single-page case. Empty array
+  // means "just the one page", same as before this field existed.
+  pages: NotePage[];
 }
 
 export interface Step {
