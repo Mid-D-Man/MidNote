@@ -117,7 +117,11 @@
       <span
         class="swatch-preview"
         class:none-swatch={resolvedBody.kind === "none"}
-        style={resolvedBody.kind === "color" ? `background:${resolvedBody.color}` : undefined}
+        style={resolvedBody.kind === "color"
+          ? `background:${resolvedBody.color}`
+          : resolvedBody.kind === "image"
+            ? `background-image:url(${resolvedBody.dataUrl})`
+            : undefined}
         aria-hidden="true"
       ></span>
     </button>

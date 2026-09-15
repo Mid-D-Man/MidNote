@@ -1,6 +1,6 @@
 <script lang="ts">
   import { page } from "$app/stores";
-  import { goto } from "$app/navigation";
+  import { goto, onNavigate } from "$app/navigation";
   import { onMount, untrack } from "svelte";
   import TodoHeader from "$lib/components/todos/TodoHeader/TodoHeader.svelte";
   import TodoCategoryTabs from "$lib/components/todos/TodoCategoryTabs/TodoCategoryTabs.svelte";
@@ -10,11 +10,11 @@
   import { todoTags, sync as syncTags } from "$lib/stores/tags.svelte";
   import { createTodo, getEntry, generateId } from "$lib/storage";
   import { breadcrumb } from "$lib/debug/log.svelte";
-  import { unlockEntry } from "$lib/utils/lockFlow";
+  import { unlockForSession, relockSilently } from "$lib/utils/lockFlow";
   import { resolveTheme, hexToRgba } from "$lib/utils/themePalette";
   import { customThemes } from "$lib/stores/customThemes.svelte";
   import Spinner from "$lib/components/ui/Spinner/Spinner.svelte";
-  import type { Todo } from "$lib/types/entry";
+  import type { LockKeyMode, Todo } from "$lib/types/entry";
 
   const id = $derived($page.params.id);
 
@@ -27,6 +27,24 @@
     breadcrumb(`todo page mounted, id=${id}`);
     syncTags();
     load();
+  });
+
+  // SECURITY FIX — same issue and same fix as note/[id]/+page.svelte's
+  // identical relockCreds/onNavigate pair; see that file's comment for
+  // the full reasoning. Short version: opening a locked todo used to
+  // call the PERMANENT unlock (same one the kebab menu's "Unlock" uses)
+  // just to view it, and nothing ever put the lock back. handleUnlock
+  // below now uses the session-scoped unlockForSession() instead, and
+  // this hook silently re-locks with the same password/mode the moment
+  // the user navigates away.
+  let relockCreds = $state<{ entry: Todo; password: string; mode: LockKeyMode } | null>(null);
+
+  onNavigate(async () => {
+    const creds = relockCreds;
+    if (!creds) return;
+    relockCreds = null;
+    if (!getEntry(creds.entry.id)) return; // deleted from inside the editor — nothing to relock
+    await relockSilently(creds.entry, creds.password, creds.mode);
   });
 
   $effect(() => {
@@ -136,7 +154,12 @@
   async function handleUnlock() {
     unlocking = true;
     try {
-      await unlockEntry(todo);
+      const result = await unlockForSession(todo);
+      // See note/[id]/+page.svelte's identical handleUnlock comment —
+      // capturing `todo` itself (not just the credentials) means the
+      // onNavigate hook above re-locks the right object even if `todo`
+      // has since been reassigned to a different loaded todo.
+      if (result) relockCreds = { entry: todo, password: result.password, mode: result.mode };
     } finally {
       unlocking = false;
     }
@@ -277,7 +300,13 @@
      effective layout TodoStepsSection had as .body's direct child
      before this wrapper existed. .inner-panel is purely additive for
      the image case; see note/[id]/+page.svelte's identical .inner-panel
-     comment for the full reasoning. */
+     comment for the full reasoning.
+
+     NOTE (not fixed this round, flagging only): this margin-based inset
+     for the image case has the same category of shrink note/[id] had —
+     .body has no max-width to compensate against the way notes' 680px
+     .inner did, so this one doesn't get the same fix here. Only
+     touching what was actually reported. */
   .inner {
     height: 100%;
     display: flex;

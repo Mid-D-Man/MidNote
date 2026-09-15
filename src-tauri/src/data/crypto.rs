@@ -99,9 +99,29 @@ pub fn lock_payload(plaintext_json: &str, password: &str) -> Result<LockedPayloa
     // escaping in any string-literal syntax. Verified directly (not
     // just reasoned about) against the real parser via its Python
     // binding, including HTML content containing quotes and newlines.
+    //
+    // kdf_memory/kdf_iterations/kdf_parallelism: PERFORMANCE FIX.
+    // Without these, dixscript's Argon2KDF::load_configuration falls
+    // back to 65536 KB (64 MiB) memory / 3 iterations / 4-way
+    // parallelism (confirmed directly in DixScript-Rust's
+    // argon2_kdf.rs) — a profile sized for a server, not a budget
+    // Android phone (this app's target test device is a Galaxy A13),
+    // and the actual cause of lock/unlock taking multiple seconds.
+    // 19456 KiB / 2 iterations / 1 lane is OWASP's own current
+    // official *low-memory* Argon2id recommendation (RFC 9106's
+    // memory-constrained profile) — a real, published minimum, not an
+    // arbitrary weakening — and a reasonable fit for this app's own
+    // stated positioning (optional, convenience per-note encryption,
+    // not a security-focused product). Verified this exact @SECURITY
+    // block parses correctly, kdf_* fields included, against the real
+    // midmanstudio-mdix parser. dixscript's own security analyzer logs
+    // an internal warning for going below its baked-in 65536/3/4
+    // "recommended minimum" (security_section_analyzer.rs) — confirmed
+    // that's a warning, not a hard error, so this doesn't fail the
+    // compile.
     let b64 = BASE64.encode(plaintext_json.as_bytes());
     let source = format!(
-        "@DLM(DEncryptor.aes256)\n@DATA(content = \"{b64}\")\n@SECURITY(encryption -> {{ mode = \"password\", algorithm = \"aes256-gcm\" }})\n",
+        "@DLM(DEncryptor.aes256)\n@DATA(content = \"{b64}\")\n@SECURITY(encryption -> {{ mode = \"password\", algorithm = \"aes256-gcm\", kdf = \"argon2id\", kdf_memory = 19456, kdf_iterations = 2, kdf_parallelism = 1 }})\n",
     );
 
     let _dlm_env_guard = DLM_ENV_LOCK.lock().map_err(|_| "Internal lock state was poisoned by an earlier panic.".to_string())?;

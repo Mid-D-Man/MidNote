@@ -26,7 +26,21 @@ import type { Entry, Note, Todo } from "$lib/types/entry";
 
 export function entryToPlainText(entry: Entry): string {
   if (entry.type === "regular") {
-    return `${entry.title || "Untitled"}\n\n${htmlToPlainText(entry.content)}`;
+    // Common case, unchanged: a plain single-page note reads exactly as
+    // it always has, no "Page 1" heading nobody asked for.
+    if (entry.pages.length === 0) {
+      return `${entry.title || "Untitled"}\n\n${htmlToPlainText(entry.content)}`;
+    }
+    // BUGFIX: this used to read only entry.content — every note with
+    // additional pages (see entry.ts's Note.pages comment) silently
+    // lost everything past page 1 on export/send. Each page is now
+    // included in order, under its custom name if it has one (see
+    // PagesPanel.svelte) or the auto-numbered fallback otherwise.
+    const parts = [entry.title || "Untitled", "", `--- ${entry.page1Name || "Page 1"} ---`, htmlToPlainText(entry.content)];
+    entry.pages.forEach((p, i) => {
+      parts.push("", `--- ${p.name || `Page ${i + 2}`} ---`, htmlToPlainText(p.content));
+    });
+    return parts.join("\n").trim();
   }
   const lines: string[] = [entry.title || "Untitled", ""];
   for (const step of entry.steps) {
@@ -66,7 +80,43 @@ function dedupeFileNames(files: { name: string; text: string }[]): { name: strin
 export function mergeNotes(selected: Note[]): Note {
   const merged = createNote();
   merged.title = selected.map((n) => n.title || "Untitled").join(" + ");
+  // Page 1 behavior is unchanged: every selected note's main content,
+  // <hr>-joined into one combined first page — nothing changes here for
+  // the common case of merging plain, single-page notes.
   merged.content = selected.map((n) => n.content).join("<hr>");
+
+  // BUGFIX: every selected note's OWN additional pages (see entry.ts's
+  // Note.pages comment) used to be silently dropped on merge — only
+  // page 1 ever made it into the result. They're now appended after the
+  // combined first page above, in source order, so merging paged notes
+  // doesn't lose anything past page 1. Fresh ids throughout — two
+  // different source notes could each independently contain a page
+  // with the same id, and blindly concatenating would risk a collision
+  // no single source ever had a chance to see (same reasoning
+  // mergeTodos already applies to steps/annotations below). A source
+  // note's own custom page1Name isn't carried over onto anything here —
+  // its page 1 *content* is still fully preserved inside the combined
+  // blob above, just no longer as a page of its own to attach that
+  // label to.
+  //
+  // Duplicate custom page NAMES (two different source notes each had a
+  // page called e.g. "Ingredients") get an auto-suffix — same " (2)",
+  // " (3)" convention dedupeFileNames below already uses for repeated
+  // export filenames, rather than inventing a second convention for the
+  // same kind of collision. Unnamed pages are left alone: with no
+  // custom name they just fall back to their position ("Page N") in the
+  // panel, which is unique by construction.
+  const seenPageNames = new Map<string, number>();
+  const dedupedPageName = (name: string | null): string | null => {
+    if (!name) return null;
+    const count = seenPageNames.get(name) ?? 0;
+    seenPageNames.set(name, count + 1);
+    return count === 0 ? name : `${name} (${count})`;
+  };
+  merged.pages = selected.flatMap((n) =>
+    n.pages.map((p) => ({ id: generateId(), content: p.content, name: dedupedPageName(p.name) })),
+  );
+
   merged.tags = dedupeStrings(selected.flatMap((n) => n.tags));
   merged.isBookmarked = selected.some((n) => n.isBookmarked);
   return merged;

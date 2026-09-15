@@ -12,7 +12,7 @@
   // calls editor.chain().focus()....run() directly; this file just
   // hands it the live editor instance.
   import { page } from "$app/stores";
-  import { goto } from "$app/navigation";
+  import { goto, onNavigate } from "$app/navigation";
   import { onMount, untrack } from "svelte";
   import type { Editor } from "@tiptap/core";
   import NoteEditorHeader from "$lib/components/notes/NoteEditorHeader/NoteEditorHeader.svelte";
@@ -25,11 +25,11 @@
   import { createNote, getEntry, generateId } from "$lib/storage";
   import { breadcrumb } from "$lib/debug/log.svelte";
   import { stripHtml } from "$lib/utils/richText";
-  import { unlockEntry } from "$lib/utils/lockFlow";
+  import { unlockForSession, relockSilently } from "$lib/utils/lockFlow";
   import { resolveTheme, hexToRgba } from "$lib/utils/themePalette";
   import { customThemes } from "$lib/stores/customThemes.svelte";
   import Spinner from "$lib/components/ui/Spinner/Spinner.svelte";
-  import type { Note } from "$lib/types/entry";
+  import type { LockKeyMode, Note } from "$lib/types/entry";
 
   const id = $derived($page.params.id);
 
@@ -76,6 +76,39 @@
       document.removeEventListener("visibilitychange", saveIfHidden);
       window.removeEventListener("pagehide", saveOnPagehide);
     };
+  });
+
+  // SECURITY FIX: opening a locked note previously called the same
+  // function the kebab menu's "Unlock" action uses to PERMANENTLY strip
+  // a lock — so just tapping in to look, even without editing anything,
+  // silently and permanently decrypted it, and nothing ever re-locked
+  // it afterward (which is also why it could then be deleted from the
+  // list without ever unlocking it there — by that point it genuinely
+  // wasn't encrypted anymore). handleUnlock below now uses
+  // unlockForSession() instead, which decrypts identically but hands
+  // back the password/mode used; this hook puts the lock back — no
+  // second password prompt — the moment the user actually navigates
+  // away, using whichever entry was captured at unlock time (NOT the
+  // `note` variable directly, since that gets reassigned the instant
+  // `load()` runs for a different id — see relockCreds below).
+  //
+  // onNavigate (not beforeNavigate) specifically: it supports delaying
+  // the navigation on a returned promise, so the re-lock genuinely
+  // finishes before the old page goes away, rather than needing a
+  // cancel-then-resume dance. Known, unavoidable gap: if the app is
+  // killed/backgrounded (OS process teardown, not an in-app
+  // navigation) before this fires, the entry is left unlocked at rest
+  // — same as autosave-while-editing already leaves it today, not a
+  // new regression, just not something an async hook can guarantee
+  // through a process kill.
+  let relockCreds = $state<{ entry: Note; password: string; mode: LockKeyMode } | null>(null);
+
+  onNavigate(async () => {
+    const creds = relockCreds;
+    if (!creds) return;
+    relockCreds = null;
+    if (!getEntry(creds.entry.id)) return; // deleted from inside the editor — nothing to relock
+    await relockSilently(creds.entry, creds.password, creds.mode);
   });
 
   $effect(() => {
@@ -138,7 +171,7 @@
 
   function addPage() {
     persist();
-    const newPage = { id: generateId(), content: "" };
+    const newPage = { id: generateId(), content: "", name: null };
     note.pages = [...note.pages, newPage];
     currentPageIndex = note.pages.length; // the page just added
     syncToken = untrack(() => syncToken) + 1;
@@ -162,15 +195,30 @@
     saveEntry(note);
   }
 
+  function renamePage(index: number, name: string | null) {
+    breadcrumb(`note: rename page ${index + 1}`);
+    if (index === 0) {
+      note.page1Name = name;
+    } else {
+      const pageArrayIndex = index - 1;
+      const target = note.pages[pageArrayIndex];
+      if (!target) return;
+      note.pages = note.pages.map((p, i) => (i === pageArrayIndex ? { ...p, name } : p));
+    }
+    saveEntry(note);
+  }
+
   let unlocking = $state(false);
   async function handleUnlock() {
     unlocking = true;
     try {
-      await unlockEntry(note);
-      // unlockEntry mutates `note` in place on success and leaves it
-      // untouched on cancel/wrong-password — either way, re-reading
-      // note.encrypted right after is enough to know which happened,
-      // no separate return-value plumbing needed here.
+      const result = await unlockForSession(note);
+      // unlockForSession mutates `note` in place on success and leaves
+      // it untouched on cancel/wrong-password. Capturing `note` itself
+      // (not just the credentials) means the later onNavigate hook
+      // re-locks the right object even if `note` has since been
+      // reassigned to a different loaded note.
+      if (result) relockCreds = { entry: note, password: result.password, mode: result.mode };
     } finally {
       unlocking = false;
     }
@@ -235,6 +283,7 @@
       onSwitchPage={switchToPage}
       onAddPage={addPage}
       onDeletePage={deletePage}
+      onRenamePage={renamePage}
     />
 
     {#if note.encrypted}
@@ -305,8 +354,18 @@
      formatting) is far more surface area to get right than a card's
      title/preview text. rgba(var(--surface-rgb), …) rather than
      color-mix(--surface, …) for the same Android WebView compatibility
-     reason as themePalette.ts's hexToRgba. */
+     reason as themePalette.ts's hexToRgba.
+
+     BUGFIX: max-width bumped by 2x this panel's own padding so the
+     WRITING area (what's actually left after the padding is subtracted)
+     comes out the same width as the plain 680px .inner box above — a
+     body image theme was visibly narrowing the usable writing space
+     compared to a solid color/no-theme body, purely because this was
+     the only variant adding its own padding on top of the shared
+     max-width. The framed-card look (rounded corners, inset padding,
+     shadow) is unchanged; only the outer box grows to compensate. */
   .inner.inner-panel {
+    max-width: calc(680px + var(--space-4) * 2);
     background: rgba(var(--surface-rgb), 0.93);
     border-radius: var(--radius-md);
     padding: var(--space-4);

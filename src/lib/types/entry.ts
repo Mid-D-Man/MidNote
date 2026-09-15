@@ -117,6 +117,9 @@ export interface EntryRef {
 export interface NotePage {
   id: string;
   content: string;
+  // Custom label shown in PagesPanel/export instead of the auto-numbered
+  // "Page N" — null means "no custom name, use the auto-numbered one".
+  name: string | null;
 }
 
 export interface Note extends EntryRef {
@@ -130,6 +133,11 @@ export interface Note extends EntryRef {
   // completely unchanged for the common single-page case. Empty array
   // means "just the one page", same as before this field existed.
   pages: NotePage[];
+  // Page 1 (content, above) isn't a NotePage object, so its custom name
+  // — same optional-rename feature as every other page, see
+  // PagesPanel.svelte — lives here instead of on a page record. null
+  // means auto-numbered ("Page 1"), same convention as NotePage.name.
+  page1Name: string | null;
 }
 
 export interface Step {

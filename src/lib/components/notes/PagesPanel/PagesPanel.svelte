@@ -4,11 +4,10 @@
   // this). Page 1 is always note.content itself (see entry.ts's
   // Note.pages comment) and can't be deleted — a note always has at
   // least one page by definition, so there's nothing to delete it INTO.
-  // Pages are auto-numbered ("Page 1", "Page 2", ...) rather than
-  // custom-titled — simplest reading of the actual request, easy to
-  // extend to custom titles later without a data-shape change if
-  // that's ever wanted (title would just be a new optional field on
-  // NotePage).
+  // Pages default to auto-numbered ("Page 1", "Page 2", ...) but can be
+  // renamed via the pencil icon on each row (page 1 included, through
+  // note.page1Name) — leaving the rename field blank reverts to the
+  // auto-numbered name.
   import Sheet from "$lib/components/ui/Sheet/Sheet.svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog/ConfirmDialog.svelte";
   import { breadcrumb } from "$lib/debug/log.svelte";
@@ -21,6 +20,7 @@
     onSwitchPage,
     onAddPage,
     onDeletePage,
+    onRenamePage,
   }: {
     open?: boolean;
     note: Note;
@@ -29,10 +29,25 @@
     onSwitchPage: (index: number) => void;
     onAddPage: () => void;
     onDeletePage: (index: number) => void;
+    // index 0 renames note.page1Name; 1+ renames note.pages[index-1].name.
+    // Pass null (or a blank/whitespace-only string) to revert to the
+    // auto-numbered "Page N" name.
+    onRenamePage: (index: number, name: string | null) => void;
   } = $props();
 
   const totalPages = $derived(1 + note.pages.length);
+
+  function pageName(i: number): string | null {
+    return i === 0 ? note.page1Name : (note.pages[i - 1]?.name ?? null);
+  }
+  function displayName(i: number): string {
+    return pageName(i) || `Page ${i + 1}`;
+  }
+
   let confirmDeleteIndex = $state<number | null>(null);
+  let renamingIndex = $state<number | null>(null);
+  let renameValue = $state("");
+  let renameInputEl = $state<HTMLInputElement | null>(null);
 
   function handleSwitch(index: number) {
     if (index === currentPageIndex) {
@@ -61,6 +76,28 @@
     onDeletePage(confirmDeleteIndex);
     confirmDeleteIndex = null;
   }
+
+  function startRename(e: Event, index: number) {
+    e.stopPropagation();
+    renamingIndex = index;
+    renameValue = pageName(index) ?? "";
+    // The input doesn't exist yet on this same tick (renamingIndex just
+    // flipped the {#if} on) — queue the focus for right after it mounts.
+    queueMicrotask(() => renameInputEl?.focus());
+  }
+
+  function commitRename() {
+    if (renamingIndex === null) return;
+    breadcrumb(`pages panel: rename page ${renamingIndex + 1}`);
+    const trimmed = renameValue.trim();
+    onRenamePage(renamingIndex, trimmed.length > 0 ? trimmed : null);
+    renamingIndex = null;
+  }
+
+  function cancelRename(e?: Event) {
+    e?.stopPropagation();
+    renamingIndex = null;
+  }
 </script>
 
 <Sheet bind:open side="bottom" title="Pages">
@@ -74,12 +111,37 @@
         onclick={() => handleSwitch(i)}
         onkeydown={(e) => e.key === "Enter" && handleSwitch(i)}
       >
-        <span class="page-name">Page {i + 1}</span>
-        {#if i === currentPageIndex}
+        {#if renamingIndex === i}
+          <input
+            bind:this={renameInputEl}
+            class="rename-input"
+            type="text"
+            bind:value={renameValue}
+            placeholder="Page {i + 1}"
+            maxlength="60"
+            onclick={(e) => e.stopPropagation()}
+            onkeydown={(e) => {
+              if (e.key === "Enter") commitRename();
+              else if (e.key === "Escape") cancelRename(e);
+            }}
+            onblur={commitRename}
+          />
+        {:else}
+          <span class="page-name">{displayName(i)}</span>
+        {/if}
+        {#if i === currentPageIndex && renamingIndex !== i}
           <span class="current-badge">Current</span>
         {/if}
-        {#if i > 0}
-          <button type="button" class="delete-btn" aria-label="Delete Page {i + 1}" onclick={(e) => requestDelete(e, i)}>
+        {#if renamingIndex !== i}
+          <button type="button" class="icon-btn" aria-label="Rename {displayName(i)}" onclick={(e) => startRename(e, i)}>
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+              <path d="m15 5 4 4" />
+            </svg>
+          </button>
+        {/if}
+        {#if i > 0 && renamingIndex !== i}
+          <button type="button" class="icon-btn delete-btn" aria-label="Delete {displayName(i)}" onclick={(e) => requestDelete(e, i)}>
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6h16Z" />
             </svg>
@@ -99,7 +161,7 @@
 
 <ConfirmDialog
   open={confirmDeleteIndex !== null}
-  title="Delete page {confirmDeleteIndex !== null ? confirmDeleteIndex + 1 : ''}?"
+  title="Delete {confirmDeleteIndex !== null ? displayName(confirmDeleteIndex) : ''}?"
   description="Its content will be gone for good — this can't be undone."
   confirmLabel="Delete"
   danger
@@ -131,16 +193,32 @@
   }
   .page-name {
     flex: 1;
+    min-width: 0;
     font-size: 14px;
     color: var(--text-hi);
     font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .rename-input {
+    flex: 1;
+    min-width: 0;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-hi);
+    background: var(--surface);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius-sm);
+    padding: var(--space-1) var(--space-2);
   }
   .current-badge {
     font-size: 11px;
     color: var(--accent);
     font-weight: 600;
+    flex-shrink: 0;
   }
-  .delete-btn {
+  .icon-btn {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -153,8 +231,11 @@
     cursor: pointer;
     flex-shrink: 0;
   }
-  .delete-btn:hover {
+  .icon-btn:hover {
     background: var(--surface);
+    color: var(--text-hi);
+  }
+  .delete-btn:hover {
     color: var(--danger);
   }
   .add-page-btn {

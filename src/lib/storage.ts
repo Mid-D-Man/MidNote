@@ -69,10 +69,22 @@ export function loadEntries(): Entry[] {
       if (e.lockKeyMode !== "app" && e.lockKeyMode !== "custom") e.lockKeyMode = null;
       if (typeof e.lockedPayload !== "string") e.lockedPayload = null;
       if (typeof e.lockedKeyFile !== "string") e.lockedKeyFile = null;
-      // Pages: newest field, notes only. Missing entirely on any note
-      // saved before this existed — defaults to "just the one page"
-      // (empty array), which is exactly what those notes already are.
+      // Pages: notes only. Missing entirely on any note saved before
+      // this existed — defaults to "just the one page" (empty array),
+      // which is exactly what those notes already are.
       if (e.type === "regular" && !Array.isArray(e.pages)) e.pages = [];
+      // Page rename: newer still than pages itself — any note saved
+      // before renaming existed (including ones that already have a
+      // pages array) won't have page1Name at all, and existing pages
+      // inside that array won't have a `name` field either. Both
+      // default to null (auto-numbered), same migration pattern as
+      // everything else in this function.
+      if (e.type === "regular") {
+        if (typeof e.page1Name !== "string") e.page1Name = null;
+        for (const p of e.pages) {
+          if (typeof p.name !== "string") p.name = null;
+        }
+      }
       valid.push(e);
     }
     return valid;
@@ -117,6 +129,7 @@ export function createNote(): Note {
     // nothing to attach a rule to. See NoteContent.svelte.
     content: "<div><br></div>",
     pages: [],
+    page1Name: null,
     tags: [],
     lastModified: new Date().toISOString(),
     isBookmarked: false,

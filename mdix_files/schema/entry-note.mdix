@@ -17,10 +17,11 @@
 
 @QUICKFUNCS(
 
-  ~note_page<object>(_id, _content) {
+  ~note_page<object>(_id, _content, _name) {
     return {
       id      = _id
       content = _content
+      name    = _name
     }
   }
 
@@ -31,6 +32,10 @@
   type<enum>   = EntryType.REGULAR
   title        = "Grocery list"
   content      = "Milk, eggs, bread, coffee"
+  // New: page 1 (content, above) can be renamed just like any other
+  // page — see PagesPanel.svelte. null means auto-numbered ("Page 1"),
+  // same null-means-default convention as icon/reminder below.
+  page1Name    = null
   lastModified = 2026-08-08T09:15:00Z
   isBookmarked = false
   // Was already a field on EntryRef/notes_index.mdix's note_ref before
@@ -94,7 +99,8 @@
   // which always stays "page 1" (see entry.ts's Note.pages comment for
   // why it wasn't folded into one pages array covering everything).
   // Empty here would mean "just the one page" — this sample has a
-  // second, to actually exercise the field.
+  // second, to actually exercise the field. Third argument is the
+  // page's own optional custom name (null = auto-numbered "Page 2").
   pages::
-    note_page("n1p2", "Also need: paper towels, dish soap")
+    note_page("n1p2", "Also need: paper towels, dish soap", null)
 )

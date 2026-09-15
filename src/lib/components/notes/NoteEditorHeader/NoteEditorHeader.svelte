@@ -35,6 +35,7 @@
     onSwitchPage,
     onAddPage,
     onDeletePage,
+    onRenamePage,
   }: {
     note: Note;
     availableTags: string[];
@@ -50,6 +51,7 @@
     onSwitchPage: (index: number) => void;
     onAddPage: () => void;
     onDeletePage: (index: number) => void;
+    onRenamePage: (index: number, name: string | null) => void;
   } = $props();
 
   let isSaving = $state(false);
@@ -177,11 +179,18 @@
     // note.content is HTML — convert back to plain text for export, or
     // this would produce raw markup instead of readable text. Additional
     // pages (see entry.ts's Note.pages comment) are appended below the
-    // main content — exporting only page 1 would silently drop the rest
-    // of a multi-page note's actual content.
-    let text = `${note.title}\n\n${htmlToPlainText(note.content)}`;
+    // main content, each under its own name (custom via page1Name/
+    // NotePage.name, or the auto-numbered fallback) — exporting only
+    // page 1 would silently drop the rest of a multi-page note's actual
+    // content. A plain single-page note (still the common case) is left
+    // exactly as it always read, with no "Page 1" heading nobody asked
+    // for.
+    if (note.pages.length === 0) {
+      return new Blob([`${note.title}\n\n${htmlToPlainText(note.content)}`], { type: "text/plain" });
+    }
+    let text = `${note.title}\n\n--- ${note.page1Name || "Page 1"} ---\n\n${htmlToPlainText(note.content)}`;
     note.pages.forEach((p, i) => {
-      text += `\n\n--- Page ${i + 2} ---\n\n${htmlToPlainText(p.content)}`;
+      text += `\n\n--- ${p.name || `Page ${i + 2}`} ---\n\n${htmlToPlainText(p.content)}`;
     });
     return new Blob([text], { type: "text/plain" });
   }
@@ -292,7 +301,7 @@
   </div>
 </Sheet>
 
-<PagesPanel bind:open={pagesOpen} {note} {currentPageIndex} {onSwitchPage} {onAddPage} {onDeletePage} />
+<PagesPanel bind:open={pagesOpen} {note} {currentPageIndex} {onSwitchPage} {onAddPage} {onDeletePage} {onRenamePage} />
 
 <ThemeSectionsSheet
   bind:open={themeSheetOpen}
