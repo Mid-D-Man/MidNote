@@ -12,7 +12,5 @@
 @DATA(
   target_root = "."
 
-  overrides::
-    target("package.json", "package.json")
-    target("package-lock.json", "package-lock.json")
+  
 )
