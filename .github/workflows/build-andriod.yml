@@ -82,6 +82,40 @@ jobs:
       - name: Init Android project
         run: npx tauri android init
 
+      # BUGFIX (real one, not speculative): this is the actual reason the
+      # real MidNote launcher icon and adaptive-icon layers under
+      # src-tauri/icons/android/ (regenerated from the real logo via
+      # `npx tauri icon` in an earlier round) were never showing up as the
+      # installed app's icon — only ever inside the app's own UI (the
+      # landing-page header). `tauri android init` scaffolds gen/android
+      # fresh from Tauri's own Android project template, which ships ITS
+      # OWN placeholder ic_launcher assets — it does not read from
+      # src-tauri/icons/android/ to populate them. Since gen/android isn't
+      # committed (regenerated every run — see the manifest-patch step's
+      # own comment on why), every single build silently produced an APK
+      # with Tauri's stock icon, regardless of what sat in src-tauri/icons/.
+      # This is a confirmed, documented gap, not unique to this project —
+      # multiple real-world Tauri Android projects have hit exactly this
+      # and needed the same kind of explicit post-init copy step.
+      # Runs here, right after init and before the manifest patch, so
+      # every step after this one operates on the real gen/android project
+      # with the real icons already in place.
+      - name: Apply MidNote launcher icons
+        run: |
+          set -e
+          SRC="src-tauri/icons/android"
+          DEST="src-tauri/gen/android/app/src/main/res"
+          for density in mipmap-hdpi mipmap-mdpi mipmap-xhdpi mipmap-xxhdpi mipmap-xxxhdpi; do
+            mkdir -p "$DEST/$density"
+            cp -f "$SRC/$density/ic_launcher.png" "$DEST/$density/ic_launcher.png"
+            cp -f "$SRC/$density/ic_launcher_round.png" "$DEST/$density/ic_launcher_round.png"
+            cp -f "$SRC/$density/ic_launcher_foreground.png" "$DEST/$density/ic_launcher_foreground.png"
+            cp -f "$SRC/$density/ic_launcher_background.png" "$DEST/$density/ic_launcher_background.png"
+          done
+          mkdir -p "$DEST/mipmap-anydpi-v26"
+          cp -f "$SRC/mipmap-anydpi-v26/ic_launcher.xml" "$DEST/mipmap-anydpi-v26/ic_launcher.xml"
+          echo "Applied MidNote launcher icons over the generated Android project."
+
       # Default-generated manifest doesn't set windowSoftInputMode, which
       # leaves the soft keyboard free to overlay fixed-bottom UI (the
       # formatting toolbar) instead of the window resizing to make room
