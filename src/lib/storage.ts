@@ -5,13 +5,14 @@
 // Tauri invoke() calls later shouldn't require touching any component
 // that imports from here, since the exported function shapes below are
 // what a Tauri-backed version would expose too.
-import type { CustomTheme, Entry, Note, Todo } from "$lib/types/entry";
+import type { CustomIcon, CustomTheme, Entry, Note, Todo } from "$lib/types/entry";
 import { NO_THEME } from "$lib/types/entry";
 import { getColorSync } from "colorthief";
 
 const ENTRIES_KEY = "midnote:entries";
 const TAGS_KEY = "midnote:known-tags";
 const CUSTOM_THEMES_KEY = "midnote:custom-themes";
+const CUSTOM_ICONS_KEY = "midnote:custom-icons";
 
 export function generateId(): string {
   return crypto.randomUUID();
@@ -61,7 +62,18 @@ export function loadEntries(): Entry[] {
         e.headerTheme = isValidThemeRef(e.theme) ? e.theme : { ...NO_THEME };
       }
       if (!isValidThemeRef(e.bodyTheme)) e.bodyTheme = { ...NO_THEME };
-      if (typeof e.icon !== "string") e.icon = null;
+      // Icon v2 migration: v1 stored `icon` as a bare preset-name string
+      // (or null). Wrap an existing string into the new IconRef shape
+      // rather than resetting it to none, so nobody's existing icon
+      // choice silently vanishes on upgrade — same reasoning as the
+      // headerTheme migration just above. Anything already in the new
+      // {kind, ...} shape (or genuinely absent) is left as-is / defaulted
+      // to null.
+      if (typeof e.icon === "string") {
+        e.icon = { kind: "preset", name: e.icon };
+      } else if (!e.icon || typeof e.icon !== "object" || (e.icon.kind !== "preset" && e.icon.kind !== "custom")) {
+        e.icon = null;
+      }
       // Lock fields are newest — same migration-default treatment.
       // encrypted already existed (always defaulted false already, see
       // above); an entry saved before Lock existed won't have these
@@ -298,6 +310,102 @@ export function storeCustomThemeImage(file: File): Promise<CustomTheme> {
         themes.push(theme);
         saveCustomThemes(themes);
         resolve(theme);
+      };
+      img.src = reader.result as string;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+// Custom (user-uploaded) icon registry — same "own top-level record,
+// referenced by id" shape as loadCustomThemes above, for the same
+// reason: one upload can be used as more than one note/todo's icon
+// badge, so it's stored once (IconRef.customIconId) rather than
+// duplicated onto every entry that uses it.
+export function loadCustomIcons(): CustomIcon[] {
+  if (typeof localStorage === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(CUSTOM_ICONS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (err) {
+    console.error("storage: failed to load custom icons, treating as empty:", err);
+    return [];
+  }
+}
+
+function saveCustomIcons(icons: CustomIcon[]) {
+  if (typeof localStorage === "undefined") return;
+  localStorage.setItem(CUSTOM_ICONS_KEY, JSON.stringify(icons));
+}
+
+export function deleteCustomIcon(id: string) {
+  saveCustomIcons(loadCustomIcons().filter((i) => i.id !== id));
+}
+
+// Longest edge a stored icon image is allowed to be — this is a tiny
+// badge (NoteCard/the todo row render it at 22px — see NoteCard.svelte's
+// .icon-badge), never viewed any larger, so it needs nowhere near a
+// theme image's 720px (MAX_THEME_EDGE_PX above). 128px covers even a
+// 3x-density display's real pixel size with headroom to spare.
+//
+// MAX_ICON_SOURCE_BYTES rejects the SOURCE file outright above this size
+// rather than attempting to decode it at all — not because a bigger
+// photo couldn't be downscaled just as easily as a theme image is, but
+// because there's no reason a tiny badge upload should ever need to
+// decode a genuinely huge file; this exists to catch an accidental
+// multi-hundred-MB selection (or a non-image file with an image-sounding
+// name) before spending any real work on it. Anything under this limit
+// is always accepted and simply scaled down to size — never rejected
+// for being "too big" once it's through this one gate.
+const MAX_ICON_EDGE_PX = 128;
+const MAX_ICON_SOURCE_BYTES = 8 * 1024 * 1024;
+
+// Same browser-only/not-verified-against-a-real-decoded-image caveat as
+// storeCustomThemeImage above. Two real differences from that function,
+// both deliberate: output is PNG, not JPEG — an icon badge is small
+// enough that file size barely matters, and it may well have a
+// transparent background (a logo, a sticker) worth actually preserving.
+// And the source is center-cropped to a square before downscaling —
+// every icon preset glyph, and every swatch in every picker this app
+// already has, is circular, so a non-square upload gets cropped
+// consistently with everything around it instead of squashed to fit.
+export function storeCustomIconImage(file: File): Promise<CustomIcon> {
+  return new Promise((resolve, reject) => {
+    if (file.size > MAX_ICON_SOURCE_BYTES) {
+      const limitMb = MAX_ICON_SOURCE_BYTES / (1024 * 1024);
+      reject(new Error(`That file's too large (${Math.round(file.size / (1024 * 1024))}MB) — try something under ${limitMb}MB.`));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Couldn't read that file."));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("That doesn't look like a valid image."));
+      img.onload = () => {
+        const srcEdge = Math.min(img.width, img.height);
+        const srcX = (img.width - srcEdge) / 2;
+        const srcY = (img.height - srcEdge) / 2;
+        const outEdge = Math.min(MAX_ICON_EDGE_PX, srcEdge);
+        const canvas = document.createElement("canvas");
+        canvas.width = outEdge;
+        canvas.height = outEdge;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          reject(new Error("Couldn't process that image on this device."));
+          return;
+        }
+        ctx.drawImage(img, srcX, srcY, srcEdge, srcEdge, 0, 0, outEdge, outEdge);
+        const icon: CustomIcon = {
+          id: generateId(),
+          data: canvas.toDataURL("image/png"),
+          createdAt: new Date().toISOString(),
+        };
+        const icons = loadCustomIcons();
+        icons.push(icon);
+        saveCustomIcons(icons);
+        resolve(icon);
       };
       img.src = reader.result as string;
     };

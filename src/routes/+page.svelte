@@ -20,8 +20,9 @@
   import { shareFiles } from "$lib/utils/share";
   import { pushToast } from "$lib/stores/toast.svelte";
   import { breadcrumb } from "$lib/debug/log.svelte";
-  import { resolveTheme, hexToRgba, getIconGlyph, getImageTextColorVars } from "$lib/utils/themePalette";
+  import { resolveTheme, hexToRgba, resolveIcon, getImageTextColorVars } from "$lib/utils/themePalette";
   import { customThemes } from "$lib/stores/customThemes.svelte";
+  import { customIcons } from "$lib/stores/customIcons.svelte";
   import { appBodyTheme } from "$lib/stores/settings.svelte";
   import { lockEntry, unlockEntry } from "$lib/utils/lockFlow";
 
@@ -466,6 +467,7 @@
                   unlockingToOpen={lockBusyIds.has(item.id)}
                 />
               {:else}
+                {@const resolvedItemIcon = resolveIcon(item.icon, customIcons)}
                 <div
                   class="todo-item"
                   class:selected={selectedIds.has(item.id)}
@@ -542,8 +544,10 @@
                     </button>
                   {/if}
                   <div class="title-row">
-                    {#if getIconGlyph(item.icon)}
-                      <span class="icon-badge" aria-hidden="true">{getIconGlyph(item.icon)}</span>
+                    {#if resolvedItemIcon.kind === "preset"}
+                      <span class="icon-badge" aria-hidden="true">{resolvedItemIcon.glyph}</span>
+                    {:else if resolvedItemIcon.kind === "custom"}
+                      <span class="icon-badge icon-badge-image" style="background-image:url({resolvedItemIcon.dataUrl})" aria-hidden="true"></span>
                     {/if}
                     <strong class:struck={item.struck}>{item.title || "Untitled"}</strong>
                   </div>
@@ -900,6 +904,10 @@
     font-size: 13px;
     line-height: 1;
     flex-shrink: 0;
+  }
+  .todo-item .icon-badge-image {
+    background-size: cover;
+    background-position: center;
   }
   .todo-item .title-row strong {
     min-width: 0;

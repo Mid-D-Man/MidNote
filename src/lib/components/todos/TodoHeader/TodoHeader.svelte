@@ -12,7 +12,7 @@
   import { breadcrumb } from "$lib/debug/log.svelte";
   import { resolveTheme, hexToRgba, getImageTextColorVars } from "$lib/utils/themePalette";
   import { customThemes } from "$lib/stores/customThemes.svelte";
-  import type { Todo, ThemeRef } from "$lib/types/entry";
+  import type { IconRef, Todo, ThemeRef } from "$lib/types/entry";
 
   let {
     todo,
@@ -73,7 +73,7 @@
     todo.bodyTheme = theme;
     saveEntry(todo);
   }
-  function handleIconChange(icon: string | null) {
+  function handleIconChange(icon: IconRef | null) {
     todo.icon = icon;
     saveEntry(todo);
   }

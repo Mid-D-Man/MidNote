@@ -7,8 +7,9 @@
   import { saveEntry } from "$lib/stores/entries.svelte";
   import { stripHtml } from "$lib/utils/richText";
   import { createLongPressHandlers } from "$lib/utils/longPress";
-  import { resolveTheme, hexToRgba, getIconGlyph, getImageTextColorVars } from "$lib/utils/themePalette";
+  import { resolveTheme, hexToRgba, resolveIcon, getImageTextColorVars } from "$lib/utils/themePalette";
   import { customThemes } from "$lib/stores/customThemes.svelte";
+  import { customIcons } from "$lib/stores/customIcons.svelte";
   import type { Note } from "$lib/types/entry";
 
   let {
@@ -79,7 +80,7 @@
           `background-image: url(${resolved.dataUrl}); background-size: cover; background-position: center; ${getImageTextColorVars(resolved.textColor)}`
         : "",
   );
-  const iconGlyph = $derived(getIconGlyph(note.icon));
+  const resolvedIcon = $derived(resolveIcon(note.icon, customIcons));
 
   // Pointer-driven taps fire this (via onpointerup) before the browser's
   // own native `click` event has a chance to. suppressClick consumes
@@ -203,8 +204,10 @@
   {/if}
 
   <div class="title-row">
-    {#if iconGlyph}
-      <span class="icon-badge" aria-hidden="true">{iconGlyph}</span>
+    {#if resolvedIcon.kind === "preset"}
+      <span class="icon-badge" aria-hidden="true">{resolvedIcon.glyph}</span>
+    {:else if resolvedIcon.kind === "custom"}
+      <span class="icon-badge icon-badge-image" style="background-image:url({resolvedIcon.dataUrl})" aria-hidden="true"></span>
     {/if}
     <h3 class="title" class:struck={note.struck}>{note.title || "Untitled"}</h3>
   </div>
@@ -335,6 +338,10 @@
     font-size: 13px;
     line-height: 1;
     flex-shrink: 0;
+  }
+  .icon-badge-image {
+    background-size: cover;
+    background-position: center;
   }
   .title {
     font-family: var(--font-display);

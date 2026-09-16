@@ -9,7 +9,7 @@
 // Themes.theme_preset("none")), not a null/undefined theme — see
 // entry.ts's NO_THEME. It resolves to `color: null`, meaning "don't
 // override the surface's default background at all."
-import type { CustomTheme, ThemeRef } from "$lib/types/entry";
+import type { CustomIcon, CustomTheme, IconRef, ThemeRef } from "$lib/types/entry";
 
 export interface ThemePreset {
   name: string;
@@ -34,17 +34,18 @@ export function getPresetColor(name: string): string | null {
   return THEME_PRESETS.find((p) => p.name === name)?.color ?? null;
 }
 
-// Per-entry icon badge — a small glyph shown next to a note/todo's
-// title on its card (see requested_redesign's "icon_per_entry"). Kept
-// as a plain curated emoji set rather than an uploaded-image asset (like
-// custom theme images are): it's a tiny badge, not a background, so
-// there's nothing to downscale/decode, and emoji render natively and
-// consistently across the Android system WebView with zero bundled
-// assets. entry.ts's `icon` field stores just the `name` below (or
-// null for no icon); the actual glyph is looked up here at render time,
-// same "pointer, not the value" shape ThemeRef already uses for presets.
-// This list is a starting curation, not a hard schema — add/remove
-// entries here freely, nothing else needs to change to support it.
+// Per-entry icon badge — a small glyph OR small uploaded image shown
+// next to a note/todo's title on its card (see requested_redesign's
+// "icon_per_entry"). Presets are a plain curated emoji set: emoji
+// render natively and consistently across the Android system WebView
+// with zero bundled assets, so there's no reason for most icons to be
+// an uploaded image at all. Custom uploads exist alongside them for
+// anything a preset can't cover — see storage.ts's storeCustomIconImage
+// for the size cap/downscale/crop, kept much smaller than a theme
+// image's since this is never more than a tiny badge (NoteCard/the todo
+// row render it at 22px). This preset list is a starting curation, not
+// a hard schema — add/remove entries here freely, nothing else needs to
+// change to support it.
 export interface IconPreset {
   name: string;
   label: string;
@@ -70,9 +71,25 @@ export const ICON_PRESETS: IconPreset[] = [
   { name: "celebrate", label: "Celebrate", glyph: "🎉" },
 ];
 
-export function getIconGlyph(name: string | null | undefined): string | null {
-  if (!name) return null;
-  return ICON_PRESETS.find((p) => p.name === name)?.glyph ?? null;
+// What a card's icon badge should actually render, resolved from an
+// IconRef + the custom-icon registry — same "one small pure function,
+// not three slightly-different copies" reasoning as resolveTheme below.
+// Note there's no "none" branch analogous to ThemeRef's NO_THEME
+// sentinel: absence is just `icon === null` directly (IconPicker's own
+// "None" swatch already calls onChange(null), not a preset named
+// "none" — see that component).
+export type ResolvedIcon = { kind: "none" } | { kind: "preset"; glyph: string } | { kind: "custom"; dataUrl: string };
+
+export function resolveIcon(icon: IconRef | null | undefined, customIcons: CustomIcon[]): ResolvedIcon {
+  if (!icon) return { kind: "none" };
+  if (icon.kind === "custom") {
+    const found = customIcons.find((c) => c.id === icon.customIconId);
+    // Referenced custom icon was deleted out from under this entry —
+    // fall back to no icon rather than throwing or showing a broken image.
+    return found ? { kind: "custom", dataUrl: found.data } : { kind: "none" };
+  }
+  const glyph = ICON_PRESETS.find((p) => p.name === icon.name)?.glyph;
+  return glyph ? { kind: "preset", glyph } : { kind: "none" };
 }
 
 // Drives readable text/tag styling over an image theme, from resolveTheme's

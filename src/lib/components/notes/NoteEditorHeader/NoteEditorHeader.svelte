@@ -15,7 +15,7 @@
   import PagesPanel from "$lib/components/notes/PagesPanel/PagesPanel.svelte";
   import { resolveTheme, hexToRgba, getImageTextColorVars } from "$lib/utils/themePalette";
   import { customThemes } from "$lib/stores/customThemes.svelte";
-  import type { Note, ThemeRef } from "$lib/types/entry";
+  import type { IconRef, Note, ThemeRef } from "$lib/types/entry";
 
   // REVISION: back to just Share/Duplicate in the "..." sheet — B/I/U/S/
   // size/color/background moved back to the bottom FormattingToolbar,
@@ -115,7 +115,7 @@
     note.bodyTheme = theme;
     saveEntry(note);
   }
-  function handleIconChange(icon: string | null) {
+  function handleIconChange(icon: IconRef | null) {
     note.icon = icon;
     saveEntry(note);
   }

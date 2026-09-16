@@ -50,6 +50,29 @@ export interface CustomTheme {
 
 export type LockKeyMode = "app" | "custom";
 
+// Same "pointer, not the value" shape ThemeRef uses — a preset name
+// (themePalette.ts's ICON_PRESETS) or a small uploaded image, looked up
+// by id in the CustomIcon registry below. No icon at all is `null` on
+// EntryRef.icon directly (unlike ThemeRef, there's no "none" preset
+// sentinel here — IconPicker's own "None" swatch just calls
+// onChange(null)).
+export type IconRef = { kind: "preset"; name: string } | { kind: "custom"; customIconId: string };
+
+// Mirrors CustomTheme's registry shape, at icon-badge scale — a small
+// uploaded image referenced by id (IconRef.customIconId) so one upload
+// can be reused across many notes/todos without duplicating the blob.
+// Kept as its own registry rather than reusing CustomTheme: a theme is
+// a full-bleed background (JPEG, downscaled to ~720px, colorthief-
+// analyzed for text contrast); an icon is a tiny badge (PNG for
+// transparency, downscaled to ~128px — see storage.ts's
+// storeCustomIconImage — with no contrast analysis needed since it's
+// never painted behind text).
+export interface CustomIcon {
+  id: string;
+  data: string;
+  createdAt: string;
+}
+
 export interface EntryRef {
   id: string;
   title: string;
@@ -90,12 +113,13 @@ export interface EntryRef {
   // resolveTheme, which both slots resolve through identically.
   headerTheme: ThemeRef;
   bodyTheme: ThemeRef;
-  // Small glyph badge shown next to the entry's title (list card only,
-  // for now) — a preset name from themePalette.ts's ICON_PRESETS, or
-  // null for no icon. Entry-only: there's no landing-page equivalent
-  // (settings.svelte.ts's app-wide theme has just header+body, no icon
-  // slot — an icon only makes sense pinned to one specific note/todo).
-  icon: string | null;
+  // Small badge shown next to the entry's title (list card only, for
+  // now) — either a preset glyph or a small uploaded image (see IconRef
+  // above), or null for no icon. Entry-only: there's no landing-page
+  // equivalent (settings.svelte.ts's app-wide theme has just
+  // header+body, no icon slot — an icon only makes sense pinned to one
+  // specific note/todo).
+  icon: IconRef | null;
   // Lock — real DixScript-Rust AES-256-GCM/Argon2id encryption via
   // src-tauri/src/data/crypto.rs, not a client-side shim. `encrypted`
   // above is the existing is-this-entry-locked flag (already had a

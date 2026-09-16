@@ -20,9 +20,10 @@
   import Sheet from "$lib/components/ui/Sheet/Sheet.svelte";
   import ThemePicker from "$lib/components/shared/ThemePicker/ThemePicker.svelte";
   import IconPicker from "$lib/components/shared/IconPicker/IconPicker.svelte";
-  import { resolveTheme, getIconGlyph } from "$lib/utils/themePalette";
+  import { resolveTheme, resolveIcon } from "$lib/utils/themePalette";
   import { customThemes } from "$lib/stores/customThemes.svelte";
-  import type { ThemeRef } from "$lib/types/entry";
+  import { customIcons } from "$lib/stores/customIcons.svelte";
+  import type { IconRef, ThemeRef } from "$lib/types/entry";
 
   let {
     open = $bindable(false),
@@ -43,8 +44,8 @@
     bodyTheme: ThemeRef;
     onHeaderChange: (theme: ThemeRef) => void;
     onBodyChange: (theme: ThemeRef) => void;
-    icon?: string | null;
-    onIconChange?: (icon: string | null) => void;
+    icon?: IconRef | null;
+    onIconChange?: (icon: IconRef | null) => void;
     // Default true as of note/[id] and todo/[id]'s route pages wrapping
     // the actual editable text in its own high-opacity panel (see
     // note/[id]/+page.svelte's .inner-panel) rather than ever
@@ -71,7 +72,7 @@
 
   const resolvedHeader = $derived(resolveTheme(headerTheme, customThemes));
   const resolvedBody = $derived(resolveTheme(bodyTheme, customThemes));
-  const iconGlyph = $derived(getIconGlyph(icon ?? null));
+  const resolvedIcon = $derived(resolveIcon(icon ?? null, customIcons));
   // Only NoteEditorHeader/TodoHeader ever rely on this fallback now —
   // SettingsSheet always passes its own explicit bodyDescription.
   const resolvedBodyDescription = $derived(bodyDescription ?? "The writing area itself.");
@@ -132,8 +133,13 @@
           <span class="row-label">Icon</span>
           <span class="row-desc">A small badge next to the title in the list.</span>
         </div>
-        <span class="swatch-preview icon-preview" class:none-swatch={!iconGlyph} aria-hidden="true">
-          {iconGlyph ?? ""}
+        <span
+          class="swatch-preview icon-preview"
+          class:none-swatch={resolvedIcon.kind === "none"}
+          style={resolvedIcon.kind === "custom" ? `background-image:url(${resolvedIcon.dataUrl})` : undefined}
+          aria-hidden="true"
+        >
+          {resolvedIcon.kind === "preset" ? resolvedIcon.glyph : ""}
         </span>
       </button>
     {/if}
