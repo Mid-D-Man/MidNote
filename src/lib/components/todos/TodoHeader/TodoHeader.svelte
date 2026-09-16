@@ -12,6 +12,7 @@
   import { breadcrumb } from "$lib/debug/log.svelte";
   import { resolveTheme, hexToRgba, getImageTextColorVars } from "$lib/utils/themePalette";
   import { customThemes } from "$lib/stores/customThemes.svelte";
+  import { buildExportFiles, downloadFiles } from "$lib/utils/selectionActions";
   import type { IconRef, Todo, ThemeRef } from "$lib/types/entry";
 
   let {
@@ -123,17 +124,18 @@
     pushToast({ title: "Todo duplicated", description: "Your todo has been duplicated." });
   }
 
+  // BUGFIX: same real bug, same fix, as NoteEditorHeader.svelte's
+  // identical handleDownload — see that file's comment for the full
+  // history. Short version: the raw `<a download>` blob-link technique
+  // this used doesn't work on Android (confirmed, still-open upstream
+  // Tauri limitation, tauri-apps/tauri#10280) — downloadFiles() in
+  // selectionActions.ts exists specifically to route around it, and
+  // this button just never got migrated onto it. Also drops this
+  // function's own hand-rolled text-building (which quietly duplicated,
+  // and could drift from, entryToPlainText's todo branch) in favor of
+  // that same shared function.
   function handleDownload() {
-    let content = `${todo.title}\n\n`;
-    for (const step of todo.steps) content += `${step.title}\n${step.content}\n\n`;
-    const blob = new Blob([content], { type: "text/plain" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `${todo.title || "todo"}.txt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(a.href);
+    downloadFiles(buildExportFiles([todo], "separate"));
     pushToast({ title: "Todo downloaded", description: "Your todo has been downloaded as a text file." });
   }
 

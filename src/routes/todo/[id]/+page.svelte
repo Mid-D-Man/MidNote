@@ -299,14 +299,23 @@
   /* Neutral flex passthrough for the "no theme"/color cases — same
      effective layout TodoStepsSection had as .body's direct child
      before this wrapper existed. .inner-panel is purely additive for
-     the image case; see note/[id]/+page.svelte's identical .inner-panel
-     comment for the full reasoning.
+     the image case; see note/[id]/+page.svelte's .inner-panel comment
+     for the general reasoning (legible backing over a photo).
 
-     NOTE (not fixed this round, flagging only): this margin-based inset
-     for the image case has the same category of shrink note/[id] had —
-     .body has no max-width to compensate against the way notes' 680px
-     .inner did, so this one doesn't get the same fix here. Only
-     touching what was actually reported. */
+     BUGFIX: this used to inset itself with `margin: var(--space-3)`
+     plus a drop shadow — a real shrink of the steps list's available
+     space compared to the color/none case, and unlike notes' 680px
+     .inner there's no max-width slack here to expand into as
+     compensation (.body already fills 100% of the page either way, no
+     side margins to invisibly eat into). So instead of shrinking to
+     make room for a floating card look, this now stays exactly the
+     same full-.body footprint as the color/none case always has — just
+     a translucent wash over the photo, edge-to-edge, rather than an
+     inset card — which is what actually keeps the writing/steps area
+     consistent regardless of theme kind. The margin and drop shadow
+     both depended on that inset gap to mean anything (a shadow needs
+     space to fall into; there isn't any once the panel is flush) so
+     both are gone, not just the margin. */
   .inner {
     height: 100%;
     display: flex;
@@ -315,10 +324,6 @@
   }
   .inner.inner-panel {
     background: rgba(var(--surface-rgb), 0.93);
-    border-radius: var(--radius-md);
-    margin: var(--space-3);
-    box-shadow: 0 2px 24px rgba(0, 0, 0, 0.25);
-    overflow: hidden;
   }
   .error-state {
     flex: 1;

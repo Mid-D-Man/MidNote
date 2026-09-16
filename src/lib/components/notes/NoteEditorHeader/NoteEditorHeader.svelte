@@ -9,8 +9,8 @@
   import { removeEntry, saveEntry } from "$lib/stores/entries.svelte";
   import { createNote } from "$lib/storage";
   import { breadcrumb } from "$lib/debug/log.svelte";
-  import { htmlToPlainText } from "$lib/utils/richText";
   import { shareFiles } from "$lib/utils/share";
+  import { entryToPlainText, buildExportFiles, downloadFiles } from "$lib/utils/selectionActions";
   import ThemeSectionsSheet from "$lib/components/shared/ThemeSectionsSheet/ThemeSectionsSheet.svelte";
   import PagesPanel from "$lib/components/notes/PagesPanel/PagesPanel.svelte";
   import { resolveTheme, hexToRgba, getImageTextColorVars } from "$lib/utils/themePalette";
@@ -171,40 +171,34 @@
   }
 
   // Export/share: Export downloads a .txt of this note; Share hands the
-  // exact same file to navigator.share (see share.ts's header comment
+  // exact same text to navigator.share (see share.ts's header comment
   // for the real, stated platform uncertainty around file-sharing
   // support on this specific WebView — feature-detected with a
   // text-only fallback, not assumed to just work).
-  function buildExportBlob(): Blob {
-    // note.content is HTML — convert back to plain text for export, or
-    // this would produce raw markup instead of readable text. Additional
-    // pages (see entry.ts's Note.pages comment) are appended below the
-    // main content, each under its own name (custom via page1Name/
-    // NotePage.name, or the auto-numbered fallback) — exporting only
-    // page 1 would silently drop the rest of a multi-page note's actual
-    // content. A plain single-page note (still the common case) is left
-    // exactly as it always read, with no "Page 1" heading nobody asked
-    // for.
-    if (note.pages.length === 0) {
-      return new Blob([`${note.title}\n\n${htmlToPlainText(note.content)}`], { type: "text/plain" });
-    }
-    let text = `${note.title}\n\n--- ${note.page1Name || "Page 1"} ---\n\n${htmlToPlainText(note.content)}`;
-    note.pages.forEach((p, i) => {
-      text += `\n\n--- ${p.name || `Page ${i + 2}`} ---\n\n${htmlToPlainText(p.content)}`;
-    });
-    return new Blob([text], { type: "text/plain" });
-  }
-
+  //
+  // BUGFIX: this used to build its own separate Blob here and hand it
+  // to a raw `<a download>` link directly — which, per
+  // selectionActions.ts's own extensively-documented downloadFiles()
+  // history, is a confirmed, still-open upstream Tauri/Android
+  // limitation (tauri-apps/tauri#10280): Android has no way to resolve
+  // a path for a blob link's implicit "download," so the tap silently
+  // does nothing (or, on some WebView/OS combinations, appears to
+  // "succeed" while producing an empty or unreachable file) — exactly
+  // the "nothing gets exported, the file is empty" symptom reported.
+  // downloadFiles() exists specifically because that technique doesn't
+  // work on Android and went through five rounds of on-device
+  // debugging to land on what actually does (direct plugin-fs write on
+  // desktop, straight to the native save-file picker on
+  // Android/mobile) — this button just never got migrated onto it, so
+  // it was still hitting the exact bug that function was written to
+  // route around. Also drops the separate, slowly-drifting
+  // buildExportBlob() this used to have in favor of the same
+  // entryToPlainText()/buildExportFiles() the list's multi-select
+  // Export already uses, so a single note's content is built exactly
+  // one way, not two that can quietly disagree.
   function handleDownload() {
     breadcrumb("note header: Export tapped");
-    const blob = buildExportBlob();
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `${note.title || "note"}.txt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(a.href);
+    downloadFiles(buildExportFiles([note], "separate"));
     pushToast({ title: "Note downloaded", description: "Your note has been downloaded as a text file." });
   }
 
@@ -212,7 +206,8 @@
     breadcrumb("note header: Share tapped");
     moreOpen = false;
     const name = `${note.title || "note"}.txt`;
-    const result = await shareFiles([{ name, blob: buildExportBlob() }], { title: note.title || "Note" });
+    const blob = new Blob([entryToPlainText(note)], { type: "text/plain" });
+    const result = await shareFiles([{ name, blob }], { title: note.title || "Note" });
     if (result === "shared") {
       pushToast({ title: "Shared" });
     } else if (result !== "cancelled") {

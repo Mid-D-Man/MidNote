@@ -178,19 +178,41 @@
     saveEntry(note);
   }
 
+  // BEHAVIOR CHANGE (explicit request): this used to hard-block deleting
+  // page 1 specifically, on any page. What should actually be
+  // undeletable is whichever page you're CURRENTLY viewing — deleting
+  // the page you're looking at out from under yourself is the confusing
+  // case, not page 1 specifically. Page 1 is deletable now too, just
+  // not while it's the one open — see PagesPanel.svelte's matching
+  // `i !== currentPageIndex` guard on the delete button itself.
+  //
+  // Page 1 isn't a NotePage object (see entry.ts's Note.pages comment)
+  // so deleting it specifically means promoting the next page (today's
+  // pages[0]) into note.content/page1Name's place, then dropping it
+  // from the array — everything else about it (id, content, name)
+  // moves as-is, nothing is regenerated or lost.
   function deletePage(index: number) {
-    if (index === 0) return; // page 1 (note.content) can't be deleted
-    const pageArrayIndex = index - 1;
-    note.pages = note.pages.filter((_, i) => i !== pageArrayIndex);
-    if (currentPageIndex === index) {
-      // The page being viewed was the one just deleted — fall back to
-      // page 1 rather than an index that no longer means anything.
-      currentPageIndex = 0;
-      syncToken = untrack(() => syncToken) + 1;
-    } else if (currentPageIndex > index) {
-      // An earlier page was removed — shift down so this still points
-      // at the same actual page it did before the delete.
+    if (index === currentPageIndex) return; // can't delete the page you're currently on
+    if (index === 0) {
+      const [promoted, ...rest] = note.pages;
+      note.content = promoted.content;
+      note.page1Name = promoted.name;
+      note.pages = rest;
+    } else {
+      const pageArrayIndex = index - 1;
+      note.pages = note.pages.filter((_, i) => i !== pageArrayIndex);
+    }
+    if (currentPageIndex > index) {
+      // A page before the one you're viewing was removed — every index
+      // from here on shifts down by one to keep pointing at the same
+      // actual page (same id/content) it did before the delete, even
+      // though its position in the array (and therefore its
+      // currentPageIndex) moved. The underlying NoteContent binding
+      // (note.pages[currentPageIndex - 1]) needs a fresh syncToken here
+      // too, same as switchToPage — the object being edited hasn't
+      // changed, but which array slot Svelte is reading it through has.
       currentPageIndex -= 1;
+      syncToken = untrack(() => syncToken) + 1;
     }
     saveEntry(note);
   }
@@ -356,19 +378,32 @@
      color-mix(--surface, …) for the same Android WebView compatibility
      reason as themePalette.ts's hexToRgba.
 
-     BUGFIX: max-width bumped by 2x this panel's own padding so the
-     WRITING area (what's actually left after the padding is subtracted)
-     comes out the same width as the plain 680px .inner box above — a
-     body image theme was visibly narrowing the usable writing space
-     compared to a solid color/no-theme body, purely because this was
-     the only variant adding its own padding on top of the shared
-     max-width. The framed-card look (rounded corners, inset padding,
-     shadow) is unchanged; only the outer box grows to compensate. */
+     BUGFIX #2 (first attempt was wrong): the earlier fix here bumped
+     max-width to compensate for this panel's own padding — which only
+     actually does anything on a screen wide enough for 680px max-width
+     to be the binding constraint in the first place (a tablet/desktop
+     view). On a phone (this app's actual target — a Galaxy A13), .inner
+     is nowhere near 680px wide to begin with; its rendered width comes
+     from `width: 100%` of .scroll-area's own content box, which
+     max-width never even reaches, so raising the ceiling changed
+     nothing there — the padding this rule adds was still visibly
+     narrowing the writing area on the one platform that actually
+     matters here. Confirmed on-device.
+     Real fix: don't add any padding of this rule's own at all. The
+     "framed card" look doesn't actually need it — .scroll-area already
+     has its own space-5/space-4 padding UNCONDITIONALLY (same for every
+     theme kind), which already keeps this panel inset from the true
+     screen edges with room for rounded corners to read clearly against
+     the photo peeking through that existing gap. Adding a second,
+     theme-conditional layer of padding on top of that pre-existing gap
+     was the actual mistake — not something a bigger max-width could
+     ever fully undo on a narrow screen. With no padding/margin/max-width
+     changes of its own, this box is now IDENTICAL in size to the plain
+     .inner above on any screen width — only its background/corners/
+     shadow differ. */
   .inner.inner-panel {
-    max-width: calc(680px + var(--space-4) * 2);
     background: rgba(var(--surface-rgb), 0.93);
     border-radius: var(--radius-md);
-    padding: var(--space-4);
     box-shadow: 0 2px 24px rgba(0, 0, 0, 0.25);
   }
   .error-state {

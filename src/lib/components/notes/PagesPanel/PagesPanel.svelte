@@ -2,8 +2,12 @@
   // Reachable from NoteEditorHeader's Actions sheet ("Pages" row) — see
   // that file for the sequential-sheet-swap wiring (close Actions, open
   // this). Page 1 is always note.content itself (see entry.ts's
-  // Note.pages comment) and can't be deleted — a note always has at
-  // least one page by definition, so there's nothing to delete it INTO.
+  // Note.pages comment). The page you're CURRENTLY viewing is the one
+  // that can't be deleted — not page 1 specifically — since a note
+  // always needs at least one page and deleting the one you're looking
+  // at out from under yourself is the confusing case; page 1 is
+  // deletable like any other page once you've switched off it (see the
+  // route's deletePage, which promotes the next page into its place).
   // Pages default to auto-numbered ("Page 1", "Page 2", ...) but can be
   // renamed via the pencil icon on each row (page 1 included, through
   // note.page1Name) — leaving the rename field blank reverts to the
@@ -140,7 +144,7 @@
             </svg>
           </button>
         {/if}
-        {#if i > 0 && renamingIndex !== i}
+        {#if i !== currentPageIndex && renamingIndex !== i}
           <button type="button" class="icon-btn delete-btn" aria-label="Delete {displayName(i)}" onclick={(e) => requestDelete(e, i)}>
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6h16Z" />
