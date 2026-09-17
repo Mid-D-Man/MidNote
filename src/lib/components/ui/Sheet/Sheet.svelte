@@ -149,6 +149,25 @@
     flex-direction: column;
     box-shadow: 0 0 32px rgba(0, 0, 0, 0.4);
     transition: transform 0.2s ease;
+    /* BUGFIX: a sheet always renders on its own plain --surface
+       background, never on a themed entry's or the landing page's
+       photo — but `position: fixed` only escapes LAYOUT, not the CSS
+       cascade. A Sheet mounted anywhere under an element that set
+       --theme-text-hi/-mid/-lo/--theme-tag-bg/-text inline (an app-wide
+       image theme on .page, or a themed card/editor) still inherits
+       those custom properties through the normal DOM tree, so anything
+       inside using the var(--theme-text-hi, var(--text-hi)) fallback
+       pattern (Button.svelte's ghost/outline variants, TagSelector) was
+       silently picking up someone else's theme-derived color instead of
+       its own intended default. `initial` here — not a specific
+       redefined value — is what makes each of those consumers' own
+       fallback actually take over inside any sheet, without this
+       needing to know or duplicate what each one's fallback is. */
+    --theme-text-hi: initial;
+    --theme-text-mid: initial;
+    --theme-text-lo: initial;
+    --theme-tag-bg: initial;
+    --theme-tag-text: initial;
   }
   .sheet.dragging {
     transition: none;

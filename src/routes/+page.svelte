@@ -23,11 +23,17 @@
   import { resolveTheme, hexToRgba, resolveIcon, getImageTextColorVars } from "$lib/utils/themePalette";
   import { customThemes } from "$lib/stores/customThemes.svelte";
   import { customIcons } from "$lib/stores/customIcons.svelte";
-  import { appBodyTheme } from "$lib/stores/settings.svelte";
+  import { appBodyTheme, loadLastActiveView, setLastActiveView } from "$lib/stores/settings.svelte";
   import { lockEntry, unlockEntry } from "$lib/utils/lockFlow";
 
   let isLoading = $state(true);
-  let activeView = $state<"notes" | "todos">("notes");
+  // BUGFIX: this used to always start on "notes" — since navigating to
+  // note/[id] or todo/[id] and back fully unmounts/remounts this route,
+  // that meant leaving a todo (or a note) always landed back on the
+  // Notes tab regardless of which one you'd actually been viewing. Seeds
+  // from whatever was last shown instead — see settings.svelte.ts's
+  // loadLastActiveView/setLastActiveView.
+  let activeView = $state<"notes" | "todos">(loadLastActiveView());
   let selectedTag = $state<string | null>(null);
   let searchQuery = $state("");
   let sortBy = $state<"recent" | "alphabetical" | "bookmarked">("recent");
@@ -149,6 +155,7 @@
 
   function switchView(view: "notes" | "todos") {
     activeView = view;
+    setLastActiveView(view);
     selectedTag = null;
     sortBy = "recent";
     exitSelectMode();
@@ -613,14 +620,25 @@
     overflow-x: hidden;
     background: var(--bg);
   }
+  /* BUGFIX: no justify-content + no width on the buttons meant they
+     just clamped together at the natural width of their own text,
+     flush left — asked to be spread properly instead, with room to
+     grow into a third tab (Boards) later without needing to revisit
+     this. flex:1 on each button divides the bar into equal, full-width
+     segments — the first tab's tap target starts at the true left
+     screen edge and the last one's ends at the true right edge (hence
+     dropping this container's own horizontal padding, which would
+     otherwise inset both from the actual edges), and adding a third
+     button later just becomes a third equal segment automatically. */
   .view-tabs {
     display: flex;
     border-bottom: 1px solid var(--hairline);
     background: var(--surface);
-    padding: 0 var(--space-4);
     flex-shrink: 0;
   }
   .view-tabs button {
+    flex: 1;
+    text-align: center;
     padding: var(--space-3) var(--space-4);
     font-family: var(--font-sans);
     font-weight: 500;

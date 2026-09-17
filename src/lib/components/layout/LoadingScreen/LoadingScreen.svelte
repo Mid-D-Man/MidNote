@@ -18,10 +18,7 @@
 
 <div class="loading-screen">
   <div class="content">
-    <svg class="mark" viewBox="0 0 24 24" width="56" height="56" fill="none" stroke="var(--accent)" stroke-width="1.5">
-      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-    </svg>
+    <img src="/midnote-logo.svg" alt="" class="mark" />
     <div class="labels">
       <h1>MidNote</h1>
       <p>Loading your notes...</p>
@@ -48,7 +45,19 @@
     align-items: center;
     gap: var(--space-5);
   }
+  /* BUGFIX: this was a generic placeholder book-icon SVG, never the
+     actual MidNote logo — swapped for the real mark (same asset
+     AppHeader.svelte uses). Same white backing chip as AppHeader's
+     .logo-mark and for the identical reason: the logo's colors (black
+     base, green/blue-violet accents) are baked into its own paths, not
+     currentColor, so a black-heavy logo directly on this screen's dark
+     --bg would nearly vanish without it. */
   .mark {
+    width: 64px;
+    height: 64px;
+    padding: 6px;
+    border-radius: var(--radius-md);
+    background: #ffffff;
     animation: pulse 1.6s ease-in-out infinite;
   }
   @keyframes pulse {

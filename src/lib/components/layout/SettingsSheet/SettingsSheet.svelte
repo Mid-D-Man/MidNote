@@ -15,6 +15,9 @@
   import { resolveTheme } from "$lib/utils/themePalette";
   import { customThemes } from "$lib/stores/customThemes.svelte";
   import { breadcrumb } from "$lib/debug/log.svelte";
+  import { sessionAppPassword, setSessionAppPassword } from "$lib/stores/lockSession.svelte";
+  import { askPassword } from "$lib/stores/lockPrompt.svelte";
+  import { entries } from "$lib/stores/entries.svelte";
 
   let { open = $bindable(false) }: { open?: boolean } = $props();
 
@@ -32,6 +35,36 @@
     // TodoHeader's Theme row: close this Sheet, open the next.
     open = false;
     themeSheetOpen = true;
+  }
+
+  // App password: there was previously no way to even see, set, or
+  // forget this from anywhere except implicitly — the first time you
+  // lock something with "Use app password," whatever you type just
+  // becomes it for the rest of the session (see lockSession.svelte.ts's
+  // header comment for why that's deliberate: it's never persisted or
+  // even hashed anywhere). This surfaces that state and gives two safe
+  // actions: proactively SET it (only offered when nothing is
+  // currently locked with app mode — setting it then can't conflict
+  // with anything real, since there's nothing yet to mismatch), and
+  // FORGET it (clears it from memory, forcing the next app-locked
+  // unlock to re-prompt) — deliberately no "change" action, since
+  // changing it while entries already use it would silently make them
+  // unopenable with the new value.
+  const hasAppLockedEntries = $derived(entries.some((e) => e.encrypted && e.lockKeyMode === "app"));
+
+  async function handleSetAppPassword() {
+    breadcrumb("settings: set app password tapped");
+    const p = await askPassword(
+      "Set your app password",
+      "Used for every note/todo you lock with \u201cUse app password.\u201d Remembered only until you close the app.",
+      true,
+    );
+    if (p) setSessionAppPassword(p);
+  }
+
+  function handleForgetAppPassword() {
+    breadcrumb("settings: forget app password tapped");
+    setSessionAppPassword(null);
   }
 </script>
 
@@ -53,6 +86,25 @@
         aria-hidden="true"
       ></span>
     </button>
+    <div class="settings-row">
+      <div class="row-text">
+        <span class="row-label">App password</span>
+        <span class="row-desc">
+          {#if sessionAppPassword.value}
+            Set for this session — used automatically for anything locked with "Use app password."
+          {:else if hasAppLockedEntries}
+            Not set this session yet — you'll be asked for it the next time you open something locked with it.
+          {:else}
+            Not set yet — set it now, or it'll be asked for the first time you lock something with "Use app password."
+          {/if}
+        </span>
+      </div>
+      {#if sessionAppPassword.value}
+        <button class="text-action" onclick={handleForgetAppPassword}>Forget</button>
+      {:else if !hasAppLockedEntries}
+        <button class="text-action" onclick={handleSetAppPassword}>Set</button>
+      {/if}
+    </div>
     <div class="settings-row">
       <div class="row-text">
         <span class="row-label">Debug panel</span>
@@ -146,5 +198,15 @@
   }
   .theme-swatch.none-swatch {
     background: linear-gradient(45deg, transparent 47%, var(--text-faint) 47%, var(--text-faint) 53%, transparent 53%), var(--surface);
+  }
+  .text-action {
+    flex-shrink: 0;
+    background: transparent;
+    border: none;
+    padding: var(--space-1) var(--space-2);
+    color: var(--accent);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
   }
 </style>
