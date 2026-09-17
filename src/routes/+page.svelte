@@ -154,31 +154,23 @@
     exitSelectMode();
   }
 
-  // BUGFIX (data-safety): this used to navigate straight into a locked
-  // entry's editor route regardless of encrypted state — harmless to
-  // VIEW (the locked-placeholder screen shows no real content until
-  // unlocked, same as before), but it meant a locked note/todo could be
-  // fully opened, and from there even deleted (see CardOverflowMenu's
-  // now-gated Delete), without ever proving you know its password.
-  // Unlocking right here, before navigating at all, closes that for
-  // both notes and todos through this one shared entry point — NoteCard
-  // routes its own tap through this exact function via its `onClick`
-  // prop, so nothing extra is needed on that side beyond the
-  // `unlockingToOpen` prop below for matching spinner feedback.
-  async function handleClick(id: string) {
+  // BUGFIX: this used to unlock (permanently!) right here, before
+  // navigating at all — confirmed as the actual cause of "opening a
+  // locked note strips its lock for good and it's never re-locked."
+  // The editor route's own body already gates on note.encrypted (the
+  // locked-placeholder screen) and NoteEditorHeader/TodoHeader's own
+  // delete icon already checks it too (that header renders
+  // unconditionally, even when the body shows the placeholder) — so
+  // navigating in doesn't expose anything or allow deleting a locked
+  // entry regardless of what happens here. Real unlocking-to-view now
+  // happens entirely inside the editor route via lockFlow.ts's
+  // session-scoped unlockForSession()/relockSilently() pair (see that
+  // route's onNavigate hook) — this function's only job is getting
+  // there. NoteCard routes its own tap through this exact function via
+  // its `onClick` prop; the inline todo row does the same.
+  function handleClick(id: string) {
     const item = [...notes, ...todos].find((i) => i.id === id);
     if (!item) return;
-    if (item.encrypted) {
-      lockBusyIds = new Set(lockBusyIds).add(id);
-      try {
-        const unlocked = await unlockEntry(item);
-        if (!unlocked) return; // cancelled or gave up — stay on the list, never navigate
-      } finally {
-        const next = new Set(lockBusyIds);
-        next.delete(id);
-        lockBusyIds = next;
-      }
-    }
     goto(item.type === "todo" ? `/todo/${id}` : `/note/${id}`);
   }
 
