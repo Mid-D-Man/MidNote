@@ -165,18 +165,27 @@
     }
   }
 
-  // Same reasoning as note/[id]/+page.svelte's identical bodyStyle —
-  // see that file's comment for the full design (opaque text panel,
-  // not raw compositing over the photo).
+  // BUGFIX #2 (real fix, matching note/[id]/+page.svelte's identical
+  // change — see that file's comment for the full reasoning): this
+  // page's OWN image case was already edge-to-edge (no framed-card
+  // regression here, since .inner-panel below never had its own
+  // padding/margin), but kept the wash on a separate child element
+  // with its own background — CLAUDEcode's "still shrinks" report
+  // turned out to be about the NOTE editor specifically, but there's no
+  // reason to leave two different mechanisms doing the same thing.
+  // Unified onto the same technique: the wash lives directly in
+  // bodyStyle's own background-image stack (a solid-color layer under
+  // url(...), same as headerStyle's linear-gradient trick above) so
+  // .inner never needs a distinct background/class of its own for the
+  // image case at all.
   const resolvedBodyTheme = $derived(resolveTheme(todo.bodyTheme, customThemes));
   const bodyStyle = $derived(
     resolvedBodyTheme.kind === "color"
       ? `background: ${hexToRgba(resolvedBodyTheme.color, 0.14)};`
       : resolvedBodyTheme.kind === "image"
-        ? `background-image: url(${resolvedBodyTheme.dataUrl}); background-size: cover; background-position: center; background-attachment: fixed;`
+        ? `background-image: linear-gradient(rgba(var(--surface-rgb), 0.93), rgba(var(--surface-rgb), 0.93)), url(${resolvedBodyTheme.dataUrl}); background-size: cover; background-position: center; background-attachment: fixed;`
         : "",
   );
-  const bodyHasImage = $derived(resolvedBodyTheme.kind === "image");
 </script>
 
 <svelte:head>
@@ -236,7 +245,7 @@
     />
 
     <div class="body" style={bodyStyle}>
-      <div class="inner" class:inner-panel={bodyHasImage}>
+      <div class="inner">
         <TodoStepsSection
           steps={stepsForCategory}
           category={currentCategory}
@@ -296,34 +305,16 @@
     min-height: 0;
     overflow: hidden;
   }
-  /* Neutral flex passthrough for the "no theme"/color cases — same
-     effective layout TodoStepsSection had as .body's direct child
-     before this wrapper existed. .inner-panel is purely additive for
-     the image case; see note/[id]/+page.svelte's .inner-panel comment
-     for the general reasoning (legible backing over a photo).
-
-     BUGFIX: this used to inset itself with `margin: var(--space-3)`
-     plus a drop shadow — a real shrink of the steps list's available
-     space compared to the color/none case, and unlike notes' 680px
-     .inner there's no max-width slack here to expand into as
-     compensation (.body already fills 100% of the page either way, no
-     side margins to invisibly eat into). So instead of shrinking to
-     make room for a floating card look, this now stays exactly the
-     same full-.body footprint as the color/none case always has — just
-     a translucent wash over the photo, edge-to-edge, rather than an
-     inset card — which is what actually keeps the writing/steps area
-     consistent regardless of theme kind. The margin and drop shadow
-     both depended on that inset gap to mean anything (a shadow needs
-     space to fall into; there isn't any once the panel is flush) so
-     both are gone, not just the margin. */
+  /* Neutral flex passthrough for every theme kind — the image case's
+     own wash now lives in bodyStyle's background-image stack on .body
+     itself (see the bodyStyle comment above), so .inner never carries
+     a background or class of its own; this stays exactly the same
+     full-.body footprint regardless of theme. */
   .inner {
     height: 100%;
     display: flex;
     flex-direction: column;
     min-height: 0;
-  }
-  .inner.inner-panel {
-    background: rgba(var(--surface-rgb), 0.93);
   }
   .error-state {
     flex: 1;

@@ -10,7 +10,7 @@
   import { createNote } from "$lib/storage";
   import { breadcrumb } from "$lib/debug/log.svelte";
   import { shareFiles } from "$lib/utils/share";
-  import { entryToPlainText, buildExportFiles, downloadFiles } from "$lib/utils/selectionActions";
+  import { entryToPlainText, buildExportFiles, buildEncryptedBackupFile, downloadFiles } from "$lib/utils/selectionActions";
   import ThemeSectionsSheet from "$lib/components/shared/ThemeSectionsSheet/ThemeSectionsSheet.svelte";
   import PagesPanel from "$lib/components/notes/PagesPanel/PagesPanel.svelte";
   import { resolveTheme, hexToRgba, getImageTextColorVars } from "$lib/utils/themePalette";
@@ -83,8 +83,25 @@
         : "",
   );
 
+  // BUGFIX (data-safety, same category as handleDeleteTapped below):
+  // the "..." sheet's Theme/Pages rows, plus Share/Duplicate, had no
+  // lock check at all — a locked note's header renders unconditionally
+  // (only the BODY swaps to the placeholder, see /note/[id]/+page.svelte),
+  // so all four were reachable and functional on a note that hadn't
+  // been unlocked, even though note.content/note.pages are already
+  // cleared to empty at that point (see lockFlow.ts's
+  // clearPlaintextFields) — Theme/Pages would edit a blank shell that's
+  // about to be overwritten by the next unlock, and Share/Duplicate
+  // would silently share/copy nothing meaningful. Gated the same way
+  // handleDeleteTapped already is: refuse with a toast, don't open
+  // anything.
   function handleOpenThemeSheet() {
-    breadcrumb("note header: Theme tapped");
+    breadcrumb(`note header: Theme tapped (encrypted=${note.encrypted})`);
+    if (note.encrypted) {
+      moreOpen = false;
+      pushToast({ title: "Unlock first", description: "Unlock this note before changing its theme.", variant: "destructive" });
+      return;
+    }
     // Sequential, not nested — same pattern CardOverflowMenu already
     // uses for its delete-confirm flow (close the sheet you're in,
     // open the next one), rather than two Sheets open at once, which
@@ -94,7 +111,12 @@
   }
 
   function handleOpenPages() {
-    breadcrumb("note header: Pages tapped");
+    breadcrumb(`note header: Pages tapped (encrypted=${note.encrypted})`);
+    if (note.encrypted) {
+      moreOpen = false;
+      pushToast({ title: "Unlock first", description: "Unlock this note before managing its pages.", variant: "destructive" });
+      return;
+    }
     moreOpen = false;
     pagesOpen = true;
   }
@@ -159,8 +181,12 @@
   }
 
   function handleDuplicate() {
-    breadcrumb("note header: Duplicate tapped");
+    breadcrumb(`note header: Duplicate tapped (encrypted=${note.encrypted})`);
     moreOpen = false;
+    if (note.encrypted) {
+      pushToast({ title: "Unlock first", description: "Unlock this note before duplicating it.", variant: "destructive" });
+      return;
+    }
     const copy = createNote();
     copy.title = `${note.title} (Copy)`;
     copy.content = note.content;
@@ -196,15 +222,36 @@
   // entryToPlainText()/buildExportFiles() the list's multi-select
   // Export already uses, so a single note's content is built exactly
   // one way, not two that can quietly disagree.
+  // BUGFIX (data-safety): downloading a locked note used to run this
+  // exact same plaintext export path — but by the time a note is
+  // locked, note.content/note.pages are already emptied (see
+  // lockFlow.ts's clearPlaintextFields), so what actually got exported
+  // was an empty/near-empty .txt, not a refusal and not the real
+  // content either. Rather than just block Export outright the way
+  // Theme/Pages/Share/Duplicate now are above (which would throw away
+  // a genuinely useful case — backing up a locked note before, say,
+  // reinstalling the app), a locked note now exports its actual stored
+  // ciphertext instead: see selectionActions.ts's buildEncryptedBackupFile
+  // for what that file contains and why this is safe to allow even
+  // while locked.
   function handleDownload() {
-    breadcrumb("note header: Export tapped");
+    breadcrumb(`note header: Export tapped (encrypted=${note.encrypted})`);
+    if (note.encrypted) {
+      downloadFiles([buildEncryptedBackupFile(note)]);
+      pushToast({ title: "Encrypted backup downloaded", description: "This note is still locked — the file holds only encrypted data, not its readable content." });
+      return;
+    }
     downloadFiles(buildExportFiles([note], "separate"));
     pushToast({ title: "Note downloaded", description: "Your note has been downloaded as a text file." });
   }
 
   async function handleShare() {
-    breadcrumb("note header: Share tapped");
+    breadcrumb(`note header: Share tapped (encrypted=${note.encrypted})`);
     moreOpen = false;
+    if (note.encrypted) {
+      pushToast({ title: "Unlock first", description: "Unlock this note before sharing it.", variant: "destructive" });
+      return;
+    }
     const name = `${note.title || "note"}.txt`;
     const blob = new Blob([entryToPlainText(note)], { type: "text/plain" });
     const result = await shareFiles([{ name, blob }], { title: note.title || "Note" });

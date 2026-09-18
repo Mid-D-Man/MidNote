@@ -182,6 +182,40 @@ export function buildExportFiles(entries: Entry[], format: ExportFormat): Export
   return [{ name: "MidNote-export.zip", blob: new Blob([zipped.slice()], { type: "application/zip" }) }];
 }
 
+// --- Encrypted backup export ---
+// Lets a locked entry be backed up/exported WITHOUT ever unlocking it —
+// the file this produces is just the ciphertext + key-file content
+// already sitting on the entry (see lockFlow.ts's performLock/
+// entry.lockedPayload/entry.lockedKeyFile), the exact bytes crypto.rs's
+// lock_payload/unlock_payload already round-trip through. Nothing here
+// decrypts or even reads the plaintext — this is deliberately the
+// counterpart to buildExportFiles() above, not a variant of it: Export
+// on a locked note/todo used to either silently do nothing (the
+// original bug) or would otherwise have to choose between leaking
+// plaintext or refusing entirely, and refusing entirely throws away a
+// legitimate use case (backing up a locked entry's data before, say,
+// reinstalling the app) for no real safety gain, since this file is
+// exactly as safe at rest as the entry already is while locked — it's
+// the same ciphertext, just also sitting in $DOWNLOAD. See
+// NoteEditorHeader/TodoHeader's handleDownload for where this branches
+// from the normal plaintext export based on entry.encrypted.
+export function buildEncryptedBackupFile(entry: Note | Todo): ExportedFile {
+  const payload = {
+    app: "MidNote",
+    format: "encrypted-backup",
+    version: 1,
+    entryType: entry.type,
+    title: entry.title,
+    lockKeyMode: entry.lockKeyMode,
+    lockedPayload: entry.lockedPayload,
+    lockedKeyFile: entry.lockedKeyFile,
+  };
+  return {
+    name: `${safeFileName(entry.title, "entry")}.mnenc.json`,
+    blob: new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }),
+  };
+}
+
 // <a download> blob links — what this used to do — don't work on
 // Android WebView. Not a MidNote bug: confirmed, still-open upstream
 // Tauri limitation (tauri-apps/tauri#10280 — Android has no way to

@@ -273,14 +273,39 @@
         ? `--rule-color: ${resolvedBodyTheme.textColor === "#000000" ? "rgba(0, 0, 0, 0.25)" : "rgba(255, 255, 255, 0.3)"};`
         : "",
   );
+  // BUGFIX #3 (the ACTUAL shrink fix — #2's own comment on .inner below
+  // explains why #2 wasn't it either): #2 correctly stopped .inner-panel
+  // from adding its OWN extra padding on top of .scroll-area's, so the
+  // available text WIDTH really was back to matching the non-themed
+  // case — but .inner-panel was still a visually distinct, near-opaque,
+  // rounded, shadowed box sitting INSET inside .scroll-area's own
+  // pre-existing padding, with the photo only visible in the gap around
+  // it. That reads as "the writing area shrank" even though its pixel
+  // width didn't — a themed note LOOKS boxed-in/framed next to a
+  // plain one, where nothing marks that same padding at all (.inner has
+  // no background of its own there, so the identical gap is invisible).
+  // Confirmed by re-tracing rather than re-asserting #2 already covers
+  // it: todo/[id]/+page.svelte's own .inner-panel never had this
+  // problem, because its wash is edge-to-edge with no separate framed
+  // box — see that file's identical comment.
+  // Real fix: stop treating the image case as a separate element with
+  // its own background at all. Paint the same near-opaque wash straight
+  // into bodyStyle's own background-image stack — same layering trick
+  // headerStyle above already uses (a solid-color gradient stacked under
+  // url(...) via two comma-separated background-image layers) — so it's
+  // just ONE more background on .scroll-area itself, exactly like the
+  // color case already is. That background naturally paints under
+  // .scroll-area's own padding the same way the color wash always has,
+  // so it reaches the true screen edges automatically, and there's no
+  // second box left to look "framed" or "shrunk" against it — text is
+  // inset by the exact same single padding every theme has always had.
   const bodyStyle = $derived(
     resolvedBodyTheme.kind === "color"
       ? `background: ${hexToRgba(resolvedBodyTheme.color, 0.14)}; ${ruleColorVar}`
       : resolvedBodyTheme.kind === "image"
-        ? `background-image: url(${resolvedBodyTheme.dataUrl}); background-size: cover; background-position: center; background-attachment: fixed; ${ruleColorVar}`
+        ? `background-image: linear-gradient(rgba(var(--surface-rgb), 0.93), rgba(var(--surface-rgb), 0.93)), url(${resolvedBodyTheme.dataUrl}); background-size: cover; background-position: center; background-attachment: fixed; ${ruleColorVar}`
         : "",
   );
-  const bodyHasImage = $derived(resolvedBodyTheme.kind === "image");
 </script>
 
 <svelte:head>
@@ -326,7 +351,7 @@
       </div>
     {:else}
       <div class="scroll-area" style={bodyStyle}>
-        <div class="inner" class:inner-panel={bodyHasImage}>
+        <div class="inner">
           <NoteTitle bind:value={note.title} />
           {#if currentPageIndex === 0}
             <NoteContent bind:value={note.content} bind:editor bind:tick bind:hasSelection baseFontSize={fontSize.value} {syncToken} />
@@ -368,43 +393,6 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
-  }
-  /* High-opacity, not fully solid — enough that the ordinary --text-hi/
-     --text-lo tokens stay genuinely safe over ANY photo without needing
-     a dynamic per-image text color the way NoteCard's image theme does,
-     since the actual live-editing surface (caret, selection, rich-text
-     formatting) is far more surface area to get right than a card's
-     title/preview text. rgba(var(--surface-rgb), …) rather than
-     color-mix(--surface, …) for the same Android WebView compatibility
-     reason as themePalette.ts's hexToRgba.
-
-     BUGFIX #2 (first attempt was wrong): the earlier fix here bumped
-     max-width to compensate for this panel's own padding — which only
-     actually does anything on a screen wide enough for 680px max-width
-     to be the binding constraint in the first place (a tablet/desktop
-     view). On a phone (this app's actual target — a Galaxy A13), .inner
-     is nowhere near 680px wide to begin with; its rendered width comes
-     from `width: 100%` of .scroll-area's own content box, which
-     max-width never even reaches, so raising the ceiling changed
-     nothing there — the padding this rule adds was still visibly
-     narrowing the writing area on the one platform that actually
-     matters here. Confirmed on-device.
-     Real fix: don't add any padding of this rule's own at all. The
-     "framed card" look doesn't actually need it — .scroll-area already
-     has its own space-5/space-4 padding UNCONDITIONALLY (same for every
-     theme kind), which already keeps this panel inset from the true
-     screen edges with room for rounded corners to read clearly against
-     the photo peeking through that existing gap. Adding a second,
-     theme-conditional layer of padding on top of that pre-existing gap
-     was the actual mistake — not something a bigger max-width could
-     ever fully undo on a narrow screen. With no padding/margin/max-width
-     changes of its own, this box is now IDENTICAL in size to the plain
-     .inner above on any screen width — only its background/corners/
-     shadow differ. */
-  .inner.inner-panel {
-    background: rgba(var(--surface-rgb), 0.93);
-    border-radius: var(--radius-md);
-    box-shadow: 0 2px 24px rgba(0, 0, 0, 0.25);
   }
   .error-state {
     flex: 1;

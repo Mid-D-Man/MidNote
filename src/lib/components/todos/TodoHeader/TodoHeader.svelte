@@ -12,7 +12,7 @@
   import { breadcrumb } from "$lib/debug/log.svelte";
   import { resolveTheme, hexToRgba, getImageTextColorVars } from "$lib/utils/themePalette";
   import { customThemes } from "$lib/stores/customThemes.svelte";
-  import { buildExportFiles, downloadFiles } from "$lib/utils/selectionActions";
+  import { buildExportFiles, buildEncryptedBackupFile, downloadFiles } from "$lib/utils/selectionActions";
   import type { IconRef, Todo, ThemeRef } from "$lib/types/entry";
 
   let {
@@ -56,8 +56,20 @@
         : "",
   );
 
+  // BUGFIX (data-safety, same category as handleDeleteTapped below and
+  // as NoteEditorHeader.svelte's identical gates) — see that file's
+  // comment for the full reasoning: this header renders unconditionally
+  // for a locked todo (only the body swaps to the placeholder), so
+  // Theme/Duplicate/Share/Download were all reachable and functional on
+  // a todo that hadn't been unlocked yet, operating on already-cleared
+  // steps/annotations (see lockFlow.ts's clearPlaintextFields).
   function handleOpenThemeSheet() {
-    breadcrumb("todo header: Theme tapped");
+    breadcrumb(`todo header: Theme tapped (encrypted=${todo.encrypted})`);
+    if (todo.encrypted) {
+      moreOpen = false;
+      pushToast({ title: "Unlock first", description: "Unlock this todo before changing its theme.", variant: "destructive" });
+      return;
+    }
     moreOpen = false;
     themeSheetOpen = true;
   }
@@ -112,7 +124,12 @@
   }
 
   function handleDuplicate() {
+    breadcrumb(`todo header: Duplicate tapped (encrypted=${todo.encrypted})`);
     moreOpen = false;
+    if (todo.encrypted) {
+      pushToast({ title: "Unlock first", description: "Unlock this todo before duplicating it.", variant: "destructive" });
+      return;
+    }
     const copy = createTodo();
     copy.title = `${todo.title} (Copy)`;
     copy.tags = [...todo.tags];
@@ -134,13 +151,32 @@
   // function's own hand-rolled text-building (which quietly duplicated,
   // and could drift from, entryToPlainText's todo branch) in favor of
   // that same shared function.
+  // BUGFIX (data-safety) — same fix and same reasoning as
+  // NoteEditorHeader.svelte's identical handleDownload: a locked todo's
+  // steps/annotations are already cleared (see lockFlow.ts's
+  // clearPlaintextFields), so the plaintext export path would either
+  // produce a near-empty file or, once fixed to check, need to refuse
+  // outright — which would throw away backing up a locked todo before
+  // it's unlocked. Downloads the actual stored ciphertext instead; see
+  // selectionActions.ts's buildEncryptedBackupFile.
   function handleDownload() {
+    breadcrumb(`todo header: Download tapped (encrypted=${todo.encrypted})`);
+    if (todo.encrypted) {
+      downloadFiles([buildEncryptedBackupFile(todo)]);
+      pushToast({ title: "Encrypted backup downloaded", description: "This todo is still locked — the file holds only encrypted data, not its readable content." });
+      return;
+    }
     downloadFiles(buildExportFiles([todo], "separate"));
     pushToast({ title: "Todo downloaded", description: "Your todo has been downloaded as a text file." });
   }
 
   async function handleShare() {
+    breadcrumb(`todo header: Share tapped (encrypted=${todo.encrypted})`);
     moreOpen = false;
+    if (todo.encrypted) {
+      pushToast({ title: "Unlock first", description: "Unlock this todo before sharing it.", variant: "destructive" });
+      return;
+    }
     pushToast({ title: "Share todo", description: "Share functionality coming soon." });
   }
 </script>
