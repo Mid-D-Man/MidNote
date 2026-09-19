@@ -41,7 +41,7 @@
 // password prompt — the moment the user actually navigates away. See
 // the onNavigate hook in the note/todo [id]/+page.svelte files.
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import type { LockKeyMode, Note, Todo } from "$lib/types/entry";
+import type { Entry, LockKeyMode } from "$lib/types/entry";
 import { askLockChoice, askPassword } from "$lib/stores/lockPrompt.svelte";
 import { sessionAppPassword, setSessionAppPassword } from "$lib/stores/lockSession.svelte";
 import { pushToast } from "$lib/stores/toast.svelte";
@@ -54,7 +54,7 @@ interface LockedPayloadResult {
   keyFileContent: string;
 }
 
-function buildPlaintextPayload(entry: Note | Todo): string {
+function buildPlaintextPayload(entry: Entry): string {
   // Tags used to travel inside this payload (see clearPlaintextFields'
   // old comment) because locking cleared them from the visible entry.
   // That's no longer true — tags now stay visible on a locked card (see
@@ -69,13 +69,22 @@ function buildPlaintextPayload(entry: Note | Todo): string {
   // same encrypted payload alongside content, or locking a multi-page
   // note would silently discard every page (and its name) past the
   // first the moment clearPlaintextFields runs, with no way back.
+  //
+  // `nodes`/`edges`/`viewport` (boards only): a board's entire meaning
+  // lives in those three fields, so they travel here for exactly the
+  // same reason a note's content does — clearPlaintextFields empties
+  // them on the visible entry, and this payload is the only place the
+  // real values survive a lock.
   if (entry.type === "regular") {
     return JSON.stringify({ content: entry.content, pages: entry.pages, page1Name: entry.page1Name });
+  }
+  if (entry.type === "board") {
+    return JSON.stringify({ nodes: entry.nodes, edges: entry.edges, viewport: entry.viewport });
   }
   return JSON.stringify({ steps: entry.steps, annotations: entry.annotations });
 }
 
-function applyDecryptedPayload(entry: Note | Todo, plaintextJson: string) {
+function applyDecryptedPayload(entry: Entry, plaintextJson: string) {
   const payload = JSON.parse(plaintextJson);
   if (entry.type === "regular") {
     entry.content = payload.content;
@@ -89,6 +98,13 @@ function applyDecryptedPayload(entry: Note | Todo, plaintextJson: string) {
     // page renaming shipped, so anything older just falls back to null
     // (auto-numbered "Page 1").
     entry.page1Name = typeof payload.page1Name === "string" ? payload.page1Name : null;
+  } else if (entry.type === "board") {
+    // Same defensive array handling as pages above — a board whose
+    // payload came back malformed should open as an empty board, not
+    // leave .nodes undefined and break every .length/.map on it.
+    entry.nodes = Array.isArray(payload.nodes) ? payload.nodes : [];
+    entry.edges = Array.isArray(payload.edges) ? payload.edges : [];
+    entry.viewport = payload.viewport ?? null;
   } else {
     entry.steps = payload.steps;
     entry.annotations = payload.annotations;
@@ -108,7 +124,7 @@ function applyDecryptedPayload(entry: Note | Todo, plaintextJson: string) {
   }
 }
 
-function clearPlaintextFields(entry: Note | Todo) {
+function clearPlaintextFields(entry: Entry) {
   if (entry.type === "regular") {
     entry.content = "";
     // Same reasoning as content — the real pages (and their names) live
@@ -118,6 +134,10 @@ function clearPlaintextFields(entry: Note | Todo) {
     // "locked".
     entry.pages = [];
     entry.page1Name = null;
+  } else if (entry.type === "board") {
+    entry.nodes = [];
+    entry.edges = [];
+    entry.viewport = null;
   } else {
     entry.steps = [];
     entry.annotations = [];
@@ -141,7 +161,7 @@ function clearPlaintextFields(entry: Note | Todo) {
  * is the genuinely slow part (Argon2id is a deliberately memory-hard
  * KDF; see crypto.rs's kdf_* fields), not the surrounding bookkeeping.
  */
-async function performLock(entry: Note | Todo, password: string, mode: LockKeyMode): Promise<void> {
+async function performLock(entry: Entry, password: string, mode: LockKeyMode): Promise<void> {
   const plaintextJson = buildPlaintextPayload(entry);
   beginGlobalBusy("Locking…");
   let result: LockedPayloadResult;
@@ -165,7 +185,7 @@ async function performLock(entry: Note | Todo, password: string, mode: LockKeyMo
  * Same busy-overlay wrapping as performLock() above, and for the same
  * reason.
  */
-async function performUnlock(entry: Note | Todo, password: string): Promise<void> {
+async function performUnlock(entry: Entry, password: string): Promise<void> {
   beginGlobalBusy("Unlocking…");
   let plaintextJson: string;
   try {
@@ -186,7 +206,7 @@ async function performUnlock(entry: Note | Todo, password: string): Promise<void
 }
 
 /** Locks `entry` in place (mutates it) and persists via saveEntry(). Returns whether it actually got locked (false = the user cancelled somewhere). This is the PERMANENT lock action (kebab menu "Lock"). */
-export async function lockEntry(entry: Note | Todo): Promise<boolean> {
+export async function lockEntry(entry: Entry): Promise<boolean> {
   if (!isTauri()) {
     pushToast({ title: "Lock needs the app", description: "Encryption only works in the installed app, not this preview.", variant: "destructive" });
     return false;
@@ -225,7 +245,7 @@ export async function lockEntry(entry: Note | Todo): Promise<boolean> {
 }
 
 /** Unlocks `entry` in place (mutates it) and persists via saveEntry(). Returns whether it actually got unlocked (false = cancelled). Retries on a wrong password rather than giving up after one try. This is the PERMANENT unlock action (kebab menu "Unlock") — the lock is gone for good after this. To open a locked note/todo for viewing/editing without permanently removing its lock, use unlockForSession() instead. */
-export async function unlockEntry(entry: Note | Todo): Promise<boolean> {
+export async function unlockEntry(entry: Entry): Promise<boolean> {
   if (!isTauri()) {
     pushToast({ title: "Unlock needs the app", description: "Encryption only works in the installed app, not this preview.", variant: "destructive" });
     return false;
@@ -277,7 +297,7 @@ export async function unlockEntry(entry: Note | Todo): Promise<boolean> {
  * would have been before this existed — there's no reliable way to
  * guarantee an async re-lock completes during a page/process teardown.
  */
-export async function unlockForSession(entry: Note | Todo): Promise<{ password: string; mode: LockKeyMode } | null> {
+export async function unlockForSession(entry: Entry): Promise<{ password: string; mode: LockKeyMode } | null> {
   if (!isTauri()) {
     pushToast({ title: "Unlock needs the app", description: "Encryption only works in the installed app, not this preview.", variant: "destructive" });
     return null;
@@ -318,7 +338,7 @@ export async function unlockForSession(entry: Note | Todo): Promise<{ password: 
  * itself fails — this runs with no dialog to fall back to, so on
  * failure it pushes its own toast rather than throwing into onNavigate.
  */
-export async function relockSilently(entry: Note | Todo, password: string, mode: LockKeyMode): Promise<boolean> {
+export async function relockSilently(entry: Entry, password: string, mode: LockKeyMode): Promise<boolean> {
   if (!isTauri()) return false;
   breadcrumb(`lockFlow: silently re-locking entry ${entry.id} (${mode} mode) after session unlock`);
   try {

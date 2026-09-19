@@ -5,7 +5,7 @@
 // Tauri invoke() calls later shouldn't require touching any component
 // that imports from here, since the exported function shapes below are
 // what a Tauri-backed version would expose too.
-import type { CustomIcon, CustomTheme, Entry, Note, Todo } from "$lib/types/entry";
+import type { Board, CustomIcon, CustomTheme, Entry, Note, Todo } from "$lib/types/entry";
 import { NO_THEME } from "$lib/types/entry";
 import { getColorSync } from "colorthief";
 
@@ -41,6 +41,18 @@ export function loadEntries(): Entry[] {
         if (!Array.isArray(e.steps)) e.steps = [];
         if (!Array.isArray(e.annotations)) e.annotations = [];
         if (!Array.isArray(e.categories) || e.categories.length === 0) e.categories = ["Steps"];
+      }
+      // Same defensive treatment as todos above. No migration path is
+      // needed here (boards are new — no older on-disk shape exists to
+      // upgrade from), but a board whose arrays are missing or
+      // corrupted should still open as an empty board rather than
+      // crashing the whole list read. viewport stays null when absent,
+      // which the board route reads as "no saved position, fit to
+      // content instead."
+      if (e.type === "board") {
+        if (!Array.isArray(e.nodes)) e.nodes = [];
+        if (!Array.isArray(e.edges)) e.edges = [];
+        if (!e.viewport || typeof e.viewport.zoom !== "number") e.viewport = null;
       }
       if (!Array.isArray(e.tags)) e.tags = [];
       // Entries saved before the struck field existed won't have it at
@@ -180,24 +192,54 @@ export function createTodo(): Todo {
   };
 }
 
+export function createBoard(): Board {
+  return {
+    id: generateId(),
+    type: "board",
+    title: "",
+    tags: [],
+    lastModified: new Date().toISOString(),
+    isBookmarked: false,
+    encrypted: false,
+    struck: false,
+    isPinned: false,
+    headerTheme: { ...NO_THEME },
+    bodyTheme: { ...NO_THEME },
+    icon: null,
+    lockKeyMode: null,
+    lockedPayload: null,
+    lockedKeyFile: null,
+    nodes: [],
+    edges: [],
+    viewport: null,
+  };
+}
+
 // Known-tag registry — mirrors mdix_files/schema/tags.mdix's
-// notes:: / todos:: split.
+// notes:: / todos:: split, now with a third boards:: scope.
 interface KnownTags {
   notes: string[];
   todos: string[];
+  boards: string[];
 }
 
+export type TagScope = keyof KnownTags;
+
 export function loadKnownTags(): KnownTags {
-  if (typeof localStorage === "undefined") return { notes: [], todos: [] };
+  if (typeof localStorage === "undefined") return { notes: [], todos: [], boards: [] };
   try {
     const raw = localStorage.getItem(TAGS_KEY);
-    return raw ? (JSON.parse(raw) as KnownTags) : { notes: [], todos: [] };
+    // boards:: is newer than the other two, so anything saved before
+    // it existed parses back with that key missing entirely — default
+    // it rather than letting every board-tag read hit undefined.
+    const parsed = raw ? (JSON.parse(raw) as Partial<KnownTags>) : {};
+    return { notes: parsed.notes ?? [], todos: parsed.todos ?? [], boards: parsed.boards ?? [] };
   } catch {
-    return { notes: [], todos: [] };
+    return { notes: [], todos: [], boards: [] };
   }
 }
 
-export function addKnownTag(kind: "notes" | "todos", tag: string) {
+export function addKnownTag(kind: TagScope, tag: string) {
   if (typeof localStorage === "undefined") return;
   const known = loadKnownTags();
   if (!known[kind].includes(tag)) {
@@ -206,7 +248,7 @@ export function addKnownTag(kind: "notes" | "todos", tag: string) {
   }
 }
 
-export function removeKnownTag(kind: "notes" | "todos", tag: string) {
+export function removeKnownTag(kind: TagScope, tag: string) {
   if (typeof localStorage === "undefined") return;
   const known = loadKnownTags();
   known[kind] = known[kind].filter((t) => t !== tag);

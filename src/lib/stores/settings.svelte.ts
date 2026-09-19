@@ -136,20 +136,27 @@ export function setAppBodyTheme(theme: ThemeRef) {
   if (typeof localStorage !== "undefined") localStorage.setItem(APP_BODY_THEME_KEY, JSON.stringify(theme));
 }
 
-// Which list tab (Notes/Todos) was showing — persisted so leaving to
-// view/edit an entry and coming back lands you where you were, instead
-// of always resetting to Notes. The list route (+page.svelte) is a
-// separate SvelteKit page from note/[id] and todo/[id]; navigating to
-// either and back fully unmounts and remounts it, so a plain local
-// $state there can't survive the round trip on its own — this is the
-// actual fix for "leaving a todo always comes back to Notes."
+// Which list tab (Notes/Todos/Boards) was showing — persisted so leaving
+// to view/edit an entry and coming back lands you where you were,
+// instead of always resetting to Notes. The list route (+page.svelte) is
+// a separate SvelteKit page from note/[id], todo/[id] and board/[id];
+// navigating to any of them and back fully unmounts and remounts it, so
+// a plain local $state there can't survive the round trip on its own —
+// this is the actual fix for "leaving a todo always comes back to Notes."
 const ACTIVE_VIEW_KEY = "midnote:active-view";
 
-export function loadLastActiveView(): "notes" | "todos" {
+export type ActiveView = "notes" | "todos" | "boards";
+
+export function loadLastActiveView(): ActiveView {
   if (typeof localStorage === "undefined") return "notes";
-  return localStorage.getItem(ACTIVE_VIEW_KEY) === "todos" ? "todos" : "notes";
+  const stored = localStorage.getItem(ACTIVE_VIEW_KEY);
+  // Explicit allowlist rather than a cast — anything unrecognized
+  // (including the value written by a build that predates a view being
+  // renamed or removed) falls back to Notes instead of putting the list
+  // route into a state with no matching tab.
+  return stored === "todos" || stored === "boards" ? stored : "notes";
 }
 
-export function setLastActiveView(view: "notes" | "todos") {
+export function setLastActiveView(view: ActiveView) {
   if (typeof localStorage !== "undefined") localStorage.setItem(ACTIVE_VIEW_KEY, view);
 }

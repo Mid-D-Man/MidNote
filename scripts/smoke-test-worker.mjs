@@ -38,6 +38,55 @@ class FakeIntersectionObserver {
   disconnect() {}
 }
 
+// jsdom also doesn't implement matchMedia. @xyflow/svelte calls it while
+// constructing its store (colorMode resolution — it checks
+// prefers-color-scheme), so the board route can't mount without it.
+// This is a jsdom gap, NOT an app bug: matchMedia is supported in
+// Android WebView and every browser this app targets, so stubbing it
+// here is making the harness match reality, not papering over a real
+// failure. Reports "no match" for every query, which for colorMode
+// resolution means the explicit colorMode prop wins — exactly what
+// happens in the real app, where that prop is always set.
+function fakeMatchMedia(query) {
+  return {
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener() {},
+    removeListener() {},
+    addEventListener() {},
+    removeEventListener() {},
+    dispatchEvent: () => false,
+  };
+}
+w.matchMedia = fakeMatchMedia;
+
+// Same category as matchMedia above — jsdom has no ResizeObserver, but
+// every browser this app targets (Android WebView included) does.
+// @xyflow/svelte observes its own container to track the canvas size
+// for pan/zoom math, so the board route can't mount without it. The
+// stub never fires a callback, which is correct for this harness: it
+// means the canvas keeps its initial (zero) measured size and simply
+// renders nothing visible, rather than the route throwing. What's
+// under test here is "does this route mount and settle without
+// crashing", not layout.
+class FakeResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+w.ResizeObserver = FakeResizeObserver;
+
+// Third jsdom gap of the same kind. jsdom ships SVGElement and
+// SVGGraphicsElement but NOT SVGAElement (an <a> inside an SVG) — Svelte's
+// own client runtime references it while deciding how to handle an
+// element's attributes, which any route rendering SVG reaches. Real
+// browsers all define it. Subclassing jsdom's real SVGGraphicsElement
+// rather than inventing a bare class keeps `instanceof` checks against
+// the SVG hierarchy behaving correctly.
+class FakeSVGAElement extends w.SVGGraphicsElement {}
+w.SVGAElement = FakeSVGAElement;
+
 // Bare-identifier browser globals the SvelteKit client runtime and app
 // code touch directly (the way real browser globals work — `window`
 // properties are implicitly global). Extend this list if a new scenario
@@ -72,6 +121,9 @@ global.scrollTo = () => {};
 global.requestAnimationFrame = (cb) => setTimeout(cb, 0);
 global.cancelAnimationFrame = (id) => clearTimeout(id);
 global.IntersectionObserver = FakeIntersectionObserver;
+global.matchMedia = fakeMatchMedia;
+global.ResizeObserver = FakeResizeObserver;
+global.SVGAElement = FakeSVGAElement;
 global.fetch = async () => new Response("{}", { status: 404 });
 
 // SvelteKit's client entry reads a per-build-hashed global

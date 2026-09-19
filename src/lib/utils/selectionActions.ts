@@ -42,6 +42,32 @@ export function entryToPlainText(entry: Entry): string {
     });
     return parts.join("\n").trim();
   }
+  // A board is a spatial arrangement, not prose — there's no honest
+  // plain-text rendering of "these four cards, positioned like this,
+  // connected like that." Rather than invent one that silently loses
+  // the only thing a board actually encodes (the layout and the
+  // connections), export a readable inventory: every node, then every
+  // connection between them by name. Enough to see what was on the
+  // board in a text file; explicitly not a round-trippable format.
+  if (entry.type === "board") {
+    const out: string[] = [entry.title || "Untitled", ""];
+    if (entry.nodes.length === 0) {
+      out.push("(empty board)");
+      return out.join("\n").trim();
+    }
+    const nameOf = new Map(entry.nodes.map((n) => [n.id, n.label || "Untitled"]));
+    out.push("--- Nodes ---");
+    for (const n of entry.nodes) {
+      out.push(n.body ? `${n.label || "Untitled"}: ${n.body}` : n.label || "Untitled");
+    }
+    if (entry.edges.length > 0) {
+      out.push("", "--- Connections ---");
+      for (const e of entry.edges) {
+        out.push(`${nameOf.get(e.source) ?? "?"} -> ${nameOf.get(e.target) ?? "?"}`);
+      }
+    }
+    return out.join("\n").trim();
+  }
   const lines: string[] = [entry.title || "Untitled", ""];
   for (const step of entry.steps) {
     lines.push(`[${step.category}] ${step.title}`);

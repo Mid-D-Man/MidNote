@@ -11,8 +11,8 @@
   import CardOverflowMenu from "$lib/components/shared/CardOverflowMenu/CardOverflowMenu.svelte";
   import TagsPopup from "$lib/components/shared/TagsPopup/TagsPopup.svelte";
   import { entries, saveEntry, removeEntry, toggleBookmark, toggleStrikethrough, togglePinned } from "$lib/stores/entries.svelte";
-  import type { Note, Todo, Entry } from "$lib/types/entry";
-  import { noteTags, todoTags, sync as syncTags, registerTag, unregisterTag } from "$lib/stores/tags.svelte";
+  import type { Note, Todo, Board, Entry } from "$lib/types/entry";
+  import { noteTags, todoTags, boardTags, sync as syncTags, registerTag, unregisterTag } from "$lib/stores/tags.svelte";
   import { createNote } from "$lib/storage";
   import { stripHtml, plainTextToHtml } from "$lib/utils/richText";
   import { createLongPressHandlers } from "$lib/utils/longPress";
@@ -23,7 +23,7 @@
   import { resolveTheme, hexToRgba, resolveIcon, getImageTextColorVars } from "$lib/utils/themePalette";
   import { customThemes } from "$lib/stores/customThemes.svelte";
   import { customIcons } from "$lib/stores/customIcons.svelte";
-  import { appBodyTheme, loadLastActiveView, setLastActiveView } from "$lib/stores/settings.svelte";
+  import { appBodyTheme, loadLastActiveView, setLastActiveView, type ActiveView } from "$lib/stores/settings.svelte";
   import { lockEntry, unlockEntry } from "$lib/utils/lockFlow";
 
   let isLoading = $state(true);
@@ -33,7 +33,7 @@
   // Notes tab regardless of which one you'd actually been viewing. Seeds
   // from whatever was last shown instead — see settings.svelte.ts's
   // loadLastActiveView/setLastActiveView.
-  let activeView = $state<"notes" | "todos">(loadLastActiveView());
+  let activeView = $state<ActiveView>(loadLastActiveView());
   let selectedTag = $state<string | null>(null);
   let searchQuery = $state("");
   let sortBy = $state<"recent" | "alphabetical" | "bookmarked">("recent");
@@ -61,9 +61,15 @@
 
   const notes = $derived(entries.filter((e): e is Note => e.type === "regular"));
   const todos = $derived(entries.filter((e): e is Todo => e.type === "todo"));
+  const boards = $derived(entries.filter((e): e is Board => e.type === "board"));
 
-  const displayItems = $derived(activeView === "notes" ? notes : todos);
-  const tagList = $derived(activeView === "notes" ? noteTags : todoTags);
+  const displayItems = $derived(activeView === "notes" ? notes : activeView === "todos" ? todos : boards);
+  const tagList = $derived(activeView === "notes" ? noteTags : activeView === "todos" ? todoTags : boardTags);
+  // Singular noun for this tab, used by the New/Create buttons, the
+  // empty state and the selection bar — one place rather than the same
+  // ternary repeated at each of those call sites.
+  const itemNoun = $derived(activeView === "notes" ? "Note" : activeView === "todos" ? "Todo" : "Board");
+  const newRoute = $derived(activeView === "notes" ? "/note/new" : activeView === "todos" ? "/todo/new" : "/board/new");
 
   const filteredItems = $derived(
     (selectedTag ? displayItems.filter((i) => i.tags.includes(selectedTag!)) : displayItems).filter((i) => {
@@ -153,7 +159,7 @@
   // result. Blocked outright rather than merging "around" it.
   const canMerge = $derived(selectedIds.size >= 2 && !selectionHasEncrypted);
 
-  function switchView(view: "notes" | "todos") {
+  function switchView(view: ActiveView) {
     activeView = view;
     setLastActiveView(view);
     selectedTag = null;
@@ -176,18 +182,18 @@
   // there. NoteCard routes its own tap through this exact function via
   // its `onClick` prop; the inline todo row does the same.
   function handleClick(id: string) {
-    const item = [...notes, ...todos].find((i) => i.id === id);
+    const item = entries.find((i) => i.id === id);
     if (!item) return;
-    goto(item.type === "todo" ? `/todo/${id}` : `/note/${id}`);
+    goto(item.type === "todo" ? `/todo/${id}` : item.type === "board" ? `/board/${id}` : `/note/${id}`);
   }
 
   function handleAddTag() {
     const name = prompt("Enter tag name:");
-    if (name) registerTag(activeView === "notes" ? "notes" : "todos", name);
+    if (name) registerTag(activeView, name);
   }
 
   function handleRemoveTag(tag: string) {
-    unregisterTag(activeView === "notes" ? "notes" : "todos", tag);
+    unregisterTag(activeView, tag);
     if (selectedTag === tag) selectedTag = null;
   }
 
@@ -394,6 +400,7 @@
     <div class="view-tabs" style={viewTabsStyle}>
       <button class:active={activeView === "notes"} onclick={() => switchView("notes")}>Notes</button>
       <button class:active={activeView === "todos"} onclick={() => switchView("todos")}>Todos</button>
+      <button class:active={activeView === "boards"} onclick={() => switchView("boards")}>Boards</button>
     </div>
 
     <div class="content" class:with-bar={selectMode}>
@@ -432,10 +439,10 @@
         {/if}
 
         <div class="section-header">
-          <h2>{activeView === "notes" ? "All Notes" : "All Todos"}{selectedTag ? ` — ${selectedTag}` : ""}</h2>
+          <h2>All {itemNoun}s{selectedTag ? ` — ${selectedTag}` : ""}</h2>
           {#if !selectMode}
-            <Button onclick={() => goto(activeView === "notes" ? "/note/new" : "/todo/new")}>
-              + New {activeView === "notes" ? "Note" : "Todo"}
+            <Button onclick={() => goto(newRoute)}>
+              + New {itemNoun}
             </Button>
           {/if}
         </div>
@@ -443,8 +450,8 @@
         {#if sortedItems.length === 0}
           <div class="empty">
             <p>No {activeView} found.</p>
-            <Button size="lg" onclick={() => goto(activeView === "notes" ? "/note/new" : "/todo/new")}>
-              Create {activeView === "notes" ? "Note" : "Todo"}
+            <Button size="lg" onclick={() => goto(newRoute)}>
+              Create {itemNoun}
             </Button>
           </div>
         {:else}
@@ -465,6 +472,45 @@
                   onTogglePin={togglePinned}
                   unlockingToOpen={lockBusyIds.has(item.id)}
                 />
+              {:else if item.type === "board"}
+                <!-- Board card. Deliberately simpler than NoteCard/the
+                     todo row for now: title, node count, tags, and tap
+                     to open. Theme/icon/lock/pin/bookmark all EXIST on
+                     a board (it extends EntryRef like the other two),
+                     but their list-card affordances aren't wired here
+                     yet — boards are new and the canvas itself is the
+                     part that needs real-device confirmation first.
+                     Adding them later is additive and touches only
+                     this block. -->
+                {@const resolvedBoardIcon = resolveIcon(item.icon, customIcons)}
+                <div
+                  class="todo-item"
+                  role="button"
+                  tabindex="0"
+                  onclick={() => handleClick(item.id)}
+                  onkeydown={(e) => e.key === "Enter" && handleClick(item.id)}
+                >
+                  <div class="title-row board-title-row">
+                    {#if resolvedBoardIcon.kind === "preset"}
+                      <span class="icon-badge" aria-hidden="true">{resolvedBoardIcon.glyph}</span>
+                    {:else if resolvedBoardIcon.kind === "custom"}
+                      <span class="icon-badge icon-badge-image" style="background-image:url({resolvedBoardIcon.dataUrl})" aria-hidden="true"></span>
+                    {/if}
+                    <strong class:struck={item.struck}>{item.title || "Untitled"}</strong>
+                  </div>
+                  {#if !item.encrypted}
+                    <span class="meta">
+                      {item.nodes.length} node{item.nodes.length === 1 ? "" : "s"} · {new Date(item.lastModified).toLocaleDateString()}
+                    </span>
+                  {/if}
+                  {#if item.tags.length > 0}
+                    <div class="tags">
+                      {#each item.tags as tag (tag)}
+                        <span class="tag">{tag}</span>
+                      {/each}
+                    </div>
+                  {/if}
+                </div>
               {:else}
                 {@const resolvedItemIcon = resolveIcon(item.icon, customIcons)}
                 <div
@@ -581,7 +627,7 @@
   {#if selectMode}
     <SelectionActionBar
       selectedCount={selectedIds.size}
-      itemLabel={activeView === "notes" ? "note" : "todo"}
+      itemLabel={itemNoun.toLowerCase()}
       {canMerge}
       {selectionHasEncrypted}
       onCancel={exitSelectMode}
@@ -896,6 +942,12 @@
      reserves room for the corner-actions cluster now on the left and
      the bookmark star on the right, same reasoning as NoteCard's own
      title-row margin. */
+  /* The todo row reserves horizontal room for its overflow cluster and
+     bookmark star; a board card has neither yet, so it resets that
+     margin instead of leaving a gap where nothing sits. */
+  .todo-item .title-row.board-title-row {
+    margin: 0;
+  }
   .todo-item .title-row {
     display: flex;
     align-items: center;

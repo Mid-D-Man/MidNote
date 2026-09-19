@@ -185,4 +185,62 @@ export interface Todo extends EntryRef {
   annotations: Annotation[];
 }
 
-export type Entry = Note | Todo;
+// --- Boards ---
+// A board is the third top-level entry type, a sibling to Note and Todo
+// rather than a kind of page inside a note (decided explicitly, not
+// assumed): a board carries its own persisted pan/zoom viewport, which
+// has no meaning in the linear page-switcher the Pages feature uses,
+// and extending EntryRef the same way Note/Todo do means it inherits
+// title/tags/bookmark/pin/strike/theme/icon handling for free.
+//
+// Node and edge shapes are deliberately OUR OWN, not @xyflow/svelte's
+// `Node`/`Edge` types re-exported. What gets persisted is only the
+// handful of fields a board actually means (what/where/connected-to);
+// everything xyflow adds at runtime (measured dimensions, internal
+// z-index/handle bookkeeping, selection and drag state) is view state
+// that gets recomputed on mount and must never reach storage. The
+// board route converts between the two in one place each way — see
+// toFlowNodes/fromFlowNodes there. This also keeps the on-disk shape
+// stable if the canvas library is ever swapped out, which matters
+// because the library choice is still only spike-confirmed.
+export type BoardNodeKind = "text" | "image";
+
+export interface BoardNode {
+  id: string;
+  kind: BoardNodeKind;
+  x: number;
+  y: number;
+  label: string;
+  // Only meaningful for kind "text" — the longer body under the label.
+  body: string | null;
+  // Only meaningful for kind "image" — an id into the CustomIcon
+  // registry, reusing that existing upload/downscale path rather than
+  // introducing a third image store. null means "no image picked yet",
+  // which renders as an empty placeholder tile rather than an error.
+  customIconId: string | null;
+}
+
+export interface BoardEdge {
+  id: string;
+  source: string;
+  target: string;
+}
+
+// Persisted so reopening a board returns you to the part of it you were
+// actually looking at — on a phone-sized canvas that matters a lot more
+// than on desktop, since very little of a board fits on screen at once.
+export interface BoardViewport {
+  x: number;
+  y: number;
+  zoom: number;
+}
+
+export interface Board extends EntryRef {
+  type: "board";
+  nodes: BoardNode[];
+  edges: BoardEdge[];
+  viewport: BoardViewport | null;
+}
+
+export type Entry = Note | Todo | Board;
+

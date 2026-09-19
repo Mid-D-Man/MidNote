@@ -35,6 +35,7 @@ if (!existsSync(BUILD_DIR)) {
 const now = new Date().toISOString();
 const NOTE_ID = "smoke-test-note-0001";
 const TODO_ID = "smoke-test-todo-0001";
+const BOARD_ID = "smoke-test-board-0001";
 
 const SEED_ENTRIES = [
   {
@@ -59,6 +60,27 @@ const SEED_ENTRIES = [
     steps: [{ id: "s1", text: "step one", done: false, category: "Steps" }],
     annotations: [],
   },
+  {
+    id: BOARD_ID,
+    type: "board",
+    title: "Smoke test board",
+    tags: [],
+    lastModified: now,
+    isBookmarked: false,
+    encrypted: false,
+    // Two nodes and a real edge between them, not an empty board — an
+    // empty one would never exercise the node-type components or the
+    // persisted-node -> xyflow-node conversion, which is where this
+    // route's actual mount-time work happens.
+    nodes: [
+      { id: "bn1", kind: "text", x: 0, y: 0, label: "Node one", body: null, customIconId: null },
+      { id: "bn2", kind: "image", x: 160, y: 0, label: "Node two", body: null, customIconId: null },
+    ],
+    edges: [{ id: "be1", source: "bn1", target: "bn2" }],
+    // A saved viewport, so the "reopen where you left off" branch is
+    // the one under test rather than the fitView fallback.
+    viewport: { x: 0, y: 0, zoom: 1 },
+  },
 ];
 
 // Every scenario that mounts a route component and runs its effects.
@@ -72,6 +94,8 @@ const SCENARIOS = [
   { name: "note — existing", path: `/note/${NOTE_ID}`, seed: SEED_ENTRIES },
   { name: "todo — new", path: "/todo/new", seed: SEED_ENTRIES },
   { name: "todo — existing", path: `/todo/${TODO_ID}`, seed: SEED_ENTRIES },
+  { name: "board — new", path: "/board/new", seed: SEED_ENTRIES },
+  { name: "board — existing", path: `/board/${BOARD_ID}`, seed: SEED_ENTRIES },
 ];
 
 function runScenario(scenario) {
