@@ -226,7 +226,16 @@
     flex: 1;
     min-height: 0;
     overflow-y: auto;
-    color: var(--text-hi);
+    /* Theme-aware, with the plain token as fallback. Load-bearing since
+       the body image wash dropped to ~0.18 (see note/[id]/+page.svelte's
+       BODY_IMAGE_WASH): before that the text sat on a near-opaque
+       --surface and the fixed token was always safe, but now it sits on
+       the photo itself. --theme-text-hi is set inline by that route for
+       the image case only, from colorthief's real per-image light/dark
+       sample — so this picks up dark text over a light photo and light
+       text over a dark one, instead of staying one fixed colour and
+       becoming unreadable over half of them. */
+    color: var(--theme-text-hi, var(--text-hi));
     font-family: var(--font-sans);
     padding: var(--space-2) 0 var(--space-6);
   }
@@ -258,7 +267,9 @@
     content: attr(data-placeholder);
     float: left;
     height: 0;
-    color: var(--text-faint);
+    /* Same reasoning as the main text colour above — the placeholder
+       sits on the photo too once a body image theme is active. */
+    color: var(--theme-text-lo, var(--text-faint));
     pointer-events: none;
   }
 

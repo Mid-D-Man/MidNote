@@ -84,7 +84,23 @@ export function entryToPlainText(entry: Entry): string {
 }
 
 export function safeFileName(title: string, fallback: string): string {
-  const base = (title || fallback).trim().replace(/[\\/:*?"<>|]/g, "-").slice(0, 80);
+  // BUGFIX (found by feeding this a deliberately hostile title): the
+  // character class here covered the Windows-reserved punctuation but
+  // not CONTROL characters, so a title containing a newline — easy to
+  // produce by pasting into the title field — sailed through and
+  // produced a filename with a literal line break in it. Android's
+  // save-file picker and every desktop filesystem reject that. Control
+  // characters are now collapsed to the same "-" as the rest, and
+  // runs of separators are squeezed so "a\n\nb" doesn't become
+  // "a--b".
+  const base = (title || fallback)
+    .replace(/[\\/:*?"<>|]/g, "-")
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\x00-\x1f\x7f]/g, "-")
+    .replace(/-{2,}/g, "-")
+    .trim()
+    .replace(/^[-.\s]+|[-.\s]+$/g, "")
+    .slice(0, 80);
   return base || fallback;
 }
 
@@ -225,22 +241,58 @@ export function buildExportFiles(entries: Entry[], format: ExportFormat): Export
 // the same ciphertext, just also sitting in $DOWNLOAD. See
 // NoteEditorHeader/TodoHeader's handleDownload for where this branches
 // from the normal plaintext export based on entry.encrypted.
-export function buildEncryptedBackupFile(entry: Note | Todo): ExportedFile {
-  const payload = {
-    app: "MidNote",
-    format: "encrypted-backup",
-    version: 1,
-    entryType: entry.type,
-    title: entry.title,
-    lockKeyMode: entry.lockKeyMode,
-    lockedPayload: entry.lockedPayload,
-    lockedKeyFile: entry.lockedKeyFile,
-  };
+export function buildEncryptedBackupFile(entry: Entry): ExportedFile {
+  // Emitted as a real .mdix file rather than JSON: DixScript is this
+  // project's own data-interchange format, the storage schema already
+  // mirrors it (see entry.ts's header comment), and the encryption on
+  // the other side of this is DixScript's own (src-tauri/src/data/
+  // crypto.rs). A backup of an encrypted entry written in anything
+  // else would be the one MidNote artifact that ISN'T .mdix.
+  //
+  // Nothing here decrypts or reads plaintext — lockedPayload and
+  // lockedKeyFile are copied verbatim from the entry, which is exactly
+  // what's already sitting in storage while it's locked. This file is
+  // therefore no less safe at rest than the locked entry itself.
+  //
+  // Values are emitted through mdixString() below rather than
+  // interpolated raw; a stray quote or backslash inside a base64
+  // payload would otherwise produce a file the real parser rejects.
+  const lines = [
+    "// Brought to u by MidManStudio",
+    "@CONFIG(",
+    '  version    -> "1.0.0"',
+    '  features   -> "data"',
+    '  debug_mode -> "off"',
+    ")",
+    "",
+    "@DATA(",
+    `  app = ${mdixString("MidNote")}`,
+    `  format = ${mdixString("encrypted-backup")}`,
+    "  format_version = 1",
+    `  entry_type = ${mdixString(entry.type)}`,
+    `  entry_id = ${mdixString(entry.id)}`,
+    `  title = ${mdixString(entry.title)}`,
+    `  lock_key_mode = ${mdixString(entry.lockKeyMode ?? "")}`,
+    `  locked_payload = ${mdixString(entry.lockedPayload ?? "")}`,
+    `  locked_key_file = ${mdixString(entry.lockedKeyFile ?? "")}`,
+    ")",
+    "",
+  ];
   return {
-    name: `${safeFileName(entry.title, "entry")}.mnenc.json`,
-    blob: new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }),
+    name: `${safeFileName(entry.title, "entry")}.mdix`,
+    blob: new Blob([lines.join("\n")], { type: "text/plain" }),
   };
 }
+
+// Minimal DixScript string literal escaping. Only backslash and the
+// double quote actually need escaping inside one; newlines are escaped
+// too so a title typed with a line break can't terminate the literal
+// early and produce an unparseable file.
+function mdixString(value: string): string {
+  const escaped = value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\r?\n/g, "\\n");
+  return `"${escaped}"`;
+}
+
 
 // <a download> blob links — what this used to do — don't work on
 // Android WebView. Not a MidNote bug: confirmed, still-open upstream

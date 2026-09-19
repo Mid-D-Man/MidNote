@@ -9,6 +9,7 @@
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog/ConfirmDialog.svelte";
   import SelectionActionBar from "$lib/components/shared/SelectionActionBar/SelectionActionBar.svelte";
   import CardOverflowMenu from "$lib/components/shared/CardOverflowMenu/CardOverflowMenu.svelte";
+  import LockBadge from "$lib/components/shared/LockBadge/LockBadge.svelte";
   import TagsPopup from "$lib/components/shared/TagsPopup/TagsPopup.svelte";
   import { entries, saveEntry, removeEntry, toggleBookmark, toggleStrikethrough, togglePinned } from "$lib/stores/entries.svelte";
   import type { Note, Todo, Board, Entry } from "$lib/types/entry";
@@ -16,7 +17,7 @@
   import { createNote } from "$lib/storage";
   import { stripHtml, plainTextToHtml } from "$lib/utils/richText";
   import { createLongPressHandlers } from "$lib/utils/longPress";
-  import { mergeNotes, mergeTodos, buildExportFiles, downloadFiles, type ExportFormat } from "$lib/utils/selectionActions";
+  import { mergeNotes, mergeTodos, buildExportFiles, buildEncryptedBackupFile, downloadFiles, type ExportFormat } from "$lib/utils/selectionActions";
   import { shareFiles } from "$lib/utils/share";
   import { pushToast } from "$lib/stores/toast.svelte";
   import { breadcrumb } from "$lib/debug/log.svelte";
@@ -246,9 +247,25 @@
     pushToast({ title: `${item?.type === "todo" ? "Todo" : "Note"} deleted`, variant: "destructive" });
   }
 
+  // BUGFIX: this is the "content is empty" report. An earlier round
+  // routed the two EDITOR headers' Export buttons onto the encrypted
+  // backup path when an entry is locked, but missed this one — the
+  // list card's own overflow-menu Download, which is a separate call
+  // site that went straight to the PLAINTEXT builder with no encrypted
+  // check at all. A locked entry has its content/steps/nodes cleared
+  // (lockFlow.ts's clearPlaintextFields), so what came out was a .txt
+  // holding nothing but the title. Exactly the same shape of miss as
+  // the earlier handleClick-vs-editor-unlock bug: a second copy of the
+  // same decision living on the list page that didn't get migrated
+  // with the first.
   async function handleDownloadSingle(id: string) {
     const item = entries.find((e) => e.id === id);
     if (!item) return;
+    if (item.encrypted) {
+      await downloadFiles([buildEncryptedBackupFile(item)]);
+      pushToast({ title: "Encrypted backup downloaded", description: "Still locked — the file holds encrypted data, not readable content." });
+      return;
+    }
     await downloadFiles(buildExportFiles([item], "separate"));
     pushToast({ title: "Downloaded" });
   }
@@ -354,7 +371,15 @@
 
   async function handleExportSelected(format: ExportFormat) {
     breadcrumb(`selection: exporting ${selectedIds.size} items as ${format}`);
-    await downloadFiles(buildExportFiles(selectedEntries, format));
+    // Same fix as handleDownloadSingle: locked entries in a multi-select
+    // would otherwise each produce an empty plaintext file. They get
+    // their encrypted backup instead, alongside the normal export of
+    // whatever else was selected — rather than blocking the whole
+    // export because one locked item was in the set.
+    const locked = selectedEntries.filter((e) => e.encrypted);
+    const open = selectedEntries.filter((e) => !e.encrypted);
+    const files = [...(open.length > 0 ? buildExportFiles(open, format) : []), ...locked.map(buildEncryptedBackupFile)];
+    await downloadFiles(files);
     pushToast({ title: "Exported", description: `${selectedIds.size} item${selectedIds.size === 1 ? "" : "s"} downloaded.` });
     exitSelectMode();
   }
@@ -496,6 +521,9 @@
                     {:else if resolvedBoardIcon.kind === "custom"}
                       <span class="icon-badge icon-badge-image" style="background-image:url({resolvedBoardIcon.dataUrl})" aria-hidden="true"></span>
                     {/if}
+                    {#if item.encrypted}
+                      <LockBadge />
+                    {/if}
                     <strong class:struck={item.struck}>{item.title || "Untitled"}</strong>
                   </div>
                   {#if !item.encrypted}
@@ -593,6 +621,9 @@
                       <span class="icon-badge" aria-hidden="true">{resolvedItemIcon.glyph}</span>
                     {:else if resolvedItemIcon.kind === "custom"}
                       <span class="icon-badge icon-badge-image" style="background-image:url({resolvedItemIcon.dataUrl})" aria-hidden="true"></span>
+                    {/if}
+                    {#if item.encrypted}
+                      <LockBadge />
                     {/if}
                     <strong class:struck={item.struck}>{item.title || "Untitled"}</strong>
                   </div>

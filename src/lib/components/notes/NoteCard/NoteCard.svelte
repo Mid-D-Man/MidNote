@@ -1,5 +1,6 @@
 <script lang="ts">
   import Card from "$lib/components/ui/Card/Card.svelte";
+  import LockBadge from "$lib/components/shared/LockBadge/LockBadge.svelte";
   import CardOverflowMenu from "$lib/components/shared/CardOverflowMenu/CardOverflowMenu.svelte";
   import TagsPopup from "$lib/components/shared/TagsPopup/TagsPopup.svelte";
   import { lockEntry, unlockEntry } from "$lib/utils/lockFlow";
@@ -60,7 +61,10 @@
   // notes have an empty content field (the real content lives inside
   // lockedPayload instead — see utils/lockFlow.ts), so show an explicit
   // placeholder rather than a blank card that looks broken.
-  const preview = $derived(note.encrypted ? "🔒 Locked" : stripHtml(note.content).slice(0, 120));
+  // The preview is hidden entirely while locked (see the markup
+  // below), so this no longer needs a "🔒 Locked" placeholder string —
+  // the lock state is shown by LockBadge in the title row instead.
+  const preview = $derived(stripHtml(note.content).slice(0, 120));
   const dateLabel = $derived(new Date(note.lastModified).toLocaleDateString());
 
   const resolved = $derived(resolveTheme(note.headerTheme, customThemes));
@@ -208,6 +212,9 @@
       <span class="icon-badge" aria-hidden="true">{resolvedIcon.glyph}</span>
     {:else if resolvedIcon.kind === "custom"}
       <span class="icon-badge icon-badge-image" style="background-image:url({resolvedIcon.dataUrl})" aria-hidden="true"></span>
+    {/if}
+    {#if note.encrypted}
+      <LockBadge />
     {/if}
     <h3 class="title" class:struck={note.struck}>{note.title || "Untitled"}</h3>
   </div>

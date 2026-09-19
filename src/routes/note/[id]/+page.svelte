@@ -26,7 +26,7 @@
   import { breadcrumb } from "$lib/debug/log.svelte";
   import { stripHtml } from "$lib/utils/richText";
   import { unlockForSession, relockSilently } from "$lib/utils/lockFlow";
-  import { resolveTheme, hexToRgba } from "$lib/utils/themePalette";
+  import { resolveTheme, hexToRgba, getImageTextColorVars } from "$lib/utils/themePalette";
   import { customThemes } from "$lib/stores/customThemes.svelte";
   import Spinner from "$lib/components/ui/Spinner/Spinner.svelte";
   import type { LockKeyMode, Note } from "$lib/types/entry";
@@ -256,6 +256,22 @@
   // never actually compositing pixel-for-pixel over an image — the
   // photo shows as a framing backdrop around the edges, not literally
   // behind the letters being typed.
+  // How strongly the editor's writing surface washes out a body IMAGE
+  // theme. Was 0.93 — near-opaque, which made the photo a faint frame
+  // rather than something you could actually see. Dropped to let the
+  // image genuinely show through.
+  //
+  // This is a real legibility trade, not a free win: at 0.93 the text
+  // was effectively sitting on flat --surface and the plain --text-hi
+  // token was always safe. It isn't anymore, so the image case now ALSO
+  // emits getImageTextColorVars (colorthief's per-image light/dark
+  // decision, the same mechanism NoteCard's image themes have used
+  // since Theme v2) and NoteContent consumes those vars — otherwise
+  // dark text over a dark photo would be unreadable. A very busy photo
+  // can still be a poor backdrop for a wall of text; that's inherent to
+  // wanting the image visible, and the fix for that case is picking a
+  // calmer image, not raising this back up.
+  const BODY_IMAGE_WASH = 0.18;
   const resolvedBodyTheme = $derived(resolveTheme(note.bodyTheme, customThemes));
   // NoteContent.svelte's ruled-paper lines read var(--rule-color, <fixed
   // sepia default>) — that fixed default is a nice match for the plain
@@ -266,11 +282,21 @@
   // decision as everywhere else) for an image — never derived from the
   // image's actual color, since .inner-panel's near-opaque backing means
   // the lines are sitting on --surface either way, not on the photo.
+  // UPDATED alongside the wash change below: the old comment here said
+  // the rules are "never derived from the image's actual color, since
+  // .inner-panel's near-opaque backing means the lines are sitting on
+  // --surface either way, not on the photo." That reasoning expired the
+  // moment the wash dropped from 0.93 to BODY_IMAGE_WASH — the lines
+  // now genuinely DO sit on the photo. They still key off textColor
+  // (colorthief's real per-image light/dark decision, sampled at upload
+  // — see CustomTheme.textColor), which is the right input; what
+  // changed is the opacity, raised because a line that read clearly
+  // against flat --surface disappears against a busy photo.
   const ruleColorVar = $derived(
     resolvedBodyTheme.kind === "color"
       ? `--rule-color: ${hexToRgba(resolvedBodyTheme.color, 0.4)};`
       : resolvedBodyTheme.kind === "image"
-        ? `--rule-color: ${resolvedBodyTheme.textColor === "#000000" ? "rgba(0, 0, 0, 0.25)" : "rgba(255, 255, 255, 0.3)"};`
+        ? `--rule-color: ${resolvedBodyTheme.textColor === "#000000" ? "rgba(0, 0, 0, 0.45)" : "rgba(255, 255, 255, 0.5)"};`
         : "",
   );
   // BUGFIX #3 (the ACTUAL shrink fix — #2's own comment on .inner below
@@ -303,7 +329,7 @@
     resolvedBodyTheme.kind === "color"
       ? `background: ${hexToRgba(resolvedBodyTheme.color, 0.14)}; ${ruleColorVar}`
       : resolvedBodyTheme.kind === "image"
-        ? `background-image: linear-gradient(rgba(var(--surface-rgb), 0.93), rgba(var(--surface-rgb), 0.93)), url(${resolvedBodyTheme.dataUrl}); background-size: cover; background-position: center; background-attachment: fixed; ${ruleColorVar}`
+        ? `background-image: linear-gradient(rgba(var(--surface-rgb), ${BODY_IMAGE_WASH}), rgba(var(--surface-rgb), ${BODY_IMAGE_WASH})), url(${resolvedBodyTheme.dataUrl}); background-size: cover; background-position: center; background-attachment: fixed; ${ruleColorVar} ${getImageTextColorVars(resolvedBodyTheme.textColor)}`
         : "",
   );
 </script>

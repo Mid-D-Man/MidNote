@@ -11,7 +11,7 @@
   import { createTodo, getEntry, generateId } from "$lib/storage";
   import { breadcrumb } from "$lib/debug/log.svelte";
   import { unlockForSession, relockSilently } from "$lib/utils/lockFlow";
-  import { resolveTheme, hexToRgba } from "$lib/utils/themePalette";
+  import { resolveTheme, hexToRgba, getImageTextColorVars } from "$lib/utils/themePalette";
   import { customThemes } from "$lib/stores/customThemes.svelte";
   import Spinner from "$lib/components/ui/Spinner/Spinner.svelte";
   import type { LockKeyMode, Todo } from "$lib/types/entry";
@@ -178,12 +178,16 @@
   // url(...), same as headerStyle's linear-gradient trick above) so
   // .inner never needs a distinct background/class of its own for the
   // image case at all.
+  // Same value and same reasoning as note/[id]/+page.svelte's identical
+  // constant — see that file's comment for the legibility trade this
+  // makes and why the image case also emits getImageTextColorVars.
+  const BODY_IMAGE_WASH = 0.18;
   const resolvedBodyTheme = $derived(resolveTheme(todo.bodyTheme, customThemes));
   const bodyStyle = $derived(
     resolvedBodyTheme.kind === "color"
       ? `background: ${hexToRgba(resolvedBodyTheme.color, 0.14)};`
       : resolvedBodyTheme.kind === "image"
-        ? `background-image: linear-gradient(rgba(var(--surface-rgb), 0.93), rgba(var(--surface-rgb), 0.93)), url(${resolvedBodyTheme.dataUrl}); background-size: cover; background-position: center; background-attachment: fixed;`
+        ? `background-image: linear-gradient(rgba(var(--surface-rgb), ${BODY_IMAGE_WASH}), rgba(var(--surface-rgb), ${BODY_IMAGE_WASH})), url(${resolvedBodyTheme.dataUrl}); background-size: cover; background-position: center; background-attachment: fixed; ${getImageTextColorVars(resolvedBodyTheme.textColor)}`
         : "",
   );
 </script>
