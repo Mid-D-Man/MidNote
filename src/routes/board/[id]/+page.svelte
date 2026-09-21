@@ -11,8 +11,10 @@
   import { goto, onNavigate } from "$app/navigation";
   import { onMount } from "svelte";
   import BoardCanvas from "$lib/components/boards/BoardCanvas/BoardCanvas.svelte";
+  import BoardHeader from "$lib/components/boards/BoardHeader/BoardHeader.svelte";
   import Spinner from "$lib/components/ui/Spinner/Spinner.svelte";
   import { saveEntry } from "$lib/stores/entries.svelte";
+  import { boardTags } from "$lib/stores/tags.svelte";
   import { createBoard, getEntry } from "$lib/storage";
   import { breadcrumb } from "$lib/debug/log.svelte";
   import { unlockForSession, relockSilently } from "$lib/utils/lockFlow";
@@ -86,6 +88,11 @@
     persist();
   }
 
+  function setTags(tags: string[]) {
+    board.tags = tags;
+    persist();
+  }
+
   let unlocking = $state(false);
   async function handleUnlock() {
     unlocking = true;
@@ -110,20 +117,16 @@
       <button onclick={() => goto("/")}>Back to MidNote</button>
     </div>
   {:else}
-    <header class="board-header">
-      <button class="icon-btn" onclick={() => goto("/")} aria-label="Back">
-        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M19 12H5" /><path d="M12 19l-7-7 7-7" />
-        </svg>
-      </button>
-      <input
-        type="text"
-        bind:value={board.title}
-        onblur={persist}
-        placeholder="Board title..."
-        class="board-title"
-      />
-    </header>
+    <BoardHeader {board} availableTags={boardTags} onTagsChange={setTags} onSave={persist} onBack={() => goto("/")} />
+    <!-- BoardHeader's Theme sheet sets headerTheme/bodyTheme/icon on
+         `board` the same as Note/Todo do. headerTheme renders immediately
+         (BoardHeader's own header background). bodyTheme and icon persist
+         correctly but aren't rendered anywhere yet — the canvas doesn't
+         apply a body wash, and the list card doesn't show a board's icon
+         (see round 17's board-card comment in +page.svelte). Not a bug:
+         data saved now, visual wiring is a separate, smaller follow-up
+         once it's clear a themed canvas actually reads well against the
+         node dot grid. -->
 
     {#if board.encrypted}
       <div class="locked-state">
@@ -172,41 +175,6 @@
     overflow: hidden;
     background: var(--bg);
   }
-  .board-header {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    padding: var(--space-2) var(--space-3);
-    background: var(--surface);
-    border-bottom: 1px solid var(--hairline);
-    flex-shrink: 0;
-  }
-  .icon-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 40px;
-    height: 40px;
-    background: transparent;
-    border: none;
-    border-radius: var(--radius-sm);
-    color: var(--text-hi);
-    cursor: pointer;
-    flex-shrink: 0;
-  }
-  .icon-btn:hover {
-    background: var(--surface-raised);
-  }
-  .board-title {
-    flex: 1;
-    min-width: 0;
-    background: transparent;
-    border: none;
-    outline: none;
-    color: var(--text-hi);
-    font-size: 17px;
-    font-weight: 600;
-  }
   .canvas-area {
     flex: 1;
     min-height: 0;
@@ -216,6 +184,13 @@
     display: flex;
     gap: var(--space-2);
     padding: var(--space-3);
+    /* BUGFIX: this bar sat flush against the true bottom of the screen,
+       with no allowance for Android's own nav bar (3-button nav) or
+       gesture bar — both draw on top of app content unless the app
+       explicitly leaves room. Same established pattern already used
+       for SelectionActionBar.svelte's identical bottom bar and
+       FormattingToolbar.svelte's bottom-anchored toolbar. */
+    padding-bottom: max(var(--space-3), env(safe-area-inset-bottom));
     background: var(--surface);
     border-top: 1px solid var(--hairline);
     flex-shrink: 0;

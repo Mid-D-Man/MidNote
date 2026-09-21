@@ -18,6 +18,7 @@
   import { untrack } from "svelte";
   import TextNode from "./TextNode.svelte";
   import ImageNode from "./ImageNode.svelte";
+  import BoardNodeEditSheet from "./BoardNodeEditSheet.svelte";
   import type { BoardNode, BoardEdge, BoardViewport } from "$lib/types/entry";
 
   let {
@@ -91,6 +92,40 @@
     emit();
   }
 
+  // Node tap opens the edit sheet rather than xyflow's own selection
+  // state doing anything visible — a board with no way to change a
+  // node's text or pick a real image after creating it would be a
+  // canvas you can rearrange but not actually use for anything.
+  let editingNodeId = $state<string | null>(null);
+  let editSheetOpen = $state(false);
+  const editingBoardNode = $derived(editingNodeId ? fromFlowNodes(flowNodes).find((n) => n.id === editingNodeId) ?? null : null);
+
+  function handleNodeClick({ node }: { node: Node }) {
+    editingNodeId = node.id;
+    editSheetOpen = true;
+  }
+
+  function handleNodeEditSave(patch: { label: string; body: string | null; customIconId: string | null }) {
+    if (!editingNodeId) return;
+    flowNodes = flowNodes.map((n) => (n.id === editingNodeId ? { ...n, data: { ...n.data, ...patch } } : n));
+    emit();
+  }
+
+  // Deleting a node has to also drop every edge that referenced it —
+  // otherwise fromFlowNodes/the persisted board would carry an edge
+  // pointing at a node id that no longer exists, which BoardHeader's
+  // duplicate-id-remapping and every future consumer would then have to
+  // defensively handle instead of this being the one place it's
+  // actually prevented.
+  function handleNodeDelete() {
+    if (!editingNodeId) return;
+    const id = editingNodeId;
+    flowNodes = flowNodes.filter((n) => n.id !== id);
+    flowEdges = flowEdges.filter((e) => e.source !== id && e.target !== id);
+    editingNodeId = null;
+    emit();
+  }
+
   export function addNode(kind: "text" | "image") {
     // Drop new nodes near the middle of whatever the viewport currently
     // shows, not at the graph origin — on a phone the origin is very
@@ -120,6 +155,7 @@
     bind:viewport={currentViewport}
     {nodeTypes}
     onconnect={handleConnect}
+    onnodeclick={handleNodeClick}
     onnodedragstop={emit}
     onmoveend={emit}
     fitView={!boardViewport}
@@ -131,6 +167,8 @@
     <Controls showLock={false} />
   </SvelteFlow>
 </div>
+
+<BoardNodeEditSheet bind:open={editSheetOpen} node={editingBoardNode} onSave={handleNodeEditSave} onDelete={handleNodeDelete} />
 
 <style>
   .canvas-wrap {
