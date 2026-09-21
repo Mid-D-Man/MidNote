@@ -1,0 +1,126 @@
+// Brought to u by MidManStudio
+
+@CONFIG(
+  version    -> "1.0.0"
+  author     -> "Mid-D-Man"
+  features   -> "quickfuncs,data,enums,imports"
+  debug_mode -> "off"
+)
+
+@ENUMS(
+  // BOARD added here — and identically in entry-note.mdix and
+  // entry-todo.mdix's own copies of this same enum, so all three entry
+  // schemas keep agreeing on the full set of entry types. (These three
+  // files each declare their own copy rather than importing one shared
+  // enum — matching the existing convention, not introducing a new
+  // one.)
+  EntryType { REGULAR, TODO, BOARD }
+)
+
+@IMPORTS(
+  Themes from "themes.mdix"
+)
+
+@QUICKFUNCS(
+
+  // Mirrors entry.ts's BoardNode exactly. `body` is only ever set for
+  // a "text" kind node; `customIconId` only for an "image" kind — see
+  // BoardCanvas.svelte's toFlowNodes/fromFlowNodes, the one place that
+  // converts between this shape and the canvas library's own runtime
+  // node objects (which carry a lot more — measured size, drag/
+  // selection state — that never belongs here).
+  ~board_node<object>(_id, _kind, _x, _y, _label, _body, _customIconId) {
+    return {
+      id           = _id
+      kind         = _kind
+      x            = _x
+      y            = _y
+      label        = _label
+      body         = _body
+      customIconId = _customIconId
+    }
+  }
+
+  // Mirrors entry.ts's BoardEdge. _source/_target are board_node ids
+  // declared above in the same @DATA block.
+  ~board_edge<object>(_id, _source, _target) {
+    return {
+      id     = _id
+      source = _source
+      target = _target
+    }
+  }
+
+  // Mirrors entry.ts's BoardViewport. Persisted so reopening a board
+  // returns to the part of it you were actually looking at, rather than
+  // always fitting-to-content — see BoardCanvas.svelte's fitView prop
+  // and its syncToken-gated reseed effect.
+  ~board_viewport<object>(_x, _y, _zoom) {
+    return {
+      x    = _x
+      y    = _y
+      zoom = _zoom
+    }
+  }
+
+)
+
+@DATA(
+  id           = "b1"
+  type<enum>   = EntryType.BOARD
+  title        = "Anti-Villain King — plot map"
+  lastModified = 2026-09-19T11:49:00Z
+  isBookmarked = false
+  encrypted    = false
+  struck       = false
+  isPinned     = false
+
+  // Same headerTheme/bodyTheme/icon trio every entry type carries — see
+  // entry-note.mdix's identical fields for the general reasoning.
+  // headerTheme renders immediately (BoardHeader.svelte's own header
+  // background); bodyTheme/icon are saved correctly by the same Theme
+  // sheet but have no visual effect yet — no canvas body wash, no icon
+  // on the board's list card — see board/[id]/+page.svelte's route
+  // comment on BoardHeader for that known, deliberate gap.
+  headerTheme  = Themes.theme_preset("sunset")
+  bodyTheme    = Themes.theme_preset("none")
+  icon         = null
+
+  // Lock — same real DixScript-Rust AES-256-GCM/Argon2id encryption via
+  // src-tauri/src/data/crypto.rs as notes/todos, widened onto Entry in
+  // utils/lockFlow.ts. While locked, `nodes`/`edges`/`viewport` below
+  // are cleared on the visible entry and live only inside
+  // lockedPayload instead — see lockFlow.ts's buildPlaintextPayload/
+  // applyDecryptedPayload/clearPlaintextFields board branches.
+  lockKeyMode   = null
+  lockedPayload = null
+  lockedKeyFile = null
+
+  // Scalar, not a `::` block — has to come before tags::/nodes::/edges::
+  // below: DixScript's array-group blocks (`::`) must be the TRAILING
+  // content of @DATA, confirmed against the real parser (an earlier
+  // draft of this file put this field after edges:: and the parser
+  // rejected it: "Expected array item, ',', or ')' in group array" —
+  // it was still trying to parse edges:: as an array). null means
+  // "never opened on this device yet, or created and never panned/
+  // zoomed" — the canvas fits-to-content instead. See BoardCanvas.svelte's
+  // fitView prop.
+  viewport = board_viewport(0, 0, 1.0)
+
+  tags::
+    "writing"
+
+  // A board's actual content: nodes positioned on an infinite canvas,
+  // connected by edges. Deliberately MidNote's own shapes here, not
+  // @xyflow/svelte's Node/Edge re-exported directly — see
+  // BoardCanvas.svelte's header comment for why (the canvas library
+  // choice is still only spike-confirmed on one device; this schema,
+  // and everything else in the app, should never need to change if
+  // it's ever swapped out).
+  nodes::
+    board_node("n1", "text", 40, 40, "Jasmine Badeem", "Protagonist — anti-villain arc", null),
+    board_node("n2", "image", 260, 40, "Character art", null, "ci1")
+
+  edges::
+    board_edge("e1", "n1", "n2")
+)

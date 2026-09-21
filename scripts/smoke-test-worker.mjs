@@ -18,6 +18,12 @@ const BUILD_DIR = process.env.SMOKE_BUILD_DIR;
 const ROUTE_PATH = process.env.SMOKE_ROUTE_PATH;
 const SEED_ENTRIES = JSON.parse(process.env.SMOKE_SEED_ENTRIES || "[]");
 const SETTLE_MS = Number(process.env.SMOKE_SETTLE_MS || 1200);
+// Optional, per-scenario — see smoke-test.mjs's SCENARIOS comment on
+// `expectText` for why this exists alongside the crash-only check below:
+// a route can mount and settle with zero thrown errors while still
+// silently showing the wrong content (stale/reset/blank state), which
+// no amount of "did it throw" checking catches.
+const EXPECT_TEXT = process.env.SMOKE_EXPECT_TEXT || null;
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
   url: `http://tauri.localhost${ROUTE_PATH}`,
@@ -165,4 +171,11 @@ if (errors.length > 0) {
   }
   process.exit(1);
 }
+
+if (EXPECT_TEXT && !target.textContent.includes(EXPECT_TEXT)) {
+  console.error(`Expected the settled page to contain "${EXPECT_TEXT}", but it didn't.`);
+  console.error(`Actual visible text: ${target.textContent.trim().slice(0, 300) || "(empty)"}`);
+  process.exit(1);
+}
+
 process.exit(0);

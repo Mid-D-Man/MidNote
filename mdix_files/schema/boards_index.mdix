@@ -1,0 +1,48 @@
+// Brought to u by MidManStudio
+
+@CONFIG(
+  version    -> "1.0.0"
+  author     -> "Mid-D-Man"
+  features   -> "quickfuncs,data,imports"
+  debug_mode -> "off"
+)
+
+@IMPORTS(
+  Themes from "themes.mdix"
+)
+
+@QUICKFUNCS(
+
+  // Same reasoning as notes_index.mdix/todos_index.mdix's identical
+  // note_ref/todo_ref — a lightweight list-view row, not the full
+  // entry. Deliberately excludes nodes/edges/viewport entirely: a
+  // board's node count is genuinely useful on its list card (see
+  // +page.svelte's board card, "{item.nodes.length} nodes"), but
+  // that's a number the list computes from the full entry once loaded
+  // — same as a note's word count isn't part of notes_index.mdix
+  // either. struck included here (notes_index.mdix/todos_index.mdix's
+  // own note_ref/todo_ref currently DON'T include it, even though
+  // entry.ts's EntryRef has carried it for a while — a pre-existing gap
+  // in those two files, not copied here on purpose).
+  ~board_ref<object>(_id, _title, _tags, _lastModified, _isBookmarked, _encrypted, _struck, _isPinned, _headerTheme<object>, _bodyTheme<object>, _icon) {
+    return {
+      id           = _id
+      title        = _title
+      tags         = _tags
+      lastModified = _lastModified
+      isBookmarked = _isBookmarked
+      encrypted    = _encrypted
+      struck       = _struck
+      isPinned     = _isPinned
+      headerTheme  = _headerTheme
+      bodyTheme    = _bodyTheme
+      icon         = _icon
+    }
+  }
+
+)
+
+@DATA(
+  boards::
+    board_ref("b1", "Anti-Villain King — plot map", ["writing"], 2026-09-19T11:49:00Z, false, false, false, false, Themes.theme_preset("sunset"), Themes.theme_preset("none"), null)
+)

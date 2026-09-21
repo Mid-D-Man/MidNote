@@ -95,7 +95,15 @@ const SCENARIOS = [
   { name: "todo — new", path: "/todo/new", seed: SEED_ENTRIES },
   { name: "todo — existing", path: `/todo/${TODO_ID}`, seed: SEED_ENTRIES },
   { name: "board — new", path: "/board/new", seed: SEED_ENTRIES },
-  { name: "board — existing", path: `/board/${BOARD_ID}`, seed: SEED_ENTRIES },
+  // expectText: the one thing the crash-only checks above this comment
+  // block CAN'T catch — a route that mounts cleanly, throws nothing, yet
+  // silently shows the WRONG content (exactly what happened here: an
+  // existing board's canvas seeded itself from the blank pre-load
+  // default and never re-synced once the real saved nodes loaded a
+  // moment later — see BoardCanvas.svelte's syncToken comment). Checked
+  // against the settled page's real textContent — see
+  // smoke-test-worker.mjs's SMOKE_EXPECT_TEXT handling.
+  { name: "board — existing", path: `/board/${BOARD_ID}`, seed: SEED_ENTRIES, expectText: "Node one" },
 ];
 
 function runScenario(scenario) {
@@ -106,6 +114,7 @@ function runScenario(scenario) {
         SMOKE_BUILD_DIR: BUILD_DIR,
         SMOKE_ROUTE_PATH: scenario.path,
         SMOKE_SEED_ENTRIES: JSON.stringify(scenario.seed),
+        ...(scenario.expectText ? { SMOKE_EXPECT_TEXT: scenario.expectText } : {}),
       },
       stdio: ["ignore", "pipe", "pipe"],
     });

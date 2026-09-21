@@ -14,6 +14,11 @@
   todos::
     "dinner", "comfort-food", "quick"
 
+  // Added alongside entry-board.mdix — mirrors storage.ts's KnownTags
+  // interface, which already carries a third `boards` array (round 17).
+  boards::
+    "writing"
+
   todo_categories::
     "Ingredients", "Steps", "Tips"
 )

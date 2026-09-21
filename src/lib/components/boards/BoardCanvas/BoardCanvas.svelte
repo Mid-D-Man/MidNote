@@ -25,11 +25,16 @@
     nodes: boardNodes,
     edges: boardEdges,
     viewport: boardViewport,
+    syncToken,
     onchange,
   }: {
     nodes: BoardNode[];
     edges: BoardEdge[];
     viewport: BoardViewport | null;
+    // Bumped by the route's load() — see the $effect below for why this
+    // canvas needs it at all, not just note-parity with syncToken's
+    // other two uses in this app.
+    syncToken: number;
     onchange: (next: { nodes: BoardNode[]; edges: BoardEdge[]; viewport: BoardViewport | null }) => void;
   } = $props();
 
@@ -60,19 +65,41 @@
   // SvelteFlow, which reassigns them rather than mutating in place.
   // Deep reactivity would mean proxying every node on every drag frame
   // for no benefit.
+  let flowNodes = $state.raw<Node[]>([]);
+  let flowEdges = $state.raw<Edge[]>([]);
+  let currentViewport = $state.raw<Viewport | undefined>(undefined);
+
+  // BUGFIX (the "go back in and it's reset" report): this used to seed
+  // the three above ONCE, via untrack() at component creation — which
+  // sounds like exactly the right "only seed at mount, then the canvas
+  // owns its state" idea, but was wrong about WHEN mount actually
+  // happens relative to load(). The board route's own `board` starts
+  // as a blank createBoard() and only becomes the real saved entry
+  // after load() runs inside onMount/an $effect — which fire AFTER the
+  // initial render. Since this canvas isn't gated behind anything for
+  // an already-unlocked board (unlike the locked case, which mounts
+  // fresh only once already-decrypted), it mounts on that very first,
+  // pre-load render and captured the still-blank board every time —
+  // real data was already sitting in `board.nodes` a moment later, but
+  // nothing here ever looked again.
   //
-  // untrack() is the point, not a workaround for a warning: these props
-  // seed the canvas ONCE, at mount. After that the canvas owns its own
-  // node/edge/viewport state and pushes changes UP via onchange. Making
-  // them reactive would feed our own just-emitted values straight back
-  // in mid-drag and fight the user's finger.
-  let flowNodes = $state.raw<Node[]>(untrack(() => toFlowNodes(boardNodes)));
-  let flowEdges = $state.raw<Edge[]>(
-    untrack(() => boardEdges.map((e) => ({ id: e.id, source: e.source, target: e.target }))),
-  );
-  let currentViewport = $state.raw<Viewport | undefined>(
-    untrack(() => (boardViewport ? { x: boardViewport.x, y: boardViewport.y, zoom: boardViewport.zoom } : undefined)),
-  );
+  // Fixed the exact way NoteContent.svelte's identical class of bug is
+  // already fixed there: gate a re-seed on a syncToken the ROUTE bumps
+  // specifically when load() finishes (see board/[id]/+page.svelte),
+  // read via untrack() so this effect reacts ONLY to syncToken
+  // changing — never to boardNodes/boardEdges/boardViewport changing on
+  // their own, which happen on every drag/edit via handleCanvasChange's
+  // mutation of the same `board` object, and would otherwise reset the
+  // live canvas back to whatever was last persisted on every single
+  // change this component itself just emitted.
+  $effect(() => {
+    syncToken;
+    flowNodes = untrack(() => toFlowNodes(boardNodes));
+    flowEdges = untrack(() => boardEdges.map((e) => ({ id: e.id, source: e.source, target: e.target })));
+    currentViewport = untrack(() =>
+      boardViewport ? { x: boardViewport.x, y: boardViewport.y, zoom: boardViewport.zoom } : undefined,
+    );
+  });
 
   // One funnel for every mutation (drag, connect, viewport move) rather
   // than a $effect watching the arrays — an effect would also fire on

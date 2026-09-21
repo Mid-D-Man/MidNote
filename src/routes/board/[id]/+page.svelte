@@ -9,7 +9,7 @@
 <script lang="ts">
   import { page } from "$app/stores";
   import { goto, onNavigate } from "$app/navigation";
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import BoardCanvas from "$lib/components/boards/BoardCanvas/BoardCanvas.svelte";
   import BoardHeader from "$lib/components/boards/BoardHeader/BoardHeader.svelte";
   import Spinner from "$lib/components/ui/Spinner/Spinner.svelte";
@@ -24,6 +24,12 @@
 
   let board = $state<Board>(createBoard());
   let loadError = $state<string | null>(null);
+  // Bumped by load() specifically, not on every board mutation — see
+  // BoardCanvas.svelte's identical syncToken comment for why this
+  // exists at all (the canvas otherwise seeds itself from `board`
+  // before load() ever replaces the blank default with the real saved
+  // entry, which is the exact "resets on reopen" bug this fixes).
+  let syncToken = $state(0);
   // Typed as just the surface actually used rather than the component
   // instance type — bind:this exposes BoardCanvas's `export function`
   // and this is the whole of what this route calls on it.
@@ -56,12 +62,14 @@
       loadError = null;
       if (!id || id === "new") {
         board = createBoard();
+        syncToken = untrack(() => syncToken) + 1;
         breadcrumb("board: created new");
         return;
       }
       const existing = getEntry(id);
       if (existing && existing.type === "board") {
         board = existing;
+        syncToken = untrack(() => syncToken) + 1;
         breadcrumb(`board: loaded ${id}, ${existing.nodes.length} nodes, ${existing.edges.length} edges`);
       } else {
         breadcrumb(`board: ${id} not found or wrong type, redirecting home`);
@@ -151,6 +159,7 @@
           nodes={board.nodes}
           edges={board.edges}
           viewport={board.viewport}
+          {syncToken}
           onchange={handleCanvasChange}
         />
       </div>
