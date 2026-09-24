@@ -29,12 +29,17 @@
     availableTags,
     onTagsChange,
     onSave,
+    onPersist,
     onBack,
   }: {
     board: Board;
     availableTags: string[];
     onTagsChange: (tags: string[]) => void;
     onSave: () => void;
+    // Silent save (no toast/spinner) for the title field's onblur — see
+    // the title <input> below. Separate from onSave, which is the
+    // explicit Save button and deliberately DOES show one.
+    onPersist: () => void;
     onBack: () => void;
   } = $props();
 
@@ -74,10 +79,6 @@
 
   function handleHeaderThemeChange(theme: ThemeRef) {
     board.headerTheme = theme;
-    saveEntry(board);
-  }
-  function handleBodyThemeChange(theme: ThemeRef) {
-    board.bodyTheme = theme;
     saveEntry(board);
   }
   function handleIconChange(icon: IconRef | null) {
@@ -219,6 +220,23 @@
     </div>
   </div>
 
+  <!-- BUGFIX: title editing went missing entirely when this header
+       replaced the board route's old ad hoc one — that inline header had
+       its own title <input>, and this component's icon-row-plus-tags
+       layout was built to replace it without carrying that field along.
+       bind:value straight to board.title, same pattern NoteTitle.svelte
+       already uses for note.title — `board` is the same $state object
+       the route holds, so this mutates it directly; onblur just needs to
+       trigger persistence (silently — onSave is the separate, explicit,
+       toast-showing Save button). -->
+  <input
+    type="text"
+    bind:value={board.title}
+    onblur={onPersist}
+    placeholder="Board title..."
+    class="board-title"
+  />
+
   <TagSelector
     selectedTags={board.tags}
     {availableTags}
@@ -256,11 +274,10 @@
   bind:open={themeSheetOpen}
   title="Theme &amp; Icon"
   headerTheme={board.headerTheme}
-  bodyTheme={board.bodyTheme}
   icon={board.icon}
   onHeaderChange={handleHeaderThemeChange}
-  onBodyChange={handleBodyThemeChange}
   onIconChange={handleIconChange}
+  headerDescription="The card in the list, and this board's own top bar."
 />
 
 <ConfirmDialog
@@ -293,6 +310,19 @@
     display: flex;
     align-items: center;
     gap: var(--space-1);
+  }
+  .board-title {
+    width: 100%;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--theme-text-hi, var(--text-hi));
+    font-size: 17px;
+    font-weight: 600;
+    font-family: inherit;
+  }
+  .board-title::placeholder {
+    color: var(--theme-text-lo, var(--text-faint));
   }
   .action-list {
     display: flex;

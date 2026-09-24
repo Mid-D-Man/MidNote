@@ -14,9 +14,10 @@
   import { entries, saveEntry, removeEntry, toggleBookmark, toggleStrikethrough, togglePinned } from "$lib/stores/entries.svelte";
   import type { Note, Todo, Board, Entry } from "$lib/types/entry";
   import { noteTags, todoTags, boardTags, sync as syncTags, registerTag, unregisterTag } from "$lib/stores/tags.svelte";
-  import { createNote } from "$lib/storage";
+  import { createNote, type TagScope } from "$lib/storage";
   import { stripHtml, plainTextToHtml } from "$lib/utils/richText";
   import { createLongPressHandlers } from "$lib/utils/longPress";
+  import { createSwipeHandlers } from "$lib/utils/swipe";
   import { mergeNotes, mergeTodos, buildExportFiles, buildEncryptedBackupFile, downloadFiles, type ExportFormat } from "$lib/utils/selectionActions";
   import { shareFiles } from "$lib/utils/share";
   import { pushToast } from "$lib/stores/toast.svelte";
@@ -158,7 +159,11 @@
   // delete its sources afterward — risk the original locked content
   // being deleted with nothing real ever having made it into the
   // result. Blocked outright rather than merging "around" it.
-  const canMerge = $derived(selectedIds.size >= 2 && !selectionHasEncrypted);
+  // Boards excluded: merging two boards would mean combining their
+  // nodes/edges onto one canvas, a real feature but not one that
+  // exists yet — mergeNotes/mergeTodos below have no board equivalent,
+  // and the branch that calls them assumes exactly two possibilities.
+  const canMerge = $derived(selectedIds.size >= 2 && !selectionHasEncrypted && activeView !== "boards");
 
   function switchView(view: ActiveView) {
     activeView = view;
@@ -167,6 +172,31 @@
     sortBy = "recent";
     exitSelectMode();
   }
+
+  // Swipe left/right between Notes/Todos/Boards on the landing page.
+  // Fixed order matching the tabs' own left-to-right positions — swipe
+  // left moves forward (Notes -> Todos -> Boards), same direction
+  // convention as swiping through a photo gallery. Clamped at the ends
+  // rather than wrapping Boards back around to Notes, which would be a
+  // surprising jump with no visual cue it happened.
+  const VIEW_ORDER: ActiveView[] = ["notes", "todos", "boards"];
+  function switchToRelativeView(direction: 1 | -1) {
+    // Selection is per-tab (switchView above already clears it), so a
+    // swipe mid-selection is allowed to go through — same as tapping a
+    // tab button directly already does — rather than silently eating
+    // the gesture, which would feel like the swipe just didn't work.
+    const idx = VIEW_ORDER.indexOf(activeView);
+    const nextIdx = idx + direction;
+    if (nextIdx < 0 || nextIdx >= VIEW_ORDER.length) return;
+    switchView(VIEW_ORDER[nextIdx]);
+  }
+  // Created once, not per-render: the callbacks close over the reactive
+  // `activeView` $state directly, so they always act on its current
+  // value without needing to be recreated when it changes.
+  const swipeAreaHandlers = createSwipeHandlers({
+    onSwipeLeft: () => switchToRelativeView(1),
+    onSwipeRight: () => switchToRelativeView(-1),
+  });
 
   // BUGFIX: this used to unlock (permanently!) right here, before
   // navigating at all — confirmed as the actual cause of "opening a
@@ -271,11 +301,11 @@
   }
 
   // NoteCard's own onToggleLock passes the Note object it already has;
-  // the inline todo row (Todo has no dedicated component of its own)
-  // does the same with a Todo — either way this just picks the right
-  // direction and hands off to lockFlow.ts, which owns the actual
-  // dialogs/invoke calls/entry mutation.
-  async function handleToggleLock(item: Note | Todo) {
+  // the inline todo/board rows (neither has a dedicated component of
+  // its own) do the same with whichever Entry they have — either way
+  // this just picks the right direction and hands off to lockFlow.ts,
+  // which owns the actual dialogs/invoke calls/entry mutation.
+  async function handleToggleLock(item: Entry) {
     // Same new-Set-reassignment pattern as toggleSelect above — Svelte 5
     // $state doesn't fire on in-place Set.add()/.delete(), only on
     // reassigning the binding itself.
@@ -290,25 +320,33 @@
     }
   }
 
-  // Tags popup for the TODO inline row specifically — NoteCard handles
-  // its own equivalent internally (it already owns `note` directly),
-  // but the todo row has no dedicated component of its own, so this
-  // page tracks which one (if any) currently has the popup open.
+  // Tags popup for the TODO and BOARD inline rows specifically —
+  // NoteCard handles its own equivalent internally (it already owns
+  // `note` directly), but todo/board rows have no dedicated component
+  // of their own, so this page tracks which one (if any) currently has
+  // the popup open. Widened from Todo-only to Entry so a board row can
+  // reuse the exact same mechanism rather than a second copy of it.
   // Kept as two separate pieces of state on purpose: tagsPopupOpen is
   // what TagsPopup actually bind:opens (so its own internal close —
   // tapping the scrim — correctly flows back here); tagsPopupFor just
-  // tracks which todo it's for and is fine staying stale once closed,
+  // tracks which entry it's for and is fine staying stale once closed,
   // same as this page's pendingMerge already does.
-  let tagsPopupFor = $state<Todo | null>(null);
+  let tagsPopupFor = $state<Entry | null>(null);
   let tagsPopupOpen = $state(false);
-  function handleAddTagTo(todo: Todo, tag: string) {
-    todo.tags = [...todo.tags, tag];
-    registerTag("todos", tag);
-    saveEntry(todo);
+  // Which known-tag scope the currently-open popup should register
+  // into/read from — "todos" or "boards" depending on tagsPopupFor's own
+  // type, since KnownTags (storage.ts) keeps them separate per entry
+  // type the same way the tabs themselves do.
+  const tagsPopupScope = $derived<TagScope>(tagsPopupFor?.type === "board" ? "boards" : "todos");
+  const tagsPopupAvailableTags = $derived(tagsPopupScope === "boards" ? boardTags : todoTags);
+  function handleAddTagTo(item: Entry, tag: string) {
+    item.tags = [...item.tags, tag];
+    registerTag(tagsPopupScope, tag);
+    saveEntry(item);
   }
-  function handleRemoveTagFrom(todo: Todo, tag: string) {
-    todo.tags = todo.tags.filter((t) => t !== tag);
-    saveEntry(todo);
+  function handleRemoveTagFrom(item: Entry, tag: string) {
+    item.tags = item.tags.filter((t) => t !== tag);
+    saveEntry(item);
   }
 
   async function handleSendSelected() {
@@ -463,24 +501,25 @@
           <AiNoteCreator onNoteCreated={handleAiNoteCreated} />
         {/if}
 
-        <div class="section-header">
-          <h2>All {itemNoun}s{selectedTag ? ` — ${selectedTag}` : ""}</h2>
-          {#if !selectMode}
-            <Button onclick={() => goto(newRoute)}>
-              + New {itemNoun}
-            </Button>
-          {/if}
-        </div>
-
-        {#if sortedItems.length === 0}
-          <div class="empty">
-            <p>No {activeView} found.</p>
-            <Button size="lg" onclick={() => goto(newRoute)}>
-              Create {itemNoun}
-            </Button>
+        <div class="swipe-area" {...swipeAreaHandlers}>
+          <div class="section-header">
+            <h2>All {itemNoun}s{selectedTag ? ` — ${selectedTag}` : ""}</h2>
+            {#if !selectMode}
+              <Button onclick={() => goto(newRoute)}>
+                + New {itemNoun}
+              </Button>
+            {/if}
           </div>
-        {:else}
-          <div class="grid">
+
+          {#if sortedItems.length === 0}
+            <div class="empty">
+              <p>No {activeView} found.</p>
+              <Button size="lg" onclick={() => goto(newRoute)}>
+                Create {itemNoun}
+              </Button>
+            </div>
+          {:else}
+            <div class="grid">
             {#each sortedItems as item (item.id)}
               {#if item.type === "regular"}
                 <NoteCard
@@ -498,24 +537,77 @@
                   unlockingToOpen={lockBusyIds.has(item.id)}
                 />
               {:else if item.type === "board"}
-                <!-- Board card. Deliberately simpler than NoteCard/the
-                     todo row for now: title, node count, tags, and tap
-                     to open. Theme/icon/lock/pin/bookmark all EXIST on
-                     a board (it extends EntryRef like the other two),
-                     but their list-card affordances aren't wired here
-                     yet — boards are new and the canvas itself is the
-                     part that needs real-device confirmation first.
-                     Adding them later is additive and touches only
-                     this block. -->
+                <!-- Brought to parity with the todo row above (kebab
+                     menu, pin, bookmark, select-mode) per CLAUDEcode's
+                     explicit ask — this was the one deliberately-deferred
+                     piece left over from round 17. Theme/scrim rendering
+                     on the card is a separate, still-deferred visual
+                     concern (not asked for here) — see BoardHeader's own
+                     comment on why headerTheme isn't shown on the list
+                     card yet either. -->
                 {@const resolvedBoardIcon = resolveIcon(item.icon, customIcons)}
                 <div
                   class="todo-item"
+                  class:selected={selectedIds.has(item.id)}
                   role="button"
                   tabindex="0"
-                  onclick={() => handleClick(item.id)}
-                  onkeydown={(e) => e.key === "Enter" && handleClick(item.id)}
+                  onclick={() => handleTodoClick(item.id)}
+                  onkeydown={(e) => e.key === "Enter" && handleTodoClick(item.id)}
+                  {...todoPressHandlers(item.id)}
                 >
-                  <div class="title-row board-title-row">
+                  {#if selectMode}
+                    <div class="select-check" class:checked={selectedIds.has(item.id)} aria-hidden="true">
+                      {#if selectedIds.has(item.id)}
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3">
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                      {/if}
+                    </div>
+                  {:else}
+                    <div class="todo-overflow">
+                      {#if item.isPinned}
+                        <span class="pin-indicator" aria-label="Pinned" title="Pinned">
+                          <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor">
+                            <path d="M12 17v5" /><path d="M9 3h6l-1 6 3 3v2H7v-2l3-3-1-6z" />
+                          </svg>
+                        </span>
+                      {/if}
+                      <CardOverflowMenu
+                        itemLabel="board"
+                        struck={item.struck}
+                        pinned={item.isPinned}
+                        encrypted={item.encrypted}
+                        busy={lockBusyIds.has(item.id)}
+                        onDelete={() => handleDeleteSingle(item.id)}
+                        onDownload={() => handleDownloadSingle(item.id)}
+                        onToggleStrikethrough={() => toggleStrikethrough(item.id)}
+                        onTogglePin={() => togglePinned(item.id)}
+                        onToggleLock={() => handleToggleLock(item)}
+                        onOpenTags={() => {
+                          tagsPopupFor = item;
+                          tagsPopupOpen = true;
+                        }}
+                      />
+                    </div>
+                    <button
+                      class="bookmark"
+                      class:active={item.isBookmarked}
+                      onclick={(e) => {
+                        e.stopPropagation();
+                        toggleBookmark(item.id);
+                      }}
+                      onpointerdown={(e) => e.stopPropagation()}
+                      onpointerup={(e) => e.stopPropagation()}
+                      onpointermove={(e) => e.stopPropagation()}
+                      onpointercancel={(e) => e.stopPropagation()}
+                      aria-label="Toggle bookmark"
+                    >
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill={item.isBookmarked ? "currentColor" : "none"} stroke="currentColor" stroke-width="2">
+                        <polygon points="12 2 15.09 8.63 22 9.24 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.24 8.91 8.63 12 2" />
+                      </svg>
+                    </button>
+                  {/if}
+                  <div class="title-row">
                     {#if resolvedBoardIcon.kind === "preset"}
                       <span class="icon-badge" aria-hidden="true">{resolvedBoardIcon.glyph}</span>
                     {:else if resolvedBoardIcon.kind === "custom"}
@@ -650,7 +742,8 @@
               {/if}
             {/each}
           </div>
-        {/if}
+          {/if}
+        </div>
       </div>
     </div>
   </main>
@@ -682,7 +775,7 @@
   <TagsPopup
     bind:open={tagsPopupOpen}
     tags={tagsPopupFor?.tags ?? []}
-    availableTags={todoTags}
+    availableTags={tagsPopupAvailableTags}
     onAddTag={(tag) => tagsPopupFor && handleAddTagTo(tagsPopupFor, tag)}
     onRemoveTag={(tag) => tagsPopupFor && handleRemoveTagFrom(tagsPopupFor, tag)}
   />
@@ -845,6 +938,18 @@
     gap: var(--space-3);
     flex-wrap: wrap;
   }
+  /* .inner is display:flex/column with its own `gap` between direct
+     children — section-header and empty/grid used to BE two of those
+     direct children, getting that gap between them for free. Now
+     they're both inside this wrapper instead (needed as the single
+     element the swipe gesture listens on), so it has to reproduce the
+     same flex/gap itself or that spacing collapses to zero. */
+  .swipe-area {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-5);
+    min-width: 0;
+  }
   .section-header h2 {
     font-family: var(--font-display);
     font-size: 19px;
@@ -972,13 +1077,9 @@
      badge (when set) sits just before the title text. Margin here
      reserves room for the corner-actions cluster now on the left and
      the bookmark star on the right, same reasoning as NoteCard's own
-     title-row margin. */
-  /* The todo row reserves horizontal room for its overflow cluster and
-     bookmark star; a board card has neither yet, so it resets that
-     margin instead of leaving a gap where nothing sits. */
-  .todo-item .title-row.board-title-row {
-    margin: 0;
-  }
+     title-row margin. Applies to boards too now that they have the
+     same overflow cluster/bookmark as todos (used to have its own
+     margin-reset variant here from when boards had neither). */
   .todo-item .title-row {
     display: flex;
     align-items: center;

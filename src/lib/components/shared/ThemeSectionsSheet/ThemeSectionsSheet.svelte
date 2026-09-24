@@ -41,9 +41,13 @@
     open?: boolean;
     title?: string;
     headerTheme: ThemeRef;
-    bodyTheme: ThemeRef;
+    // Optional now, same "omit the prop entirely to omit the row" pattern
+    // icon/onIconChange already used — added for BoardHeader.svelte,
+    // whose canvas has no body surface for a theme to apply to at all
+    // (unlike a note's writing area or a todo's steps list).
+    bodyTheme?: ThemeRef;
     onHeaderChange: (theme: ThemeRef) => void;
-    onBodyChange: (theme: ThemeRef) => void;
+    onBodyChange?: (theme: ThemeRef) => void;
     icon?: IconRef | null;
     onIconChange?: (icon: IconRef | null) => void;
     // Default true as of note/[id] and todo/[id]'s route pages wrapping
@@ -65,13 +69,14 @@
   } = $props();
 
   const showIcon = $derived(icon !== undefined);
+  const showBody = $derived(bodyTheme !== undefined);
 
   let headerPickerOpen = $state(false);
   let bodyPickerOpen = $state(false);
   let iconPickerOpen = $state(false);
 
   const resolvedHeader = $derived(resolveTheme(headerTheme, customThemes));
-  const resolvedBody = $derived(resolveTheme(bodyTheme, customThemes));
+  const resolvedBody = $derived(showBody ? resolveTheme(bodyTheme!, customThemes) : null);
   const resolvedIcon = $derived(resolveIcon(icon ?? null, customIcons));
   // Only NoteEditorHeader/TodoHeader ever rely on this fallback now —
   // SettingsSheet always passes its own explicit bodyDescription.
@@ -82,6 +87,7 @@
     headerPickerOpen = true;
   }
   function openBodyPicker() {
+    if (!showBody) return;
     open = false;
     bodyPickerOpen = true;
   }
@@ -110,22 +116,24 @@
       ></span>
     </button>
 
-    <button type="button" class="section-row" onclick={openBodyPicker}>
-      <div class="row-text">
-        <span class="row-label">Body</span>
-        <span class="row-desc">{resolvedBodyDescription}</span>
-      </div>
-      <span
-        class="swatch-preview"
-        class:none-swatch={resolvedBody.kind === "none"}
-        style={resolvedBody.kind === "color"
-          ? `background:${resolvedBody.color}`
-          : resolvedBody.kind === "image"
-            ? `background-image:url(${resolvedBody.dataUrl})`
-            : undefined}
-        aria-hidden="true"
-      ></span>
-    </button>
+    {#if showBody}
+      <button type="button" class="section-row" onclick={openBodyPicker}>
+        <div class="row-text">
+          <span class="row-label">Body</span>
+          <span class="row-desc">{resolvedBodyDescription}</span>
+        </div>
+        <span
+          class="swatch-preview"
+          class:none-swatch={resolvedBody?.kind === "none"}
+          style={resolvedBody?.kind === "color"
+            ? `background:${resolvedBody.color}`
+            : resolvedBody?.kind === "image"
+              ? `background-image:url(${resolvedBody.dataUrl})`
+              : undefined}
+          aria-hidden="true"
+        ></span>
+      </button>
+    {/if}
 
     {#if showIcon}
       <button type="button" class="section-row" onclick={openIconPicker}>
@@ -147,7 +155,9 @@
 </Sheet>
 
 <ThemePicker bind:open={headerPickerOpen} title="Header theme" value={headerTheme} onChange={onHeaderChange} />
-<ThemePicker bind:open={bodyPickerOpen} title="Body theme" value={bodyTheme} onChange={onBodyChange} allowCustom={bodyAllowCustom} />
+{#if showBody}
+  <ThemePicker bind:open={bodyPickerOpen} title="Body theme" value={bodyTheme!} onChange={(v) => onBodyChange?.(v)} allowCustom={bodyAllowCustom} />
+{/if}
 {#if showIcon}
   <IconPicker bind:open={iconPickerOpen} title="Icon" value={icon ?? null} onChange={(v) => onIconChange?.(v)} />
 {/if}

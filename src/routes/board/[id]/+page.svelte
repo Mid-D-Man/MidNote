@@ -125,16 +125,16 @@
       <button onclick={() => goto("/")}>Back to MidNote</button>
     </div>
   {:else}
-    <BoardHeader {board} availableTags={boardTags} onTagsChange={setTags} onSave={persist} onBack={() => goto("/")} />
-    <!-- BoardHeader's Theme sheet sets headerTheme/bodyTheme/icon on
-         `board` the same as Note/Todo do. headerTheme renders immediately
-         (BoardHeader's own header background). bodyTheme and icon persist
-         correctly but aren't rendered anywhere yet — the canvas doesn't
-         apply a body wash, and the list card doesn't show a board's icon
-         (see round 17's board-card comment in +page.svelte). Not a bug:
-         data saved now, visual wiring is a separate, smaller follow-up
-         once it's clear a themed canvas actually reads well against the
-         node dot grid. -->
+    <BoardHeader {board} availableTags={boardTags} onTagsChange={setTags} onSave={persist} onPersist={persist} onBack={() => goto("/")} />
+    <!-- BoardHeader's Theme sheet sets headerTheme/icon on `board`, same
+         as Note/Todo do for their own header+icon. Body theme dropped
+         entirely for boards (CLAUDEcode: "boards don't need body theme")
+         — a canvas has no body surface for a wash to apply to the way a
+         note's writing area or a todo's steps list does, so there was
+         never a real use for it here. headerTheme renders immediately
+         (BoardHeader's own header background); icon persists correctly
+         but isn't shown on the list card yet (see round 17's board-card
+         comment in +page.svelte) — smaller follow-up once wanted. -->
 
     {#if board.encrypted}
       <div class="locked-state">
