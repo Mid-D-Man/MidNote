@@ -4,6 +4,23 @@
 //
 // Used for: swiping the landing page's content area left/right to move
 // between the Notes/Todos/Boards tabs.
+//
+// BUGFIX (round 22): this logic was always correct, but never actually
+// ran on a real touch drag. On Chromium/WebView (this app's Android
+// target), a touch-driven pointer sequence over an element with no
+// `touch-action` set (the default, `auto`) gets `pointercancel`'d by the
+// browser almost immediately, before any meaningful dx/dy has
+// accumulated, because the browser assumes it owns the gesture for
+// scrolling/panning — `preventDefault()` in JS cannot stop this pre-emption
+// (confirmed against real Pointer Events spec/browser-bug discussion,
+// not guessed). `tracking` was getting reset to false by onpointercancel
+// on basically every real swipe attempt, so onpointerup's dx/dy check
+// almost never ran with real data. The actual fix is CSS, not JS: the
+// element these handlers are spread onto needs `touch-action: pan-y` —
+// this explicitly tells the browser "I'll handle horizontal gestures
+// myself, you keep handling vertical scroll" — which stops the
+// pre-emptive cancel for horizontal drags while leaving normal vertical
+// list-scrolling untouched. See +page.svelte's `.swipe-area` CSS.
 
 export interface SwipeHandlers {
   onpointerdown: (e: PointerEvent) => void;
@@ -44,7 +61,10 @@ export function createSwipeHandlers(opts: SwipeOptions): SwipeHandlers {
       tracking = true;
     },
     onpointerup(e) {
-      if (!tracking) return;
+      // Defensive, same reasoning as the isPrimary check in
+      // onpointerdown: a second pointer's up/cancel shouldn't be able to
+      // touch state a different (primary) pointer is mid-tracking.
+      if (!e.isPrimary || !tracking) return;
       tracking = false;
       const dx = e.clientX - startX;
       const dy = e.clientY - startY;
@@ -53,7 +73,8 @@ export function createSwipeHandlers(opts: SwipeOptions): SwipeHandlers {
       if (dx < 0) opts.onSwipeLeft();
       else opts.onSwipeRight();
     },
-    onpointercancel() {
+    onpointercancel(e) {
+      if (!e.isPrimary) return;
       tracking = false;
     },
   };

@@ -190,23 +190,23 @@
     minZoom={0.2}
     maxZoom={2.5}
     attributionPosition="bottom-left"
+    proOptions={{ hideAttribution: true }}
   >
     <Background variant={BackgroundVariant.Dots} gap={24} />
     <Controls showLock={false} />
   </SvelteFlow>
 </div>
 
-<!-- The "Svelte Flow" badge is the library's own attribution, not
-     something MidNote added — it renders by default on every flow. Moved
-     it to bottom-left, opposite Controls, so it's less in the way; NOT
-     hidden outright. @xyflow/svelte's core is MIT-licensed (legally
-     free to hide), but the maintainers explicitly ask that it only be
-     removed by Svelte Flow Pro subscribers (svelteflow.dev/attribution)
-     — a small studio using their free library for a personal app is
-     exactly who that ask is aimed at keeping honest. If you'd rather
-     hide it anyway, it's one line: `proOptions={{ hideAttribution: true
-     }}` alongside the props above. Your call, not mine to make
-     silently. -->
+<!-- The "Svelte Flow" badge was the library's own attribution, not
+     something MidNote added — it rendered by default on every flow.
+     Round 21 only repositioned it (bottom-left, opposite Controls)
+     rather than hiding it outright, since @xyflow/svelte's core is
+     MIT-licensed (legally free to hide) but the maintainers explicitly
+     ask it only be removed by Svelte Flow Pro subscribers
+     (svelteflow.dev/attribution) — left as CLAUDEcode's call rather than
+     made silently. Round 22: CLAUDEcode asked for it gone, so
+     `proOptions={{ hideAttribution: true }}` above now hides it — an
+     informed choice now made, not a default snuck in. -->
 
 <BoardNodeEditSheet bind:open={editSheetOpen} node={editingBoardNode} onSave={handleNodeEditSave} onDelete={handleNodeDelete} />
 

@@ -137,8 +137,13 @@
   // this row cutting a solid-colored gap out of it.
   const viewTabsStyle = $derived(appBodyResolved.kind !== "none" ? "background: transparent;" : "");
 
-  function todoItemStyle(todo: Todo): string {
-    const resolved = resolveTheme(todo.headerTheme, customThemes);
+  // Named generically (not "todoItemStyle") because it now also paints
+  // the board list card — it only ever touched `.headerTheme`, which
+  // Todo and Board both carry unchanged via EntryRef, so nothing about
+  // the actual theme-resolution logic needed to change, just who's
+  // allowed to call it.
+  function listCardStyle(entry: Todo | Board): string {
+    const resolved = resolveTheme(entry.headerTheme, customThemes);
     if (resolved.kind === "color") return `border-left: 4px solid ${resolved.color}; background: ${hexToRgba(resolved.color, 0.08)};`;
     // BUGFIX — same as NoteCard.svelte's identical fix: text used to be
     // forced to a fixed white hierarchy unconditionally for ANY image
@@ -540,21 +545,27 @@
                 <!-- Brought to parity with the todo row above (kebab
                      menu, pin, bookmark, select-mode) per CLAUDEcode's
                      explicit ask — this was the one deliberately-deferred
-                     piece left over from round 17. Theme/scrim rendering
-                     on the card is a separate, still-deferred visual
-                     concern (not asked for here) — see BoardHeader's own
-                     comment on why headerTheme isn't shown on the list
-                     card yet either. -->
+                     piece left over from round 17. Header theme/scrim now
+                     wired too (round 22) — it's the exact same
+                     listCardStyle/has-image-theme/theme-scrim treatment
+                     the todo row below uses, since Board carries
+                     headerTheme via EntryRef unchanged; nothing here is
+                     board-specific. -->
                 {@const resolvedBoardIcon = resolveIcon(item.icon, customIcons)}
                 <div
                   class="todo-item"
                   class:selected={selectedIds.has(item.id)}
+                  class:has-image-theme={resolveTheme(item.headerTheme, customThemes).kind === "image"}
+                  style={listCardStyle(item)}
                   role="button"
                   tabindex="0"
                   onclick={() => handleTodoClick(item.id)}
                   onkeydown={(e) => e.key === "Enter" && handleTodoClick(item.id)}
                   {...todoPressHandlers(item.id)}
                 >
+                  {#if resolveTheme(item.headerTheme, customThemes).kind === "image"}
+                    <div class="theme-scrim" aria-hidden="true"></div>
+                  {/if}
                   {#if selectMode}
                     <div class="select-check" class:checked={selectedIds.has(item.id)} aria-hidden="true">
                       {#if selectedIds.has(item.id)}
@@ -637,7 +648,7 @@
                   class="todo-item"
                   class:selected={selectedIds.has(item.id)}
                   class:has-image-theme={resolveTheme(item.headerTheme, customThemes).kind === "image"}
-                  style={todoItemStyle(item)}
+                  style={listCardStyle(item)}
                   role="button"
                   tabindex="0"
                   onclick={() => handleTodoClick(item.id)}
@@ -944,6 +955,23 @@
      they're both inside this wrapper instead (needed as the single
      element the swipe gesture listens on), so it has to reproduce the
      same flex/gap itself or that spacing collapses to zero. */
+  /* BUGFIX (round 22): `touch-action: pan-y` is load-bearing, not
+     decorative — see swipe.ts's header comment for the full mechanism.
+     Without it (the default is `auto`), Chromium/WebView pre-empts every
+     real touch-driven swipe with `pointercancel` before swipe.ts's
+     onpointerup ever sees a real dx, so the gesture silently never
+     fired. `pan-y` tells the browser vertical scrolling is still its
+     job, but horizontal movement here is ours to interpret — the same
+     class of fix as board nodes' `touch-action: none` (see BoardCanvas'
+     node CSS), just `pan-y` instead of `none` here since this area must
+     still scroll vertically. Applied to descendants too (not just this
+     wrapper) since some browsers only reliably suppress the pre-emptive
+     cancel when every touched element in the chain agrees, not just the
+     nearest ancestor. */
+  .swipe-area,
+  .swipe-area * {
+    touch-action: pan-y;
+  }
   .swipe-area {
     display: flex;
     flex-direction: column;
@@ -1121,7 +1149,7 @@
     border-radius: inherit;
   }
   /* --theme-text-hi/mid/lo and --theme-tag-bg/text are set inline via
-     todoItemStyle (see getImageTextColorVars) — light or dark depending
+     listCardStyle (see getImageTextColorVars) — light or dark depending
      on this specific image's actual sampled color, not assumed. Same
      reasoning as NoteCard.svelte's identical override. */
   .todo-item.has-image-theme {
