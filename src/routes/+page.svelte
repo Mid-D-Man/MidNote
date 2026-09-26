@@ -1,7 +1,5 @@
 <script lang="ts">
   import { goto } from "$app/navigation";
-  import { onMount } from "svelte";
-  import LoadingScreen from "$lib/components/layout/LoadingScreen/LoadingScreen.svelte";
   import AppHeader from "$lib/components/layout/AppHeader/AppHeader.svelte";
   import NoteCard from "$lib/components/notes/NoteCard/NoteCard.svelte";
   import AiNoteCreator from "$lib/components/notes/AiNoteCreator/AiNoteCreator.svelte";
@@ -13,7 +11,7 @@
   import TagsPopup from "$lib/components/shared/TagsPopup/TagsPopup.svelte";
   import { entries, saveEntry, removeEntry, toggleBookmark, toggleStrikethrough, togglePinned } from "$lib/stores/entries.svelte";
   import type { Note, Todo, Board, Entry } from "$lib/types/entry";
-  import { noteTags, todoTags, boardTags, sync as syncTags, registerTag, unregisterTag } from "$lib/stores/tags.svelte";
+  import { noteTags, todoTags, boardTags, registerTag, unregisterTag } from "$lib/stores/tags.svelte";
   import { createNote, type TagScope } from "$lib/storage";
   import { stripHtml, plainTextToHtml } from "$lib/utils/richText";
   import { createLongPressHandlers } from "$lib/utils/longPress";
@@ -28,7 +26,6 @@
   import { appBodyTheme, loadLastActiveView, setLastActiveView, type ActiveView } from "$lib/stores/settings.svelte";
   import { lockEntry, unlockEntry } from "$lib/utils/lockFlow";
 
-  let isLoading = $state(true);
   // BUGFIX: this used to always start on "notes" — since navigating to
   // note/[id] or todo/[id] and back fully unmounts/remounts this route,
   // that meant leaving a todo (or a note) always landed back on the
@@ -56,10 +53,6 @@
   let lockBusyIds = $state<Set<string>>(new Set());
   let showMergeConfirm = $state(false);
   let pendingMerge = $state<{ merged: Entry; sourceIds: string[] } | null>(null);
-
-  onMount(() => {
-    syncTags();
-  });
 
   const notes = $derived(entries.filter((e): e is Note => e.type === "regular"));
   const todos = $derived(entries.filter((e): e is Todo => e.type === "todo"));
@@ -459,9 +452,6 @@
   }
 </script>
 
-{#if isLoading}
-  <LoadingScreen oncomplete={() => (isLoading = false)} />
-{:else}
   <main class="page" class:body-has-image={appBodyResolved.kind === "image"} style={pageBodyStyle}>
     <AppHeader />
 
@@ -790,7 +780,6 @@
     onAddTag={(tag) => tagsPopupFor && handleAddTagTo(tagsPopupFor, tag)}
     onRemoveTag={(tag) => tagsPopupFor && handleRemoveTagFrom(tagsPopupFor, tag)}
   />
-{/if}
 
 <style>
   .page {

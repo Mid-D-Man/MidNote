@@ -1,15 +1,33 @@
-// Reactive entry list — Svelte 5 runes state. Backed by src/lib/storage.ts
-// (localStorage, temporary) rather than notes_index.mdix/todos_index.mdix
-// directly; see that file's header for why.
+// Reactive entry list — Svelte 5 runes state. Backed by src/lib/storage.ts,
+// itself now backed by the real Tauri data layer (entries.rs/index.rs) —
+// see that file's header for the async-hydration/sync-API split.
 import type { Entry, Note, Todo } from "$lib/types/entry";
 import * as storage from "$lib/storage";
 import { NO_THEME } from "$lib/types/entry";
 import { untrack } from "svelte";
 
-function seedIfEmpty(): Entry[] {
-  const loaded = storage.loadEntries();
-  if (loaded.length > 0) return loaded;
+// Starts empty rather than seeded synchronously at module-evaluation
+// time (as it did back when storage.ts was pure localStorage) — real
+// data can only arrive after an async round trip now, so seeding has to
+// wait for that too. See initFromBackend below, and +layout.svelte's
+// onMount for where it's actually called from.
+export const entries = $state<Entry[]>([]);
 
+// Moved out of a "seedIfEmpty" that used to run synchronously inside the
+// $state initializer above — same sample-note behavior, just run once
+// storage.initStorage() confirms there's genuinely nothing there yet,
+// rather than assumed empty at import time (which, for a real async
+// backend, it always would have been on the very first read regardless
+// of whether real data existed).
+export async function initFromBackend(): Promise<void> {
+  await storage.initStorage();
+  if (storage.loadEntries().length === 0) {
+    seedSamples();
+  }
+  refresh();
+}
+
+function seedSamples() {
   const now = new Date().toISOString();
   const sample: Note[] = [
     {
@@ -57,10 +75,7 @@ function seedIfEmpty(): Entry[] {
     storage.upsertEntry(n);
     storage.addKnownTag("notes", n.tags[0]);
   });
-  return storage.loadEntries();
 }
-
-export const entries = $state<Entry[]>(seedIfEmpty());
 
 export function getNotes(): Note[] {
   return entries.filter((e): e is Note => e.type === "regular");

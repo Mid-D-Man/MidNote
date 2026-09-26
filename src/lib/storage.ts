@@ -1,13 +1,26 @@
-// TEMPORARY local persistence — localStorage, same as the original
-// SimpleNotesAndRecipies app used. This is a placeholder for
-// src-tauri/src/data/entries.rs + index.rs, which aren't implemented yet
-// (see the TODOs there). Swapping this module's internals for real
-// Tauri invoke() calls later shouldn't require touching any component
-// that imports from here, since the exported function shapes below are
-// what a Tauri-backed version would expose too.
+// Real persistence: src-tauri/src/data/entries.rs (per-entry .mdix
+// files), index.rs (notes_index.mdix/todos_index.mdix/boards_index.mdix)
+// and tags.rs (tags.mdix), via the Tauri commands wrapped in
+// $lib/dixscript/client.ts. Every exported function below keeps the
+// EXACT same synchronous signature it had when this file was pure
+// localStorage — see initStorage()'s own comment for how that's possible
+// despite the real backend being async.
+//
+// DEV/TEST FALLBACK: dix.isTauriRuntime() is false in a plain browser tab
+// and in this project's own jsdom-based smoke-test harness (scripts/
+// smoke-test.mjs) — neither has Tauri's own JS bridge. In both cases
+// this file falls back to the exact same localStorage behavior it always
+// used, so `npm run smoke` and any future desktop-browser dev workflow
+// keep working without ever calling a real invoke(). This is a real
+// technical necessity, not related to CLAUDEcode's separate decision
+// that existing on-device localStorage data doesn't need migrating —
+// that decision only affects what happens the first time this ships to
+// a real device; it doesn't touch the fallback path, which exists purely
+// so this file still works somewhere with no Tauri runtime under it.
 import type { Board, CustomIcon, CustomTheme, Entry, Note, Todo } from "$lib/types/entry";
 import { NO_THEME } from "$lib/types/entry";
 import { getColorSync } from "colorthief";
+import * as dix from "$lib/dixscript/client";
 
 const ENTRIES_KEY = "midnote:entries";
 const TAGS_KEY = "midnote:known-tags";
@@ -18,109 +31,168 @@ export function generateId(): string {
   return crypto.randomUUID();
 }
 
-export function loadEntries(): Entry[] {
+// ---- Entries ----
+// In-memory cache backing loadEntries()/getEntry() below. Populated once
+// by initStorage(); every read/write function here operates on this
+// directly rather than re-fetching, since a real invoke() round trip
+// can't happen inside a function that has to stay synchronous.
+let _entries: Entry[] = [];
+let _entriesInitialized = false;
+
+// Defensive per-entry validation — factored out of the old loadEntries()
+// so both the real-backend path and the localStorage fallback path run
+// it, since either can hand back an entry saved under an older shape (a
+// real .mdix file written by a future version of this same code, same as
+// an old localStorage record could be).
+function normalizeEntry(e: unknown): Entry | null {
+  const entry = e as Record<string, unknown> & { pages?: Array<Record<string, unknown>> };
+  if (!entry || typeof entry !== "object" || !entry.id || !entry.type) {
+    console.error("storage: skipping malformed entry:", entry);
+    return null;
+  }
+  if (entry.type === "todo") {
+    if (!Array.isArray(entry.steps)) entry.steps = [];
+    if (!Array.isArray(entry.annotations)) entry.annotations = [];
+    if (!Array.isArray(entry.categories) || (entry.categories as unknown[]).length === 0) entry.categories = ["Steps"];
+  }
+  if (entry.type === "board") {
+    if (!Array.isArray(entry.nodes)) entry.nodes = [];
+    if (!Array.isArray(entry.edges)) entry.edges = [];
+    const viewport = entry.viewport as { zoom?: unknown } | null | undefined;
+    if (!viewport || typeof viewport.zoom !== "number") entry.viewport = null;
+  }
+  if (!Array.isArray(entry.tags)) entry.tags = [];
+  if (typeof entry.struck !== "boolean") entry.struck = false;
+  if (typeof entry.isPinned !== "boolean") entry.isPinned = false;
+  const isValidThemeRef = (t: unknown): t is { kind: string } => !!t && typeof t === "object" && typeof (t as { kind?: unknown }).kind === "string";
+  if (!isValidThemeRef(entry.headerTheme)) {
+    entry.headerTheme = isValidThemeRef(entry.theme) ? entry.theme : { ...NO_THEME };
+  }
+  if (!isValidThemeRef(entry.bodyTheme)) entry.bodyTheme = { ...NO_THEME };
+  if (typeof entry.icon === "string") {
+    entry.icon = { kind: "preset", name: entry.icon };
+  } else if (!entry.icon || typeof entry.icon !== "object" || ((entry.icon as { kind?: unknown }).kind !== "preset" && (entry.icon as { kind?: unknown }).kind !== "custom")) {
+    entry.icon = null;
+  }
+  if (entry.lockKeyMode !== "app" && entry.lockKeyMode !== "custom") entry.lockKeyMode = null;
+  if (typeof entry.lockedPayload !== "string") entry.lockedPayload = null;
+  if (typeof entry.lockedKeyFile !== "string") entry.lockedKeyFile = null;
+  if (entry.type === "regular" && !Array.isArray(entry.pages)) entry.pages = [];
+  if (entry.type === "regular") {
+    if (typeof entry.page1Name !== "string") entry.page1Name = null;
+    for (const p of entry.pages ?? []) {
+      if (typeof p.name !== "string") p.name = null;
+    }
+  }
+  return entry as unknown as Entry;
+}
+
+function normalizeEntries(raw: unknown): Entry[] {
+  if (!Array.isArray(raw)) {
+    console.error("storage: entries payload isn't an array, ignoring:", raw);
+    return [];
+  }
+  const valid: Entry[] = [];
+  for (const e of raw) {
+    const n = normalizeEntry(e);
+    if (n) valid.push(n);
+  }
+  return valid;
+}
+
+function loadEntriesFromLocalStorage(): Entry[] {
   if (typeof localStorage === "undefined") return [];
   try {
     const raw = localStorage.getItem(ENTRIES_KEY);
     if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) {
-      console.error("storage: entries in localStorage isn't an array, ignoring:", parsed);
-      return [];
-    }
-    // Defensive per-entry validation — a todo saved by an earlier build
-    // during testing (different shape) shouldn't be able to crash the
-    // whole list read, just get skipped and logged instead.
-    const valid: Entry[] = [];
-    for (const e of parsed) {
-      if (!e || typeof e !== "object" || !e.id || !e.type) {
-        console.error("storage: skipping malformed entry:", e);
-        continue;
-      }
-      if (e.type === "todo") {
-        if (!Array.isArray(e.steps)) e.steps = [];
-        if (!Array.isArray(e.annotations)) e.annotations = [];
-        if (!Array.isArray(e.categories) || e.categories.length === 0) e.categories = ["Steps"];
-      }
-      // Same defensive treatment as todos above. No migration path is
-      // needed here (boards are new — no older on-disk shape exists to
-      // upgrade from), but a board whose arrays are missing or
-      // corrupted should still open as an empty board rather than
-      // crashing the whole list read. viewport stays null when absent,
-      // which the board route reads as "no saved position, fit to
-      // content instead."
-      if (e.type === "board") {
-        if (!Array.isArray(e.nodes)) e.nodes = [];
-        if (!Array.isArray(e.edges)) e.edges = [];
-        if (!e.viewport || typeof e.viewport.zoom !== "number") e.viewport = null;
-      }
-      if (!Array.isArray(e.tags)) e.tags = [];
-      // Entries saved before the struck field existed won't have it at
-      // all (undefined, not false) — same migration-default treatment
-      // as tags/steps/annotations/categories above. isPinned/theme are
-      // the two newest fields and get identical treatment.
-      if (typeof e.struck !== "boolean") e.struck = false;
-      if (typeof e.isPinned !== "boolean") e.isPinned = false;
-      // Theme v2 migration: v1 stored one flat `theme` field, which is
-      // exactly what's now `headerTheme` (see entry.ts's comment on
-      // headerTheme — the card/editor-header treatment is unchanged,
-      // only renamed/re-scoped). An entry saved under v1 has `e.theme`
-      // but not `e.headerTheme`; carry its value over rather than
-      // resetting it to none, so nobody's existing theme choice
-      // silently vanishes on upgrade. `bodyTheme` and `icon` are both
-      // genuinely new — no prior value to migrate, default them fresh.
-      const isValidThemeRef = (t: unknown): t is { kind: string } => !!t && typeof t === "object" && typeof (t as { kind?: unknown }).kind === "string";
-      if (!isValidThemeRef(e.headerTheme)) {
-        e.headerTheme = isValidThemeRef(e.theme) ? e.theme : { ...NO_THEME };
-      }
-      if (!isValidThemeRef(e.bodyTheme)) e.bodyTheme = { ...NO_THEME };
-      // Icon v2 migration: v1 stored `icon` as a bare preset-name string
-      // (or null). Wrap an existing string into the new IconRef shape
-      // rather than resetting it to none, so nobody's existing icon
-      // choice silently vanishes on upgrade — same reasoning as the
-      // headerTheme migration just above. Anything already in the new
-      // {kind, ...} shape (or genuinely absent) is left as-is / defaulted
-      // to null.
-      if (typeof e.icon === "string") {
-        e.icon = { kind: "preset", name: e.icon };
-      } else if (!e.icon || typeof e.icon !== "object" || (e.icon.kind !== "preset" && e.icon.kind !== "custom")) {
-        e.icon = null;
-      }
-      // Lock fields are newest — same migration-default treatment.
-      // encrypted already existed (always defaulted false already, see
-      // above); an entry saved before Lock existed won't have these
-      // three at all.
-      if (e.lockKeyMode !== "app" && e.lockKeyMode !== "custom") e.lockKeyMode = null;
-      if (typeof e.lockedPayload !== "string") e.lockedPayload = null;
-      if (typeof e.lockedKeyFile !== "string") e.lockedKeyFile = null;
-      // Pages: notes only. Missing entirely on any note saved before
-      // this existed — defaults to "just the one page" (empty array),
-      // which is exactly what those notes already are.
-      if (e.type === "regular" && !Array.isArray(e.pages)) e.pages = [];
-      // Page rename: newer still than pages itself — any note saved
-      // before renaming existed (including ones that already have a
-      // pages array) won't have page1Name at all, and existing pages
-      // inside that array won't have a `name` field either. Both
-      // default to null (auto-numbered), same migration pattern as
-      // everything else in this function.
-      if (e.type === "regular") {
-        if (typeof e.page1Name !== "string") e.page1Name = null;
-        for (const p of e.pages) {
-          if (typeof p.name !== "string") p.name = null;
-        }
-      }
-      valid.push(e);
-    }
-    return valid;
+    return normalizeEntries(JSON.parse(raw));
   } catch (err) {
     console.error("storage: failed to load entries, treating as empty:", err);
     return [];
   }
 }
 
-function saveEntries(entries: Entry[]) {
+function saveEntriesToLocalStorage(entries: Entry[]) {
   if (typeof localStorage === "undefined") return;
   localStorage.setItem(ENTRIES_KEY, JSON.stringify(entries));
+}
+
+// ---- Tags ----
+interface KnownTags {
+  notes: string[];
+  todos: string[];
+  boards: string[];
+}
+
+export type TagScope = keyof KnownTags;
+
+let _knownTags: KnownTags = { notes: [], todos: [], boards: [] };
+
+function parseKnownTags(raw: unknown): KnownTags {
+  const parsed = (raw ?? {}) as Partial<KnownTags>;
+  return { notes: parsed.notes ?? [], todos: parsed.todos ?? [], boards: parsed.boards ?? [] };
+}
+
+function loadKnownTagsFromLocalStorage(): KnownTags {
+  if (typeof localStorage === "undefined") return { notes: [], todos: [], boards: [] };
+  try {
+    const raw = localStorage.getItem(TAGS_KEY);
+    return parseKnownTags(raw ? JSON.parse(raw) : {});
+  } catch {
+    return { notes: [], todos: [], boards: [] };
+  }
+}
+
+function saveKnownTagsToLocalStorage(tags: KnownTags) {
+  if (typeof localStorage === "undefined") return;
+  localStorage.setItem(TAGS_KEY, JSON.stringify(tags));
+}
+
+// ---- One-time async hydration ----
+// MUST be awaited (see routes/+layout.svelte's onMount) before anything
+// reads loadEntries()/loadKnownTags() for real. Safe to call more than
+// once — every call after the first returns the same in-flight/completed
+// promise rather than re-fetching.
+let _initPromise: Promise<void> | null = null;
+
+export function initStorage(): Promise<void> {
+  if (_initPromise) return _initPromise;
+  _initPromise = (async () => {
+    if (dix.isTauriRuntime()) {
+      try {
+        const [entriesJson, tagsJson] = await Promise.all([dix.getAllEntries(), dix.getTags()]);
+        _entries = normalizeEntries(JSON.parse(entriesJson));
+        _knownTags = parseKnownTags(JSON.parse(tagsJson));
+      } catch (err) {
+        console.error("storage: failed to load from the real backend, starting empty:", err);
+        _entries = [];
+        _knownTags = { notes: [], todos: [], boards: [] };
+      }
+    } else {
+      // Plain browser tab / smoke-test harness — no real Tauri bridge to
+      // call. Same behavior this file always had.
+      _entries = loadEntriesFromLocalStorage();
+      _knownTags = loadKnownTagsFromLocalStorage();
+    }
+    _entriesInitialized = true;
+  })();
+  return _initPromise;
+}
+
+export function loadEntries(): Entry[] {
+  if (!_entriesInitialized) {
+    // Called before initStorage() resolved — a bug in whatever called it
+    // (see +layout.svelte's onMount), not a case to silently paper over
+    // with a stale read. Logged once; returns empty rather than
+    // throwing, so a stray early read degrades to "nothing yet" instead
+    // of crashing its caller.
+    console.error("storage: loadEntries() called before initStorage() resolved");
+  }
+  // Same "always a fresh copy, never the live cache" contract the
+  // localStorage-era version had (parsing JSON fresh on every call) — a
+  // caller mutating what it got back must never affect canonical state
+  // without going through upsertEntry.
+  return structuredClone(_entries);
 }
 
 export function getEntry(id: string): Entry | undefined {
@@ -128,16 +200,38 @@ export function getEntry(id: string): Entry | undefined {
 }
 
 export function upsertEntry(entry: Entry) {
-  const entries = loadEntries();
-  const i = entries.findIndex((e) => e.id === entry.id);
   entry.lastModified = new Date().toISOString();
-  if (i === -1) entries.push(entry);
-  else entries[i] = entry;
-  saveEntries(entries);
+  const stored = structuredClone(entry);
+  const i = _entries.findIndex((e) => e.id === entry.id);
+  if (i === -1) _entries.push(stored);
+  else _entries[i] = stored;
+
+  if (dix.isTauriRuntime()) {
+    // Fire-and-persist: the in-memory cache above (the UI's actual
+    // source of truth) is already updated synchronously, so the caller
+    // never waits on this — matching this function's pre-existing
+    // synchronous signature. A failure here is logged, not surfaced to
+    // the caller; the in-memory state the UI reads from stays correct
+    // either way, at the cost of that one change not surviving an app
+    // kill before this resolves. See this project's data-layer notes
+    // for that trade-off stated plainly, not left implicit.
+    dix.saveEntry(entry.id, JSON.stringify(entry)).catch((err) => {
+      console.error(`storage: failed to persist entry ${entry.id} to the real backend:`, err);
+    });
+  } else {
+    saveEntriesToLocalStorage(_entries);
+  }
 }
 
 export function deleteEntry(id: string) {
-  saveEntries(loadEntries().filter((e) => e.id !== id));
+  _entries = _entries.filter((e) => e.id !== id);
+  if (dix.isTauriRuntime()) {
+    dix.deleteEntry(id).catch((err) => {
+      console.error(`storage: failed to delete entry ${id} from the real backend:`, err);
+    });
+  } else {
+    saveEntriesToLocalStorage(_entries);
+  }
 }
 
 export function createNote(): Note {
@@ -217,42 +311,30 @@ export function createBoard(): Board {
 
 // Known-tag registry — mirrors mdix_files/schema/tags.mdix's
 // notes:: / todos:: split, now with a third boards:: scope.
-interface KnownTags {
-  notes: string[];
-  todos: string[];
-  boards: string[];
-}
-
-export type TagScope = keyof KnownTags;
-
-export function loadKnownTags(): KnownTags {
-  if (typeof localStorage === "undefined") return { notes: [], todos: [], boards: [] };
-  try {
-    const raw = localStorage.getItem(TAGS_KEY);
-    // boards:: is newer than the other two, so anything saved before
-    // it existed parses back with that key missing entirely — default
-    // it rather than letting every board-tag read hit undefined.
-    const parsed = raw ? (JSON.parse(raw) as Partial<KnownTags>) : {};
-    return { notes: parsed.notes ?? [], todos: parsed.todos ?? [], boards: parsed.boards ?? [] };
-  } catch {
-    return { notes: [], todos: [], boards: [] };
+function persistKnownTags() {
+  if (dix.isTauriRuntime()) {
+    dix.saveTags(JSON.stringify(_knownTags)).catch((err) => {
+      console.error("storage: failed to persist tags to the real backend:", err);
+    });
+  } else {
+    saveKnownTagsToLocalStorage(_knownTags);
   }
 }
 
+export function loadKnownTags(): KnownTags {
+  return structuredClone(_knownTags);
+}
+
 export function addKnownTag(kind: TagScope, tag: string) {
-  if (typeof localStorage === "undefined") return;
-  const known = loadKnownTags();
-  if (!known[kind].includes(tag)) {
-    known[kind].push(tag);
-    localStorage.setItem(TAGS_KEY, JSON.stringify(known));
+  if (!_knownTags[kind].includes(tag)) {
+    _knownTags[kind].push(tag);
+    persistKnownTags();
   }
 }
 
 export function removeKnownTag(kind: TagScope, tag: string) {
-  if (typeof localStorage === "undefined") return;
-  const known = loadKnownTags();
-  known[kind] = known[kind].filter((t) => t !== tag);
-  localStorage.setItem(TAGS_KEY, JSON.stringify(known));
+  _knownTags[kind] = _knownTags[kind].filter((t) => t !== tag);
+  persistKnownTags();
 }
 
 // Custom (user-uploaded) theme registry — mirrors custom-themes.mdix's
@@ -261,6 +343,14 @@ export function removeKnownTag(kind: TagScope, tag: string) {
 // applied to more than one note, so it's stored once and referenced by
 // id (ThemeRef.customThemeId) rather than duplicated onto every entry
 // that uses it.
+//
+// NOT wired to the real Tauri backend yet, deliberately scoped out of
+// round 22 (entries/index/tags only) — these stay pure localStorage for
+// now. Unlike an entry's own fields, these hold full base64 image blobs
+// (up to ~720px JPEG / 128px PNG), which is its own separate sizing/
+// perf question worth a dedicated pass rather than folding into the
+// same round as entries.rs/index.rs. See this project's data-layer notes
+// for this as a named, deliberate gap, not an oversight.
 export function loadCustomThemes(): CustomTheme[] {
   if (typeof localStorage === "undefined") return [];
   try {
@@ -363,7 +453,8 @@ export function storeCustomThemeImage(file: File): Promise<CustomTheme> {
 // referenced by id" shape as loadCustomThemes above, for the same
 // reason: one upload can be used as more than one note/todo's icon
 // badge, so it's stored once (IconRef.customIconId) rather than
-// duplicated onto every entry that uses it.
+// duplicated onto every entry that uses it. Same NOT-wired-yet scope
+// note as loadCustomThemes above applies here too.
 export function loadCustomIcons(): CustomIcon[] {
   if (typeof localStorage === "undefined") return [];
   try {

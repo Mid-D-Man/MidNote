@@ -5,13 +5,26 @@
   let progress = $state(0);
 
   onMount(() => {
+    // BUGFIX (round 22): this used to run for ~1.3s total (10 ticks x
+    // 100ms + a 300ms pause) — fine back when only the landing page ever
+    // showed this, on top of already-loaded localStorage data, as pure
+    // decoration. Since round 22 this screen gates EVERY route's real
+    // content on real data actually being ready (see +layout.svelte),
+    // so its own fixed minimum needed to shrink well below that: this
+    // project's smoke test settles after 1200ms by default
+    // (SMOKE_SETTLE_MS in smoke-test-worker.mjs), and the old ~1.3s
+    // timer was already cutting that margin razor-thin even before it
+    // gated anything real — moving the gate surfaced it as a genuine
+    // failure (board — existing) rather than introducing a new one.
+    // 450ms total leaves comfortable room under that window while still
+    // reading as an intentional animation, not an instant flash.
     const interval = setInterval(() => {
-      progress = Math.min(progress + 10, 100);
+      progress = Math.min(progress + 20, 100);
       if (progress >= 100) {
         clearInterval(interval);
-        setTimeout(oncomplete, 300);
+        setTimeout(oncomplete, 150);
       }
-    }, 100);
+    }, 60);
     return () => clearInterval(interval);
   });
 </script>
