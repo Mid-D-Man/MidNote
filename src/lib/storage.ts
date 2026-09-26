@@ -31,6 +31,38 @@ export function generateId(): string {
   return crypto.randomUUID();
 }
 
+// BUGFIX (round 24): a real, confirmed on-device crash — every save of a
+// note or board threw `DataCloneError: ... could not be cloned` (todo
+// saves would have hit the exact same thing, just not yet exercised in
+// the report). Root cause: upsertEntry's `entry` argument here isn't a
+// plain object — it's the live Svelte 5 `$state` reactive proxy from
+// whichever editor route called saveEntry (note/[id]/+page.svelte's
+// `note`, board/[id]/+page.svelte's `board`, etc.), and structuredClone's
+// clone algorithm can't traverse Svelte 5's reactive proxy wrapping (it
+// isn't a plain object/array/Map/Set/Date/etc. as far as the algorithm's
+// own type checks are concerned) — confirmed by the crash reaching this
+// same code from BOTH an explicit Save button AND BoardHeader's silent
+// per-keystroke onPersist on the title field, i.e. from every call site
+// that ever hands a live $state object to storage.ts, not something
+// specific to one button. `$state.snapshot()` (the Svelte-provided fix
+// for exactly this) isn't usable here — it's a compiler rune, only
+// available inside .svelte/.svelte.ts files, and storage.ts is a plain
+// .ts file the Svelte compiler doesn't touch. A JSON round-trip sidesteps
+// the whole problem instead: JSON.stringify walks a Proxy via normal
+// property access (which Svelte's reactive proxies fully support — it's
+// how the app already reads every field of `entry` to build the very
+// JSON string sent to the real backend a few lines below), producing a
+// string with zero proxy involvement, and JSON.parse turns that back
+// into a genuinely plain object. This is also a more honest clone for
+// this specific use than structuredClone ever was: everything this app
+// stores is already constrained to JSON-safe shapes (that's the whole
+// premise `dix.saveEntry`'s `JSON.stringify(entry)` call already rested
+// on) — structuredClone's extra support for Dates/Maps/Sets was never
+// actually being used or needed here.
+function clone<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
 // ---- Entries ----
 // In-memory cache backing loadEntries()/getEntry() below. Populated once
 // by initStorage(); every read/write function here operates on this
@@ -192,7 +224,7 @@ export function loadEntries(): Entry[] {
   // localStorage-era version had (parsing JSON fresh on every call) — a
   // caller mutating what it got back must never affect canonical state
   // without going through upsertEntry.
-  return structuredClone(_entries);
+  return clone(_entries);
 }
 
 export function getEntry(id: string): Entry | undefined {
@@ -201,7 +233,7 @@ export function getEntry(id: string): Entry | undefined {
 
 export function upsertEntry(entry: Entry) {
   entry.lastModified = new Date().toISOString();
-  const stored = structuredClone(entry);
+  const stored = clone(entry);
   const i = _entries.findIndex((e) => e.id === entry.id);
   if (i === -1) _entries.push(stored);
   else _entries[i] = stored;
@@ -322,7 +354,7 @@ function persistKnownTags() {
 }
 
 export function loadKnownTags(): KnownTags {
-  return structuredClone(_knownTags);
+  return clone(_knownTags);
 }
 
 export function addKnownTag(kind: TagScope, tag: string) {

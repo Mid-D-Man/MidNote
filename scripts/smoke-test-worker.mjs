@@ -24,6 +24,16 @@ const SETTLE_MS = Number(process.env.SMOKE_SETTLE_MS || 1200);
 // silently showing the wrong content (stale/reset/blank state), which
 // no amount of "did it throw" checking catches.
 const EXPECT_TEXT = process.env.SMOKE_EXPECT_TEXT || null;
+// Optional, per-scenario — see smoke-test.mjs's SCENARIOS comment on
+// `clickAriaLabel` for why this exists: mounting a route and waiting is
+// the whole test above, which means nothing a user actually DOES (tap
+// Save, type into a field) was ever exercised — a crash that only
+// happens inside a click handler (round 24's real on-device
+// DataCloneError, thrown from Save, never from mounting) sailed through
+// every previous run of this file clean. This clicks one real element
+// after the initial settle, matched by its exact aria-label, then waits
+// again before the usual error/expectText checks run.
+const CLICK_ARIA_LABEL = process.env.SMOKE_CLICK_ARIA_LABEL || null;
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
   url: `http://tauri.localhost${ROUTE_PATH}`,
@@ -164,6 +174,20 @@ try {
 // Give effects/microtasks room to settle — or to spiral, if a loop like
 // the effect_update_depth_exceeded one is back.
 await new Promise((r) => setTimeout(r, SETTLE_MS));
+
+if (CLICK_ARIA_LABEL && errors.length === 0) {
+  const el = target.querySelector(`[aria-label="${CLICK_ARIA_LABEL}"]`);
+  if (!el) {
+    errors.push(new Error(`No element with aria-label="${CLICK_ARIA_LABEL}" found to click.`));
+  } else {
+    el.click();
+    // A shorter second wait than the initial SETTLE_MS — this is only
+    // waiting on whatever the click's own handler kicks off (a save's
+    // in-memory update + fire-and-forget persist, an $effect it
+    // triggers), not a full route mount.
+    await new Promise((r) => setTimeout(r, Math.min(SETTLE_MS, 600)));
+  }
+}
 
 if (errors.length > 0) {
   for (const e of errors) {

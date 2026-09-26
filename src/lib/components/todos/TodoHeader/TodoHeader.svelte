@@ -203,7 +203,7 @@
         </svg>
       </Button>
 
-      <Button variant="ghost" size="icon" onclick={handleSave} disabled={isSaving}>
+      <Button variant="ghost" size="icon" onclick={handleSave} disabled={isSaving} aria-label="Save">
         {#if isSaving}
           <Spinner />
         {:else}

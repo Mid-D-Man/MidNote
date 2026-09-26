@@ -88,22 +88,35 @@ const SEED_ENTRIES = [
 // "new note/todo" never hit it (see the incident doc for why the two
 // branches of load() behave differently) but stays here as a cheap
 // regression net against a *different* future mistake in that branch.
+//
+// clickAriaLabel (round 24): added after a REAL on-device crash — every
+// Save threw `DataCloneError` (storage.ts's upsertEntry structuredClone'd
+// a live Svelte $state proxy, which the clone algorithm can't traverse —
+// see storage.ts's clone() comment) — that every previous run of this
+// file passed clean, because nothing here had ever clicked anything.
+// Mounting a route and waiting was the whole test; tapping Save never
+// happened. Each "— existing" scenario now actually taps its header's
+// real Save button (matched by the same aria-label a screen reader
+// would use) after the initial mount settles, so a crash inside that
+// handler shows up here the same way it showed up on-device, instead of
+// only in a debug log after the fact.
 const SCENARIOS = [
   { name: "home / list page", path: "/", seed: SEED_ENTRIES },
   { name: "note — new", path: "/note/new", seed: SEED_ENTRIES },
-  { name: "note — existing", path: `/note/${NOTE_ID}`, seed: SEED_ENTRIES },
+  { name: "note — existing", path: `/note/${NOTE_ID}`, seed: SEED_ENTRIES, clickAriaLabel: "Save" },
   { name: "todo — new", path: "/todo/new", seed: SEED_ENTRIES },
-  { name: "todo — existing", path: `/todo/${TODO_ID}`, seed: SEED_ENTRIES },
+  { name: "todo — existing", path: `/todo/${TODO_ID}`, seed: SEED_ENTRIES, clickAriaLabel: "Save" },
   { name: "board — new", path: "/board/new", seed: SEED_ENTRIES },
-  // expectText: the one thing the crash-only checks above this comment
-  // block CAN'T catch — a route that mounts cleanly, throws nothing, yet
-  // silently shows the WRONG content (exactly what happened here: an
-  // existing board's canvas seeded itself from the blank pre-load
-  // default and never re-synced once the real saved nodes loaded a
-  // moment later — see BoardCanvas.svelte's syncToken comment). Checked
-  // against the settled page's real textContent — see
-  // smoke-test-worker.mjs's SMOKE_EXPECT_TEXT handling.
-  { name: "board — existing", path: `/board/${BOARD_ID}`, seed: SEED_ENTRIES, expectText: "Node one" },
+  // expectText: the one thing a crash-only check CAN'T catch — a route
+  // that mounts cleanly, throws nothing, yet silently shows the WRONG
+  // content (exactly what happened here: an existing board's canvas
+  // seeded itself from the blank pre-load default and never re-synced
+  // once the real saved nodes loaded a moment later — see
+  // BoardCanvas.svelte's syncToken comment). Checked against the
+  // settled page's real textContent — see smoke-test-worker.mjs's
+  // SMOKE_EXPECT_TEXT handling. clickAriaLabel runs AFTER that check's
+  // own settle wait, so this scenario covers both classes of bug.
+  { name: "board — existing", path: `/board/${BOARD_ID}`, seed: SEED_ENTRIES, expectText: "Node one", clickAriaLabel: "Save" },
 ];
 
 function runScenario(scenario) {
@@ -115,6 +128,7 @@ function runScenario(scenario) {
         SMOKE_ROUTE_PATH: scenario.path,
         SMOKE_SEED_ENTRIES: JSON.stringify(scenario.seed),
         ...(scenario.expectText ? { SMOKE_EXPECT_TEXT: scenario.expectText } : {}),
+        ...(scenario.clickAriaLabel ? { SMOKE_CLICK_ARIA_LABEL: scenario.clickAriaLabel } : {}),
       },
       stdio: ["ignore", "pipe", "pipe"],
     });
