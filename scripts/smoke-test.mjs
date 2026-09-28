@@ -117,8 +117,45 @@ const SCENARIOS = [
   // SMOKE_EXPECT_TEXT handling. clickAriaLabel runs AFTER that check's
   // own settle wait, so this scenario covers both classes of bug.
   { name: "board — existing", path: `/board/${BOARD_ID}`, seed: SEED_ENTRIES, expectText: "Node one", clickAriaLabel: "Save" },
+  // Round 26: the whole find & replace flow through the real UI —
+  // Actions sheet -> row -> bar mounts (replacing the formatting toolbar)
+  // -> typing a query highlights the match in the real Tiptap editor ->
+  // Replace all rewrites the note text -> closing the bar restores the
+  // toolbar. Seed note content is "smoke test content".
+  {
+    name: "note — find & replace",
+    path: `/note/${NOTE_ID}`,
+    seed: SEED_ENTRIES,
+    steps: [
+      { click: "More" },
+      { click: "Find and replace" },
+      { expectSelector: '[aria-label="Find"]' },
+      { type: { label: "Find", value: "smoke" } },
+      { wait: 500 },
+      { expectSelector: ".find-match" },
+      { expectText: "1 of 1" },
+      { type: { label: "Replace with", value: "SMOKE" } },
+      { click: "Replace all" },
+      { expectText: "SMOKE test content" },
+      { expectText: "Replaced 1" },
+      { click: "Close find and replace" },
+      { expectSelector: '[aria-label="Undo"]' },
+    ],
+  },
 ];
 
+// steps (round 26): an ordered script of interactions, run after the
+// initial settle (and after clickAriaLabel, if both are set). Each step is
+// one of:
+//   { click: "<aria-label>" }                          tap that element
+//   { type: { label: "<aria-label>", value: "..." } }  set an input's value + fire `input`
+//   { expectSelector: "<css>" }                        fail unless something matches
+//   { expectText: "..." }                              fail unless the page text contains it
+// with an optional { wait: ms } (default 250) after each one. Exists for
+// flows that need MORE than one tap — the find & replace bar is behind
+// More -> "Find and replace" — and to assert what the flow actually did
+// to the page, not just that nothing threw. Like clickAriaLabel, this was
+// added because "it mounts" has repeatedly not been enough (round 24).
 function runScenario(scenario) {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [WORKER], {
@@ -129,6 +166,7 @@ function runScenario(scenario) {
         SMOKE_SEED_ENTRIES: JSON.stringify(scenario.seed),
         ...(scenario.expectText ? { SMOKE_EXPECT_TEXT: scenario.expectText } : {}),
         ...(scenario.clickAriaLabel ? { SMOKE_CLICK_ARIA_LABEL: scenario.clickAriaLabel } : {}),
+        ...(scenario.steps ? { SMOKE_STEPS: JSON.stringify(scenario.steps) } : {}),
       },
       stdio: ["ignore", "pipe", "pipe"],
     });

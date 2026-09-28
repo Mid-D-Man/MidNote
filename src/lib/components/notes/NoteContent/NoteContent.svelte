@@ -50,6 +50,7 @@
   import { TextStyle, Color, BackgroundColor, FontSize } from "@tiptap/extension-text-style";
   import { Placeholder } from "@tiptap/extensions";
   import { PersistentMarks } from "$lib/utils/persistentMarksExtension";
+  import { FindReplace } from "$lib/utils/findReplaceExtension";
   import { stripHtml } from "$lib/utils/richText";
   import { noteLinesEnabled } from "$lib/stores/settings.svelte";
 
@@ -150,6 +151,12 @@
         BackgroundColor,
         FontSize,
         PersistentMarks,
+        // Round 26: regex find & replace. Registers only the plugin
+        // (state + highlight decorations) — it is inert until the find
+        // bar sets a query, and the bar drives it through
+        // findReplaceExtension.ts's exported functions, never through
+        // editor commands. See that file's header comment.
+        FindReplace,
         Placeholder.configure({
           placeholder: "Start typing...",
           // REVISION: default showOnlyCurrent means "only the node the
@@ -333,5 +340,30 @@
      typed paragraphs, not the blank space below the last one. */
   .note-content.lined :global(.ProseMirror > div) {
     border-bottom: 1px solid var(--rule-color, rgba(150, 120, 60, 0.35));
+  }
+
+  /* Find & replace highlights (round 26) — inline decorations added by
+     findReplaceExtension.ts while the find bar has a query. Background
+     only, so the note's own text/mark colours stay readable. The
+     zero-length "caret" is the marker for anchor matches like ^ and $,
+     which have no width to paint. */
+  .note-content :global(.ProseMirror .find-match) {
+    background: rgba(234, 179, 8, 0.38);
+    border-radius: 2px;
+  }
+  .note-content :global(.ProseMirror .find-match-current) {
+    background: rgba(249, 115, 22, 0.66);
+    outline: 1px solid rgba(249, 115, 22, 0.95);
+  }
+  .note-content :global(.ProseMirror .find-caret) {
+    display: inline-block;
+    width: 0;
+    height: 1.1em;
+    margin-left: -1px;
+    border-left: 2px solid rgba(234, 179, 8, 0.95);
+    vertical-align: text-bottom;
+  }
+  .note-content :global(.ProseMirror .find-caret-current) {
+    border-left: 3px solid rgba(249, 115, 22, 1);
   }
 </style>

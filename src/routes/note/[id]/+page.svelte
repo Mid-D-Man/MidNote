@@ -19,6 +19,9 @@
   import NoteTitle from "$lib/components/notes/NoteTitle/NoteTitle.svelte";
   import NoteContent from "$lib/components/notes/NoteContent/NoteContent.svelte";
   import FormattingToolbar from "$lib/components/notes/FormattingToolbar/FormattingToolbar.svelte";
+  import FindReplaceBar from "$lib/components/notes/FindReplaceBar/FindReplaceBar.svelte";
+  import { escapeRegExp } from "$lib/utils/findReplaceCore";
+  import { getKeyboardInset } from "$lib/utils/keyboardInset.svelte";
   import { saveEntry } from "$lib/stores/entries.svelte";
   import { noteTags, sync as syncTags } from "$lib/stores/tags.svelte";
   import { fontSize } from "$lib/stores/settings.svelte";
@@ -54,6 +57,37 @@
   // all: it's Tiptap's own History extension now, scoped to the live
   // editor instance, not a page-level content-snapshot stack.
   let syncToken = $state(0);
+
+  // Round 26: regex find & replace. The header's Actions sheet only hands
+  // up a tap (onFindReplace); the bar itself needs the live editor, which
+  // lives here. The query fields live HERE too (not in the bar) so they
+  // survive closing/reopening the bar while you stay in this note. While
+  // the bar is open it takes FormattingToolbar's bottom slot.
+  let findOpen = $state(false);
+  let findBarHeight = $state(0);
+  let findOpts = $state({ find: "", replace: "", regex: false, caseSensitive: false, wholeWord: false });
+
+  // Selecting a word first and then opening find prefills it (single line
+  // only, and escaped when regex mode is on so the selection is searched
+  // literally, not interpreted).
+  function openFind() {
+    breadcrumb("note page: find & replace opened");
+    const ed = editor;
+    if (ed && !ed.isDestroyed) {
+      const { from, to, empty } = ed.state.selection;
+      if (!empty) {
+        const picked = ed.state.doc.textBetween(from, to, "\n", "\n");
+        if (picked && !picked.includes("\n") && picked.length <= 200) {
+          findOpts.find = findOpts.regex ? escapeRegExp(picked) : picked;
+        }
+      }
+    }
+    findOpen = true;
+  }
+  function closeFind() {
+    breadcrumb("note page: find & replace closed");
+    findOpen = false;
+  }
 
   onMount(() => {
     breadcrumb(`note page mounted, id=${id}`);
@@ -120,6 +154,7 @@
     try {
       loadError = null;
       currentPageIndex = 0;
+      findOpen = false; // a different note: never carry an open find bar (or its stale query) across
       if (!id || id === "new") {
         note = createNote();
         syncToken = untrack(() => syncToken) + 1;
@@ -357,6 +392,7 @@
       onAddPage={addPage}
       onDeletePage={deletePage}
       onRenamePage={renamePage}
+      onFindReplace={openFind}
     />
 
     {#if note.encrypted}
@@ -376,7 +412,7 @@
         </button>
       </div>
     {:else}
-      <div class="scroll-area" style={bodyStyle}>
+      <div class="scroll-area" class:find-open={findOpen} style="--find-pad: {findBarHeight + getKeyboardInset()}px; {bodyStyle}">
         <div class="inner">
           <NoteTitle bind:value={note.title} />
           {#if currentPageIndex === 0}
@@ -387,7 +423,11 @@
         </div>
       </div>
 
-      <FormattingToolbar {editor} {tick} {hasSelection} />
+      {#if findOpen}
+        <FindReplaceBar {editor} {tick} bind:opts={findOpts} bind:height={findBarHeight} onClose={closeFind} />
+      {:else}
+        <FormattingToolbar {editor} {tick} {hasSelection} />
+      {/if}
     {/if}
   {/if}
 </main>
@@ -410,6 +450,13 @@
     overflow-x: hidden;
     padding: var(--space-5) var(--space-4);
     padding-bottom: calc(52px + var(--space-4) + var(--space-5));
+  }
+  /* Round 26: while the find bar is open (it replaces the formatting
+     toolbar in the same bottom slot), pad by ITS height plus the
+     keyboard inset instead of the toolbar's fixed 52px, so the last
+     lines of the note can still be scrolled clear of the bar. */
+  .scroll-area.find-open {
+    padding-bottom: calc(var(--find-pad, 0px) + var(--space-4));
   }
   .inner {
     max-width: 680px;

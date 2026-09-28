@@ -36,6 +36,7 @@
     onAddPage,
     onDeletePage,
     onRenamePage,
+    onFindReplace,
   }: {
     note: Note;
     availableTags: string[];
@@ -52,6 +53,11 @@
     onAddPage: () => void;
     onDeletePage: (index: number) => void;
     onRenamePage: (index: number, name: string | null) => void;
+    // Round 26: opens the docked find & replace bar. The bar needs the
+    // live Tiptap editor, which the route page owns (this header never
+    // sees it) — so, like page switching above, the header only
+    // surfaces the entry point and hands the tap up.
+    onFindReplace?: () => void;
   } = $props();
 
   let isSaving = $state(false);
@@ -108,6 +114,21 @@
     // Sheet.svelte was never built or tested to support.
     moreOpen = false;
     themeSheetOpen = true;
+  }
+
+  // Round 26. Same lock gate as Theme/Pages/Share/Copy: a locked note's
+  // body isn't mounted (content is cleared while locked), so there'd be
+  // no editor to search — refuse with the same toast instead of opening
+  // a bar that can do nothing. Closes the Actions sheet first, same
+  // sequential (not nested) pattern as the rows above.
+  function handleFindReplace() {
+    breadcrumb(`note header: Find & replace tapped (encrypted=${note.encrypted})`);
+    moreOpen = false;
+    if (note.encrypted) {
+      pushToast({ title: "Unlock first", description: "Unlock this note before searching it.", variant: "destructive" });
+      return;
+    }
+    onFindReplace?.();
   }
 
   function handleOpenPages() {
@@ -333,6 +354,12 @@
 
 <Sheet bind:open={moreOpen} side="bottom" title="Actions">
   <div class="action-list">
+    <button class="action-row" onclick={handleFindReplace} aria-label="Find and replace">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.5" y2="16.5" />
+      </svg>
+      <span>Find &amp; replace</span>
+    </button>
     <button class="action-row" onclick={handleShare}>
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
         <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" />

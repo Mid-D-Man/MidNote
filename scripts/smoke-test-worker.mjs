@@ -34,6 +34,10 @@ const EXPECT_TEXT = process.env.SMOKE_EXPECT_TEXT || null;
 // after the initial settle, matched by its exact aria-label, then waits
 // again before the usual error/expectText checks run.
 const CLICK_ARIA_LABEL = process.env.SMOKE_CLICK_ARIA_LABEL || null;
+// Optional, per-scenario (round 26) — an ordered list of scripted
+// interactions (click / type / expectSelector / expectText); see
+// smoke-test.mjs's `steps` comment for the step shapes and why.
+const STEPS = JSON.parse(process.env.SMOKE_STEPS || "[]");
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
   url: `http://tauri.localhost${ROUTE_PATH}`,
@@ -113,11 +117,20 @@ const GLOBALS_TO_COPY = [
   "SVGAElement", "SVGElement", "HTMLMediaElement", "HTMLInputElement",
   "HTMLTextAreaElement", "HTMLButtonElement", "HTMLAnchorElement", "HTMLFormElement",
   "HTMLSelectElement", "DOMParser", "Headers", "Request", "Response", "URL",
-  "URLSearchParams", "MutationObserver", "getSelection", "performance",
+  "URLSearchParams", "MutationObserver", "getSelection",
   "TextEncoder", "TextDecoder", "btoa", "atob", "sessionStorage", "localStorage",
   "pageXOffset", "pageYOffset", "scrollX", "scrollY", "innerWidth", "innerHeight",
   "getComputedStyle", "matchMedia", "requestIdleCallback", "cancelIdleCallback",
 ];
+// NOTE (round 26): "performance" used to be in the list above and must
+// NOT be. jsdom's own Performance.now() is implemented by calling the
+// GLOBAL `performance.now()` — and copying jsdom's performance object over
+// the global makes that call itself, forever (RangeError: Maximum call
+// stack size exceeded, from inside jsdom, the moment ANY app code calls
+// performance.now()). Node ships its own working global `performance`,
+// which is what jsdom's implementation wants to find there; window.performance
+// (jsdom's) still exists and delegates to it. Found when the find & replace
+// plugin's search-budget timer ran under this harness.
 for (const key of GLOBALS_TO_COPY) {
   if (key in w) {
     // defineProperty, not plain assignment — Node has its own read-only
@@ -186,6 +199,42 @@ if (CLICK_ARIA_LABEL && errors.length === 0) {
     // in-memory update + fire-and-forget persist, an $effect it
     // triggers), not a full route mount.
     await new Promise((r) => setTimeout(r, Math.min(SETTLE_MS, 600)));
+  }
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+if (STEPS.length > 0 && errors.length === 0) {
+  for (let i = 0; i < STEPS.length; i++) {
+    const step = STEPS[i];
+    const where = `steps[${i}] ${JSON.stringify(step)}`;
+    if (step.click) {
+      const el = target.querySelector(`[aria-label="${step.click}"]`);
+      if (!el) {
+        errors.push(new Error(`${where}: no element with aria-label="${step.click}" to click.`));
+        break;
+      }
+      el.click();
+    } else if (step.type) {
+      const el = target.querySelector(`[aria-label="${step.type.label}"]`);
+      if (!el) {
+        errors.push(new Error(`${where}: no input with aria-label="${step.type.label}" to type into.`));
+        break;
+      }
+      el.value = step.type.value;
+      el.dispatchEvent(new w.Event("input", { bubbles: true }));
+    } else if (step.expectSelector) {
+      if (!target.querySelector(step.expectSelector)) {
+        errors.push(new Error(`${where}: nothing matched ${step.expectSelector}.`));
+        break;
+      }
+    } else if (step.expectText) {
+      if (!target.textContent.includes(step.expectText)) {
+        errors.push(new Error(`${where}: page text doesn't contain "${step.expectText}". Actual: ${target.textContent.trim().slice(0, 200)}`));
+        break;
+      }
+    }
+    await sleep(step.wait ?? 250);
   }
 }
 
