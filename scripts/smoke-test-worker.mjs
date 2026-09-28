@@ -223,6 +223,23 @@ if (STEPS.length > 0 && errors.length === 0) {
       }
       el.value = step.type.value;
       el.dispatchEvent(new w.Event("input", { bubbles: true }));
+    } else if (step.paste !== undefined) {
+      // Round 27: fire a real `paste` event (with a text/plain clipboard)
+      // at the live Tiptap editor. jsdom has no ClipboardEvent or
+      // DataTransfer, so the event is a plain Event carrying the one
+      // property (`clipboardData.getData`) the app's handler reads.
+      const pm = target.querySelector(".ProseMirror");
+      if (!pm) {
+        errors.push(new Error(`${where}: no .ProseMirror editor to paste into.`));
+        break;
+      }
+      const ev = new w.Event("paste", { bubbles: true, cancelable: true });
+      ev.clipboardData = { getData: (t) => (t === "text/plain" ? step.paste : "") };
+      pm.dispatchEvent(ev);
+      if (!ev.defaultPrevented) {
+        errors.push(new Error(`${where}: the paste event wasn't handled (defaultPrevented is false) — the plain-text paste handler isn't wired into the editor.`));
+        break;
+      }
     } else if (step.expectSelector) {
       if (!target.querySelector(step.expectSelector)) {
         errors.push(new Error(`${where}: nothing matched ${step.expectSelector}.`));

@@ -21,6 +21,7 @@ import type { Board, CustomIcon, CustomTheme, Entry, Note, Todo } from "$lib/typ
 import { NO_THEME } from "$lib/types/entry";
 import { getColorSync } from "colorthief";
 import * as dix from "$lib/dixscript/client";
+import { breadcrumb } from "$lib/debug/log.svelte";
 
 const ENTRIES_KEY = "midnote:entries";
 const TAGS_KEY = "midnote:known-tags";
@@ -248,9 +249,25 @@ export function upsertEntry(entry: Entry) {
     // either way, at the cost of that one change not surviving an app
     // kill before this resolves. See this project's data-layer notes
     // for that trade-off stated plainly, not left implicit.
-    dix.saveEntry(entry.id, JSON.stringify(entry)).catch((err) => {
-      console.error(`storage: failed to persist entry ${entry.id} to the real backend:`, err);
-    });
+    // Timed (round 27 diagnostics): the Rust side re-reads every entry
+    // from disk to rebuild the index on each save, in a DEBUG build on
+    // the test phone — so a very large note could make THIS, not the
+    // editor, the slow part of "paste, then save". Logged when the
+    // payload is big or the round trip is slow, to settle that with a
+    // number instead of a guess.
+    const payload = JSON.stringify(entry);
+    const t0 = performance.now();
+    dix
+      .saveEntry(entry.id, payload)
+      .then(() => {
+        const ms = performance.now() - t0;
+        if (payload.length >= 50_000 || ms >= 500) {
+          breadcrumb(`storage: save_entry (${entry.type}) ${Math.round(payload.length / 1024)}KB round trip ${Math.round(ms)}ms`);
+        }
+      })
+      .catch((err) => {
+        console.error(`storage: failed to persist entry ${entry.id} to the real backend:`, err);
+      });
   } else {
     saveEntriesToLocalStorage(_entries);
   }

@@ -142,6 +142,23 @@ const SCENARIOS = [
       { expectSelector: '[aria-label="Undo"]' },
     ],
   },
+  // Round 27: a paste through the real built editor. Asserts the handler
+  // is actually wired (the event is cancelled), the pasted lines land in
+  // the note, and the diagnostics breadcrumb reaches the on-device debug
+  // panel — the same "it mounts" trap rounds 24 and 26 kept hitting, for
+  // the paste path this time. Text is long enough (>40 chars) to log.
+  {
+    name: "note — paste",
+    path: `/note/${NOTE_ID}`,
+    seed: SEED_ENTRIES,
+    steps: [
+      { paste: "pasted line one is long enough to be logged\npasted line two\n\npasted line four" },
+      { wait: 400 },
+      { expectText: "pasted line two" },
+      { expectText: "pasted line four" },
+      { expectText: "paste event:" },
+    ],
+  },
 ];
 
 // steps (round 26): an ordered script of interactions, run after the
@@ -149,6 +166,7 @@ const SCENARIOS = [
 // one of:
 //   { click: "<aria-label>" }                          tap that element
 //   { type: { label: "<aria-label>", value: "..." } }  set an input's value + fire `input`
+//   { paste: "<text>" }                                fire a text/plain `paste` event at the editor (round 27)
 //   { expectSelector: "<css>" }                        fail unless something matches
 //   { expectText: "..." }                              fail unless the page text contains it
 // with an optional { wait: ms } (default 250) after each one. Exists for

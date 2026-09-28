@@ -51,6 +51,8 @@
   import { Placeholder } from "@tiptap/extensions";
   import { PersistentMarks } from "$lib/utils/persistentMarksExtension";
   import { FindReplace } from "$lib/utils/findReplaceExtension";
+  import { PlainTextPaste } from "$lib/utils/plainTextPasteExtension";
+  import { breadcrumb } from "$lib/debug/log.svelte";
   import { stripHtml } from "$lib/utils/richText";
   import { noteLinesEnabled } from "$lib/stores/settings.svelte";
 
@@ -157,6 +159,13 @@
         // findReplaceExtension.ts's exported functions, never through
         // editor commands. See that file's header comment.
         FindReplace,
+        // Round 27: plain-text paste, replacing round 25's inline
+        // handlePaste. See plainTextPasteExtension.ts's header for why
+        // (handlePaste runs AFTER ProseMirror's own clipboard pre-parse,
+        // and never sees text an Android keyboard commits as an input
+        // event instead of a paste). `log` feeds the on-device debug
+        // panel so the path a big paste actually takes is visible.
+        PlainTextPaste.configure({ log: breadcrumb }),
         Placeholder.configure({
           placeholder: "Start typing...",
           // REVISION: default showOnlyCurrent means "only the node the
@@ -176,69 +185,52 @@
         }),
       ],
       content: initialContent,
-      editorProps: {
-        // BUGFIX: two real, reported problems, same root cause. Pasting
-        // multi-line text (the common case: copied from another app,
-        // a text file, a chat) was going through ProseMirror's DEFAULT
-        // clipboard handling, confirmed against ProseMirror's own docs
-        // and community reports as: a blank line between two lines of
-        // pasted text becomes an extra empty PARAGRAPH (an extra <div>,
-        // i.e. an extra blank row — the "unnecessary space between
-        // lines" report), while a single newline WITHOUT a blank line
-        // becomes a <br> INSIDE one paragraph rather than a new one
-        // (the "chunks of text grouped under one line" report — the
-        // ruled-lines CSS below only puts a rule under each top-level
-        // <div>, so several visual lines joined by <br> inside one <div>
-        // only ever get ONE rule between them all). Separately: routing
-        // a large paste through ProseMirror's generic HTML-parsing/
-        // schema-slice-matching pipeline (the path used whether or not
-        // the source even has real formatting) is also the documented,
-        // known-slow path for exactly this case (ueberdosis/tiptap#3340;
-        // ProseMirror's own performance thread attributes most of the
-        // cost to browser-side DOM work, not anything app code can trim
-        // once that path is taken) — confirmed by search, not guessed.
-        //
-        // Fix: skip that pipeline entirely on paste. Every pasted line
-        // (split on any newline convention) becomes its own paragraph
-        // node directly — exactly the shape typing Enter already
-        // produces — built by hand in one pass, never routed through
-        // HTML parsing at all. This is a deliberate, stated trade-off:
-        // paste is now ALWAYS treated as plain text, so bold/color/etc.
-        // formatting on content copied from elsewhere (including another
-        // MidNote note) won't survive the paste — reapply it from the
-        // toolbar afterward. Given the two bugs reported were both about
-        // plain multi-line text specifically, and this is also the fix
-        // for the slowness, that trade felt like the right one to make
-        // outright rather than trying to keep both paths alive.
-        handlePaste(view, event) {
-          const text = event.clipboardData?.getData("text/plain");
-          if (!text) return false; // nothing we handle (e.g. a pasted image) — let the default behavior run
-          event.preventDefault();
-          const { state, dispatch } = view;
-          const paragraphType = state.schema.nodes.paragraph;
-          if (!paragraphType) return false;
-          const lines = text.split(/\r\n|\r|\n/);
-          const nodes = lines.map((line) =>
-            paragraphType.create(null, line.length > 0 ? state.schema.text(line) : undefined)
-          );
-          let tr = state.tr.deleteSelection();
-          tr = tr.insert(tr.selection.from, nodes);
-          dispatch(tr.scrollIntoView());
-          return true;
-        },
-      },
+      // (Round 25's editorProps.handlePaste lived here. Removed in round
+      // 27 — its "skips the HTML-parsing pipeline" claim was wrong, it
+      // split the current line on a mid-line paste, and it left a stray
+      // empty paragraph at each end when pasting into an empty note.
+      // Paste + IME multi-line input are handled by PlainTextPaste above.)
       onTransaction: ({ editor: e }) => {
         tick++;
         hasSelection = !e.state.selection.empty;
       },
       onUpdate: ({ editor: e }) => {
+        // Timed (round 27 diagnostics): getHTML() is O(document) and runs
+        // on every content change, so a very large note makes each
+        // keystroke pay for the whole document. Logged only when it's
+        // slow enough to matter.
+        const t0 = performance.now();
         value = e.getHTML();
+        const ms = performance.now() - t0;
+        if (ms >= 100) breadcrumb(`note editor: getHTML() took ${Math.round(ms)}ms (${value.length} chars)`);
       },
     });
   }
 
   onDestroy(() => {
     editor?.destroy();
+  });
+
+  // Round 27 diagnostics: report main-thread stalls into the on-device
+  // debug log. A "long task" is any single block of work over 50ms; only
+  // the big ones (300ms+) are logged. Shows how long the UI was actually
+  // frozen after a large paste regardless of WHICH code path caused it —
+  // the one number the paste investigation couldn't get from off-device.
+  // Reads no reactive state (nothing here can re-trigger itself).
+  $effect(() => {
+    if (typeof PerformanceObserver === "undefined") return;
+    let po: PerformanceObserver | null = null;
+    try {
+      po = new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) {
+          if (entry.duration >= 300) breadcrumb(`long task: main thread blocked ${Math.round(entry.duration)}ms`);
+        }
+      });
+      po.observe({ entryTypes: ["longtask"] });
+    } catch {
+      po = null; // longtask entries unsupported on this WebView — diagnostics only, safe to skip
+    }
+    return () => po?.disconnect();
   });
 
   // The only place a note-load should reinitialize the editor from
