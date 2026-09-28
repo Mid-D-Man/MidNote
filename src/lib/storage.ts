@@ -109,6 +109,7 @@ function normalizeEntry(e: unknown): Entry | null {
   if (entry.lockKeyMode !== "app" && entry.lockKeyMode !== "custom") entry.lockKeyMode = null;
   if (typeof entry.lockedPayload !== "string") entry.lockedPayload = null;
   if (typeof entry.lockedKeyFile !== "string") entry.lockedKeyFile = null;
+  if (typeof entry.deletedAt !== "string") entry.deletedAt = null;
   if (entry.type === "regular" && !Array.isArray(entry.pages)) entry.pages = [];
   if (entry.type === "regular") {
     if (typeof entry.page1Name !== "string") entry.page1Name = null;
@@ -255,6 +256,15 @@ export function upsertEntry(entry: Entry) {
   }
 }
 
+// The REAL, permanent delete — removes the file (or localStorage record)
+// outright. Only two callers should ever reach this: purgeExpiredTrash
+// below (an item's been sitting in Trash past the retention window) and
+// the Trash view's own explicit "Delete forever" action. Every ordinary
+// "Delete" a user taps from CardOverflowMenu or an editor header goes
+// through entries.svelte.ts's removeEntry(), which calls moveToTrash
+// below instead — this function was already the single implementation
+// backing all of those before Trash existed, so nothing about ITS OWN
+// behavior needed to change; only what calls it did.
 export function deleteEntry(id: string) {
   _entries = _entries.filter((e) => e.id !== id);
   if (dix.isTauriRuntime()) {
@@ -264,6 +274,45 @@ export function deleteEntry(id: string) {
   } else {
     saveEntriesToLocalStorage(_entries);
   }
+}
+
+// Soft delete — sets deletedAt and persists through the exact same
+// upsertEntry() path a normal edit does (no separate Rust/backend
+// command needed: a trashed entry is still a fully saved entry, just
+// one the UI now filters out of the regular note/todo/board lists — see
+// entries.svelte.ts's getNotes/getTodos and +page.svelte's `boards`
+// derivation).
+export function moveToTrash(id: string) {
+  const entry = _entries.find((e) => e.id === id);
+  if (!entry) return;
+  entry.deletedAt = new Date().toISOString();
+  upsertEntry(entry);
+}
+
+export function restoreFromTrash(id: string) {
+  const entry = _entries.find((e) => e.id === id);
+  if (!entry) return;
+  entry.deletedAt = null;
+  upsertEntry(entry);
+}
+
+// How long a trashed item survives before purgeExpiredTrash below
+// removes it for real — same order of magnitude as every mainstream
+// notes/files app's own trash retention (Notion, Google Drive, Apple
+// Notes all use 30 days), not a number specific to anything about this
+// app's own data.
+const TRASH_RETENTION_DAYS = 30;
+
+// Called once per app boot (see entries.svelte.ts's initFromBackend) —
+// a real, permanent, unattended cleanup, so it deliberately only ever
+// acts on entries already past the stated retention window; there's no
+// separate "are you sure" for this one since the user already got that
+// prompt when the retention window's original promise was made (the
+// Trash UI's own copy states the window up front).
+export function purgeExpiredTrash() {
+  const cutoff = Date.now() - TRASH_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+  const expired = _entries.filter((e) => e.deletedAt && new Date(e.deletedAt).getTime() < cutoff);
+  for (const entry of expired) deleteEntry(entry.id);
 }
 
 export function createNote(): Note {
@@ -292,6 +341,7 @@ export function createNote(): Note {
     lockKeyMode: null,
     lockedPayload: null,
     lockedKeyFile: null,
+    deletedAt: null,
   };
 }
 
@@ -312,6 +362,7 @@ export function createTodo(): Todo {
     lockKeyMode: null,
     lockedPayload: null,
     lockedKeyFile: null,
+    deletedAt: null,
     categories: ["Steps"],
     steps: [],
     annotations: [],
@@ -335,6 +386,7 @@ export function createBoard(): Board {
     lockKeyMode: null,
     lockedPayload: null,
     lockedKeyFile: null,
+    deletedAt: null,
     nodes: [],
     edges: [],
     viewport: null,

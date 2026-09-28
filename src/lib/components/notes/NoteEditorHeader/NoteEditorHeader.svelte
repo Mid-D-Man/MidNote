@@ -176,7 +176,7 @@
   function handleDelete() {
     breadcrumb("note header: Delete tapped");
     removeEntry(note.id);
-    pushToast({ title: "Note deleted", description: "Your note has been deleted.", variant: "destructive" });
+    pushToast({ title: "Moved to Trash", description: "Your note was moved to Trash.", variant: "destructive" });
     goto("/");
   }
 
@@ -261,6 +261,25 @@
       pushToast({ title: "Sharing isn't available here", description: "Try Export instead." });
     }
   }
+
+  // Same encrypted-gating reasoning as Theme/Pages/Share/Duplicate above
+  // — content is already cleared while locked, so this would silently
+  // copy nothing useful rather than the note's real text.
+  async function handleCopyContents() {
+    breadcrumb(`note header: Copy contents tapped (encrypted=${note.encrypted})`);
+    moreOpen = false;
+    if (note.encrypted) {
+      pushToast({ title: "Unlock first", description: "Unlock this note before copying its contents.", variant: "destructive" });
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(entryToPlainText(note));
+      pushToast({ title: "Copied", description: "This note's contents are on your clipboard." });
+    } catch (err) {
+      console.error("note header: clipboard write failed:", err);
+      pushToast({ title: "Couldn't copy", description: "Clipboard access isn't available right now.", variant: "destructive" });
+    }
+  }
 </script>
 
 <header class="editor-header" style={headerStyle}>
@@ -327,6 +346,13 @@
       </svg>
       <span>Duplicate</span>
     </button>
+    <button class="action-row" onclick={handleCopyContents}>
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+        <rect x="8" y="2" width="8" height="4" rx="1" />
+      </svg>
+      <span>Copy contents</span>
+    </button>
     <button class="action-row" onclick={handleOpenThemeSheet}>
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
         <circle cx="12" cy="12" r="9" /><path d="M12 3a6 6 0 0 0 0 12 3 3 0 0 1 0 6 9 9 0 1 1 0-18z" />
@@ -356,11 +382,16 @@
   onIconChange={handleIconChange}
 />
 
+
+<!-- BUGFIX (round 25): Delete is a soft delete now — see
+     entries.svelte.ts's removeEntry -> storage.moveToTrash. Copy/label
+     updated so this dialog stops promising something no longer true;
+     nothing else about the flow changed. -->
 <ConfirmDialog
   bind:open={showDeleteConfirm}
   title="Delete note"
-  description="Are you sure you want to delete this note? This can't be undone."
-  confirmLabel="Delete"
+  description="You can restore it from Trash for the next 30 days, or delete it for good from there."
+  confirmLabel="Move to Trash"
   danger
   onconfirm={handleDelete}
 />

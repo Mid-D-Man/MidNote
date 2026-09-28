@@ -24,6 +24,10 @@ export async function initFromBackend(): Promise<void> {
   if (storage.loadEntries().length === 0) {
     seedSamples();
   }
+  // Runs once per boot, after real data is in — anything already past
+  // Trash's retention window gets removed for real before the list ever
+  // renders, rather than waiting for the user to happen to open Trash.
+  storage.purgeExpiredTrash();
   refresh();
 }
 
@@ -49,6 +53,7 @@ function seedSamples() {
       lockKeyMode: null,
       lockedPayload: null,
       lockedKeyFile: null,
+      deletedAt: null,
     },
     {
       id: storage.generateId(),
@@ -69,6 +74,7 @@ function seedSamples() {
       lockKeyMode: null,
       lockedPayload: null,
       lockedKeyFile: null,
+      deletedAt: null,
     },
   ];
   sample.forEach((n) => {
@@ -78,11 +84,19 @@ function seedSamples() {
 }
 
 export function getNotes(): Note[] {
-  return entries.filter((e): e is Note => e.type === "regular");
+  return entries.filter((e): e is Note => e.type === "regular" && !e.deletedAt);
 }
 
 export function getTodos(): Todo[] {
-  return entries.filter((e): e is Todo => e.type === "todo");
+  return entries.filter((e): e is Todo => e.type === "todo" && !e.deletedAt);
+}
+
+// Everything currently in Trash, any type, newest-deleted first — the
+// Trash view's own data source.
+export function getTrashed(): Entry[] {
+  return entries
+    .filter((e) => e.deletedAt)
+    .sort((a, b) => (b.deletedAt as string).localeCompare(a.deletedAt as string));
 }
 
 export function refresh() {
@@ -106,7 +120,24 @@ export function saveEntry(entry: Entry) {
   refresh();
 }
 
+// Soft delete — every existing "Delete" affordance (CardOverflowMenu,
+// the three editor headers, +page.svelte's multi-select bar and merge
+// cleanup) already calls this one function, so moving to Trash instead
+// of a real delete needed no changes anywhere else at all. See
+// storage.ts's moveToTrash/TRASH_RETENTION_DAYS.
 export function removeEntry(id: string) {
+  storage.moveToTrash(id);
+  refresh();
+}
+
+export function restoreEntry(id: string) {
+  storage.restoreFromTrash(id);
+  refresh();
+}
+
+// The real, permanent delete — only the Trash view's own "Delete
+// forever" should ever call this.
+export function purgeEntry(id: string) {
   storage.deleteEntry(id);
   refresh();
 }

@@ -54,9 +54,14 @@
   let showMergeConfirm = $state(false);
   let pendingMerge = $state<{ merged: Entry; sourceIds: string[] } | null>(null);
 
-  const notes = $derived(entries.filter((e): e is Note => e.type === "regular"));
-  const todos = $derived(entries.filter((e): e is Todo => e.type === "todo"));
-  const boards = $derived(entries.filter((e): e is Board => e.type === "board"));
+  // BUGFIX (Trash, round 25): all three excluded trashed entries here —
+  // without this, "deleting" a note/todo/board would move it to Trash
+  // (see entries.svelte.ts's removeEntry) but it'd keep showing up right
+  // here in the normal list, since this file's own filters never knew
+  // Trash existed.
+  const notes = $derived(entries.filter((e): e is Note => e.type === "regular" && !e.deletedAt));
+  const todos = $derived(entries.filter((e): e is Todo => e.type === "todo" && !e.deletedAt));
+  const boards = $derived(entries.filter((e): e is Board => e.type === "board" && !e.deletedAt));
 
   const displayItems = $derived(activeView === "notes" ? notes : activeView === "todos" ? todos : boards);
   const tagList = $derived(activeView === "notes" ? noteTags : activeView === "todos" ? todoTags : boardTags);
@@ -259,10 +264,12 @@
     selectedIds = new Set();
   }
 
+  // BUGFIX (round 25): removeEntry is a soft delete now (Trash) — copy
+  // updated on both toasts below to match; nothing else here changed.
   function handleDeleteSelected() {
     const count = selectedIds.size;
     selectedIds.forEach((id) => removeEntry(id));
-    pushToast({ title: `${count} ${activeView === "notes" ? "note" : "todo"}${count === 1 ? "" : "s"} deleted`, variant: "destructive" });
+    pushToast({ title: `${count} ${activeView === "notes" ? "note" : "todo"}${count === 1 ? "" : "s"} moved to Trash`, variant: "destructive" });
     exitSelectMode();
   }
 
@@ -272,7 +279,7 @@
   function handleDeleteSingle(id: string) {
     const item = entries.find((e) => e.id === id);
     removeEntry(id);
-    pushToast({ title: `${item?.type === "todo" ? "Todo" : "Note"} deleted`, variant: "destructive" });
+    pushToast({ title: `${item?.type === "todo" ? "Todo" : "Note"} moved to Trash`, variant: "destructive" });
   }
 
   // BUGFIX: this is the "content is empty" report. An earlier round
@@ -388,8 +395,10 @@
 
   function confirmDeleteMergeSources() {
     if (!pendingMerge) return;
+    // removeEntry is a soft delete (Trash) — the originals are
+    // recoverable there, not gone the moment this runs.
     pendingMerge.sourceIds.forEach((id) => removeEntry(id));
-    pushToast({ title: "Merged", description: `${pendingMerge.sourceIds.length} originals removed.` });
+    pushToast({ title: "Merged", description: `${pendingMerge.sourceIds.length} originals moved to Trash.` });
     goToMergedAndReset();
   }
 
@@ -763,11 +772,13 @@
     />
   {/if}
 
+  <!-- BUGFIX (round 25): "removed" here is a soft delete (Trash) now —
+       copy updated so this doesn't read as more final than it is. -->
   <ConfirmDialog
     bind:open={showMergeConfirm}
-    title="Delete the originals?"
-    description="They've been combined into '{pendingMerge?.merged.title ?? 'the merged item'}'. Keep them separately, or remove them now that they're merged?"
-    confirmLabel="Delete originals"
+    title="Move the originals to Trash?"
+    description="They've been combined into '{pendingMerge?.merged.title ?? 'the merged item'}'. Keep them separately, or move them to Trash now that they're merged?"
+    confirmLabel="Move to Trash"
     danger
     onconfirm={confirmDeleteMergeSources}
     oncancel={keepMergeSources}

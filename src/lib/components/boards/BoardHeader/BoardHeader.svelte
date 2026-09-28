@@ -112,7 +112,7 @@
   function handleDelete() {
     breadcrumb("board header: Delete tapped");
     removeEntry(board.id);
-    pushToast({ title: "Board deleted", description: "Your board has been deleted.", variant: "destructive" });
+    pushToast({ title: "Moved to Trash", description: "Your board was moved to Trash.", variant: "destructive" });
     goto("/");
   }
 
@@ -175,6 +175,27 @@
       pushToast({ title: "Shared" });
     } else if (result !== "cancelled") {
       pushToast({ title: "Sharing isn't available here", description: "Try Export instead." });
+    }
+  }
+
+  // Same encrypted-gating reasoning as this header's other content
+  // actions — nodes/edges are already cleared while locked. Reuses
+  // entryToPlainText's board branch (a readable node + connection
+  // inventory — see selectionActions.ts), the same text Export/Share
+  // already produce for a board.
+  async function handleCopyContents() {
+    breadcrumb(`board header: Copy contents tapped (encrypted=${board.encrypted})`);
+    moreOpen = false;
+    if (board.encrypted) {
+      pushToast({ title: "Unlock first", description: "Unlock this board before copying its contents.", variant: "destructive" });
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(entryToPlainText(board));
+      pushToast({ title: "Copied", description: "This board's contents are on your clipboard." });
+    } catch (err) {
+      console.error("board header: clipboard write failed:", err);
+      pushToast({ title: "Couldn't copy", description: "Clipboard access isn't available right now.", variant: "destructive" });
     }
   }
 </script>
@@ -260,6 +281,13 @@
       </svg>
       <span>Duplicate</span>
     </button>
+    <button class="action-row" onclick={handleCopyContents}>
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+        <rect x="8" y="2" width="8" height="4" rx="1" />
+      </svg>
+      <span>Copy contents</span>
+    </button>
     <button class="action-row" onclick={handleOpenThemeSheet}>
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
         <circle cx="12" cy="12" r="9" /><path d="M12 3a6 6 0 0 0 0 12 3 3 0 0 1 0 6 9 9 0 1 1 0-18z" />
@@ -280,11 +308,14 @@
   headerDescription="The card in the list, and this board's own top bar."
 />
 
+
+<!-- BUGFIX (round 25): soft delete now, see NoteEditorHeader.svelte's
+     identical comment. -->
 <ConfirmDialog
   bind:open={showDeleteConfirm}
   title="Delete board"
-  description="Are you sure you want to delete this board? This can't be undone."
-  confirmLabel="Delete"
+  description="You can restore it from Trash for the next 30 days, or delete it for good from there."
+  confirmLabel="Move to Trash"
   danger
   onconfirm={handleDelete}
 />

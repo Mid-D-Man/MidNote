@@ -3,6 +3,7 @@
   import Sheet from "$lib/components/ui/Sheet/Sheet.svelte";
   import AuthDialog from "$lib/components/layout/AuthDialog/AuthDialog.svelte";
   import SettingsSheet from "$lib/components/layout/SettingsSheet/SettingsSheet.svelte";
+  import TrashSheet from "$lib/components/layout/TrashSheet/TrashSheet.svelte";
   import { pushToast } from "$lib/stores/toast.svelte";
   import { appHeaderTheme } from "$lib/stores/settings.svelte";
   import { resolveTheme, hexToRgba, getImageTextColorVars } from "$lib/utils/themePalette";
@@ -11,6 +12,7 @@
   let menuOpen = $state(false);
   let authOpen = $state(false);
   let settingsOpen = $state(false);
+  let trashOpen = $state(false);
 
   // This <header> — hamburger, "MidNote" wordmark, sync icon — is what
   // the landing-page "Header" theme slot actually means (confirmed
@@ -66,6 +68,9 @@
 
 <Sheet bind:open={menuOpen} side="left" title="Menu">
   <nav class="menu-nav">
+    <Button variant="ghost" onclick={() => { menuOpen = false; trashOpen = true; }}>
+      Trash
+    </Button>
     <Button variant="ghost" onclick={() => { menuOpen = false; authOpen = true; }}>
       Login
     </Button>
@@ -80,6 +85,7 @@
 
 <AuthDialog bind:open={authOpen} />
 <SettingsSheet bind:open={settingsOpen} />
+<TrashSheet bind:open={trashOpen} />
 
 <style>
   .app-header {

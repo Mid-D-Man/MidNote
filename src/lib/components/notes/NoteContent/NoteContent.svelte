@@ -169,6 +169,57 @@
         }),
       ],
       content: initialContent,
+      editorProps: {
+        // BUGFIX: two real, reported problems, same root cause. Pasting
+        // multi-line text (the common case: copied from another app,
+        // a text file, a chat) was going through ProseMirror's DEFAULT
+        // clipboard handling, confirmed against ProseMirror's own docs
+        // and community reports as: a blank line between two lines of
+        // pasted text becomes an extra empty PARAGRAPH (an extra <div>,
+        // i.e. an extra blank row — the "unnecessary space between
+        // lines" report), while a single newline WITHOUT a blank line
+        // becomes a <br> INSIDE one paragraph rather than a new one
+        // (the "chunks of text grouped under one line" report — the
+        // ruled-lines CSS below only puts a rule under each top-level
+        // <div>, so several visual lines joined by <br> inside one <div>
+        // only ever get ONE rule between them all). Separately: routing
+        // a large paste through ProseMirror's generic HTML-parsing/
+        // schema-slice-matching pipeline (the path used whether or not
+        // the source even has real formatting) is also the documented,
+        // known-slow path for exactly this case (ueberdosis/tiptap#3340;
+        // ProseMirror's own performance thread attributes most of the
+        // cost to browser-side DOM work, not anything app code can trim
+        // once that path is taken) — confirmed by search, not guessed.
+        //
+        // Fix: skip that pipeline entirely on paste. Every pasted line
+        // (split on any newline convention) becomes its own paragraph
+        // node directly — exactly the shape typing Enter already
+        // produces — built by hand in one pass, never routed through
+        // HTML parsing at all. This is a deliberate, stated trade-off:
+        // paste is now ALWAYS treated as plain text, so bold/color/etc.
+        // formatting on content copied from elsewhere (including another
+        // MidNote note) won't survive the paste — reapply it from the
+        // toolbar afterward. Given the two bugs reported were both about
+        // plain multi-line text specifically, and this is also the fix
+        // for the slowness, that trade felt like the right one to make
+        // outright rather than trying to keep both paths alive.
+        handlePaste(view, event) {
+          const text = event.clipboardData?.getData("text/plain");
+          if (!text) return false; // nothing we handle (e.g. a pasted image) — let the default behavior run
+          event.preventDefault();
+          const { state, dispatch } = view;
+          const paragraphType = state.schema.nodes.paragraph;
+          if (!paragraphType) return false;
+          const lines = text.split(/\r\n|\r|\n/);
+          const nodes = lines.map((line) =>
+            paragraphType.create(null, line.length > 0 ? state.schema.text(line) : undefined)
+          );
+          let tr = state.tr.deleteSelection();
+          tr = tr.insert(tr.selection.from, nodes);
+          dispatch(tr.scrollIntoView());
+          return true;
+        },
+      },
       onTransaction: ({ editor: e }) => {
         tick++;
         hasSelection = !e.state.selection.empty;

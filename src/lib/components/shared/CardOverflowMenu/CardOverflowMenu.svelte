@@ -188,11 +188,15 @@
     </div>
   </Sheet>
 
+
+  <!-- BUGFIX (round 25): Delete is a soft delete now (see
+       entries.svelte.ts's removeEntry -> storage.moveToTrash), reachable
+       from Trash in the main menu — copy/label updated to match. -->
   <ConfirmDialog
     bind:open={showDeleteConfirm}
     title="Delete this {itemLabel}?"
-    description="This can't be undone."
-    confirmLabel="Delete"
+    description="You can restore it from Trash for the next 30 days, or delete it for good from there."
+    confirmLabel="Move to Trash"
     danger
     onconfirm={() => {
       breadcrumb(`card overflow: delete confirmed (${itemLabel})`);

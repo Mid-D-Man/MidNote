@@ -136,6 +136,17 @@ export interface EntryRef {
   lockKeyMode: LockKeyMode | null;
   lockedPayload: string | null;
   lockedKeyFile: string | null;
+  // Trash — null means "not deleted, shows in the normal list normally".
+  // A timestamp means "in Trash as of this moment", set/cleared entirely
+  // through storage.ts's moveToTrash/restoreFromTrash — every existing
+  // "Delete" affordance (CardOverflowMenu, the three editor headers)
+  // already goes through entries.svelte.ts's single removeEntry()
+  // choke point, so this is a soft delete everywhere Delete already
+  // was, with zero call-site changes needed beyond that one function.
+  // Storage.ts purges anything past TRASH_RETENTION_DAYS old on boot —
+  // see purgeExpiredTrash — so this being set is never permanent on its
+  // own.
+  deletedAt: string | null;
 }
 
 export interface NotePage {

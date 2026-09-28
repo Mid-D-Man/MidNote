@@ -12,7 +12,7 @@
   import { breadcrumb } from "$lib/debug/log.svelte";
   import { resolveTheme, hexToRgba, getImageTextColorVars } from "$lib/utils/themePalette";
   import { customThemes } from "$lib/stores/customThemes.svelte";
-  import { buildExportFiles, buildEncryptedBackupFile, downloadFiles } from "$lib/utils/selectionActions";
+  import { buildExportFiles, buildEncryptedBackupFile, downloadFiles, entryToPlainText } from "$lib/utils/selectionActions";
   import type { IconRef, Todo, ThemeRef } from "$lib/types/entry";
 
   let {
@@ -119,7 +119,7 @@
 
   function handleDelete() {
     removeEntry(todo.id);
-    pushToast({ title: "Todo deleted", description: "Your todo has been deleted.", variant: "destructive" });
+    pushToast({ title: "Moved to Trash", description: "Your todo was moved to Trash.", variant: "destructive" });
     goto("/");
   }
 
@@ -178,6 +178,24 @@
       return;
     }
     pushToast({ title: "Share todo", description: "Share functionality coming soon." });
+  }
+
+  // Same encrypted-gating reasoning as this header's other content
+  // actions — steps/annotations are already cleared while locked.
+  async function handleCopyContents() {
+    breadcrumb(`todo header: Copy contents tapped (encrypted=${todo.encrypted})`);
+    moreOpen = false;
+    if (todo.encrypted) {
+      pushToast({ title: "Unlock first", description: "Unlock this todo before copying its contents.", variant: "destructive" });
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(entryToPlainText(todo));
+      pushToast({ title: "Copied", description: "This todo's contents are on your clipboard." });
+    } catch (err) {
+      console.error("todo header: clipboard write failed:", err);
+      pushToast({ title: "Couldn't copy", description: "Clipboard access isn't available right now.", variant: "destructive" });
+    }
   }
 </script>
 
@@ -245,6 +263,13 @@
       </svg>
       <span>Duplicate</span>
     </button>
+    <button class="action-row" onclick={handleCopyContents}>
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+        <rect x="8" y="2" width="8" height="4" rx="1" />
+      </svg>
+      <span>Copy contents</span>
+    </button>
     <button class="action-row" onclick={handleDownload}>
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M5 21h14" />
@@ -272,11 +297,14 @@
   onIconChange={handleIconChange}
 />
 
+
+<!-- BUGFIX (round 25): soft delete now, see NoteEditorHeader.svelte's
+     identical comment. -->
 <ConfirmDialog
   bind:open={showDeleteConfirm}
   title="Delete todo"
-  description="Are you sure you want to delete this todo? This can't be undone."
-  confirmLabel="Delete"
+  description="You can restore it from Trash for the next 30 days, or delete it for good from there."
+  confirmLabel="Move to Trash"
   danger
   onconfirm={handleDelete}
 />
