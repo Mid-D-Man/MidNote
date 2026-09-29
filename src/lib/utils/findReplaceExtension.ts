@@ -326,9 +326,16 @@ function applyReplacement(tr: Transaction, from: number, to: number, replacement
   let pos = from + lines[0].length;
   for (let i = 1; i < lines.length; i++) {
     const $p = tr.doc.resolve(pos);
-    const inListItem = $p.depth >= 2 && $p.node($p.depth - 1).type.name === "listItem";
+    const parent = $p.depth >= 2 ? $p.node($p.depth - 1) : null;
+    const inListItem = !!parent && (parent.type.name === "listItem" || parent.type.name === "taskItem");
     const depth = inListItem ? 2 : 1;
-    tr.split(pos, depth);
+    // Round 29: a new checklist item starts UNchecked, whatever the item
+    // it was split from was — split() would otherwise copy `checked`.
+    const typesAfter =
+      inListItem && parent!.type.name === "taskItem"
+        ? [{ type: parent!.type, attrs: { ...parent!.attrs, checked: false } }, null]
+        : undefined;
+    tr.split(pos, depth, typesAfter);
     pos += 2 * depth;
     if (lines[i]) {
       insertStyled(tr, pos, pos, lines[i]);

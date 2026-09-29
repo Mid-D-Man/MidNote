@@ -159,6 +159,47 @@ const SCENARIOS = [
       { expectText: "paste event:" },
     ],
   },
+  // Round 29: checklist through the real toolbar button and the real
+  // Tiptap checkbox node view. The checkbox is clicked and the DOM must
+  // reflect data-checked=true — a checklist that renders but ignores taps
+  // would pass a mount-only test.
+  {
+    name: "note — checklist",
+    path: `/note/${NOTE_ID}`,
+    seed: SEED_ENTRIES,
+    steps: [
+      { click: "Checklist" },
+      { expectSelector: 'ul[data-type="taskList"]' },
+      { clickSelector: 'ul[data-type="taskList"] > li input[type="checkbox"]' },
+      { expectSelector: 'ul[data-type="taskList"] > li[data-checked="true"]' },
+    ],
+  },
+  // Round 29: the Actions-sheet rows added this round. Pin round-trips
+  // (Pin -> Unpin, which also proves the row label follows the saved
+  // state); Ask AI opens the stub sheet, a message can be typed and sent,
+  // and the "not connected" notice appears (nothing pretends to be real).
+  {
+    name: "note — pin + ask AI",
+    path: `/note/${NOTE_ID}`,
+    seed: SEED_ENTRIES,
+    steps: [
+      { click: "More" },
+      { click: "Pin note" },
+      { expectText: "Pinned" },
+      { click: "More" },
+      { click: "Unpin note" },
+      { expectText: "Unpinned" },
+      { click: "More" },
+      { click: "Ask AI" },
+      { type: { label: "Message AI", value: "summarise this" } },
+      { wait: 300 },
+      { click: "Send message" },
+      { expectText: "summarise this" },
+      { expectText: "isn't connected yet" },
+    ],
+  },
+  { name: "todo — pin", path: `/todo/${TODO_ID}`, seed: SEED_ENTRIES, steps: [{ click: "More" }, { click: "Pin todo" }, { expectText: "Pinned" }] },
+  { name: "board — pin", path: `/board/${BOARD_ID}`, seed: SEED_ENTRIES, steps: [{ click: "More" }, { click: "Pin board" }, { expectText: "Pinned" }] },
 ];
 
 // steps (round 26): an ordered script of interactions, run after the
@@ -166,6 +207,7 @@ const SCENARIOS = [
 // one of:
 //   { click: "<aria-label>" }                          tap that element
 //   { type: { label: "<aria-label>", value: "..." } }  set an input's value + fire `input`
+//   { clickSelector: "<css>" }                         tap the first element matching a CSS selector (round 29)
 //   { paste: "<text>" }                                fire a text/plain `paste` event at the editor (round 27)
 //   { expectSelector: "<css>" }                        fail unless something matches
 //   { expectText: "..." }                              fail unless the page text contains it

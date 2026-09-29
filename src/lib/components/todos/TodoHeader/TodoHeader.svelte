@@ -197,6 +197,28 @@
       pushToast({ title: "Couldn't copy", description: "Clipboard access isn't available right now.", variant: "destructive" });
     }
   }
+
+  // Round 29: Pin in the Actions sheet (it already existed on the list
+  // card's overflow menu, but not from inside the editor). Same pattern as
+  // the theme/icon handlers above: mutate THIS editor's own `todo` (the
+  // getEntry() copy, not the entries store's) and saveEntry() it, so the
+  // list re-sorts AND the editor's later autosave can't overwrite the pin
+  // with a stale value. Gated on the lock like Theme/Share/Copy — a locked
+  // entry's editor copy is a placeholder and shouldn't be re-saved from here.
+  function handleTogglePin() {
+    breadcrumb(`todo header: Pin tapped (encrypted=${todo.encrypted}, pinned=${todo.isPinned})`);
+    moreOpen = false;
+    if (todo.encrypted) {
+      pushToast({ title: "Unlock first", description: "Unlock this todo before pinning it.", variant: "destructive" });
+      return;
+    }
+    todo.isPinned = !todo.isPinned;
+    saveEntry(todo);
+    pushToast({
+      title: todo.isPinned ? "Pinned" : "Unpinned",
+      description: todo.isPinned ? "This todo will stay at the top of your list." : "This todo is back in its normal place.",
+    });
+  }
 </script>
 
 <header class="todo-header" style={headerStyle}>
@@ -250,6 +272,12 @@
 
 <Sheet bind:open={moreOpen} side="bottom" title="Actions">
   <div class="action-list">
+    <button class="action-row" onclick={handleTogglePin} aria-label={todo.isPinned ? "Unpin todo" : "Pin todo"}>
+      <svg viewBox="0 0 24 24" width="18" height="18" fill={todo.isPinned ? "currentColor" : "none"} stroke="currentColor" stroke-width="2">
+        <path d="M12 17v5" /><path d="M9 3h6l-1 7 3 3H7l3-3z" />
+      </svg>
+      <span>{todo.isPinned ? "Unpin" : "Pin to top"}</span>
+    </button>
     <button class="action-row" onclick={handleShare}>
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
         <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" />

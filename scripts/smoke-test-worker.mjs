@@ -107,6 +107,25 @@ w.ResizeObserver = FakeResizeObserver;
 class FakeSVGAElement extends w.SVGGraphicsElement {}
 w.SVGAElement = FakeSVGAElement;
 
+// Fourth jsdom gap (round 29). jsdom implements Range but NOT
+// Range.getClientRects()/getBoundingClientRect() — layout doesn't exist
+// there. ProseMirror calls them whenever it scrolls the caret into view
+// (any editor command chained with .focus(), e.g. the toolbar's list
+// buttons), which threw "getClientRects is not a function" the first time
+// a scenario tapped one. Real browsers all have them. Returning "no
+// rectangles" is what a Range with no layout legitimately reports, and
+// ProseMirror handles that (it falls back to the element's own box).
+if (w.Range && !w.Range.prototype.getClientRects) {
+  w.Range.prototype.getClientRects = function () {
+    return { length: 0, item: () => null, [Symbol.iterator]: function* () {} };
+  };
+}
+if (w.Range && !w.Range.prototype.getBoundingClientRect) {
+  w.Range.prototype.getBoundingClientRect = function () {
+    return { x: 0, y: 0, width: 0, height: 0, top: 0, left: 0, right: 0, bottom: 0, toJSON() {} };
+  };
+}
+
 // Bare-identifier browser globals the SvelteKit client runtime and app
 // code touch directly (the way real browser globals work — `window`
 // properties are implicitly global). Extend this list if a new scenario
@@ -240,6 +259,15 @@ if (STEPS.length > 0 && errors.length === 0) {
         errors.push(new Error(`${where}: the paste event wasn't handled (defaultPrevented is false) — the plain-text paste handler isn't wired into the editor.`));
         break;
       }
+    } else if (step.clickSelector) {
+      // Round 29: for elements with no aria-label of their own (Tiptap's
+      // checklist checkbox is a bare <input type=checkbox>).
+      const el = target.querySelector(step.clickSelector);
+      if (!el) {
+        errors.push(new Error(`${where}: nothing matched ${step.clickSelector} to click.`));
+        break;
+      }
+      el.click();
     } else if (step.expectSelector) {
       if (!target.querySelector(step.expectSelector)) {
         errors.push(new Error(`${where}: nothing matched ${step.expectSelector}.`));

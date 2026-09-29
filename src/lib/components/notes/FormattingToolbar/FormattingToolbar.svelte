@@ -67,8 +67,10 @@
   // ProseMirror's current state, no DOM queries.
   const active = $derived.by(() => {
     tick;
-    if (!editor) return { bold: false, italic: false, underline: false, strikethrough: false, list: null as "bullet" | "decimal" | "roman" | null, color: null as string | null, backgroundColor: null as string | null };
-    const listType = editor.isActive("bulletList")
+    if (!editor) return { bold: false, italic: false, underline: false, strikethrough: false, list: null as "bullet" | "decimal" | "roman" | "task" | null, color: null as string | null, backgroundColor: null as string | null };
+    const listType = editor.isActive("taskList")
+      ? "task"
+      : editor.isActive("bulletList")
       ? "bullet"
       : editor.isActive("orderedList", { type: "i" })
         ? "roman"
@@ -80,7 +82,7 @@
       italic: editor.isActive("italic"),
       underline: editor.isActive("underline"),
       strikethrough: editor.isActive("strike"),
-      list: listType as "bullet" | "decimal" | "roman" | null,
+      list: listType as "bullet" | "decimal" | "roman" | "task" | null,
       color: (editor.getAttributes("textStyle").color as string | undefined) ?? null,
       backgroundColor: (editor.getAttributes("textStyle").backgroundColor as string | undefined) ?? null,
     };
@@ -217,6 +219,15 @@
       </button>
       <button type="button" class="icon-btn" class:active={active.list === "roman"} onclick={() => tap("romanList", toggleRomanList)} aria-label="Roman numeral list" title="Roman numeral list">
         <span class="roman-icon">iv.</span>
+      </button>
+      <button type="button" class="icon-btn" class:active={active.list === "task"} onclick={() => tap("taskList", () => editor?.chain().focus().toggleTaskList().run())} aria-label="Checklist" title="Checklist">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="4" width="6" height="6" rx="1" />
+          <path d="M4.3 7.2l1.3 1.3 2-2.4" />
+          <rect x="3" y="14" width="6" height="6" rx="1" />
+          <line x1="12" y1="7" x2="21" y2="7" />
+          <line x1="12" y1="17" x2="21" y2="17" />
+        </svg>
       </button>
 
       <div class="sep"></div>

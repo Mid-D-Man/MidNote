@@ -39,6 +39,15 @@ export function htmlToPlainText(html: string): string {
   const el = document.createElement("div");
   el.innerHTML = html;
   el.querySelectorAll("br").forEach((br) => br.replaceWith("\n"));
+  // Round 29: checklist items export as "[ ] text" / "[x] text" so the
+  // checked state survives a plain-text export instead of vanishing with
+  // the checkbox (an <input> has no text content of its own).
+  el.querySelectorAll('li[data-type="taskItem"]').forEach((li) => {
+    const mark = li.getAttribute("data-checked") === "true" ? "[x] " : "[ ] ";
+    const label = Array.from(li.children).find((c) => c.tagName === "LABEL");
+    if (label) label.replaceWith(mark);
+    else li.prepend(mark);
+  });
   el.querySelectorAll("div,p,li").forEach((block) => {
     block.after("\n");
   });

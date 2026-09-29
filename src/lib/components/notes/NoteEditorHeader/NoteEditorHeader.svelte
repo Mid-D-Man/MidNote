@@ -13,6 +13,7 @@
   import { entryToPlainText, buildExportFiles, buildEncryptedBackupFile, downloadFiles } from "$lib/utils/selectionActions";
   import ThemeSectionsSheet from "$lib/components/shared/ThemeSectionsSheet/ThemeSectionsSheet.svelte";
   import PagesPanel from "$lib/components/notes/PagesPanel/PagesPanel.svelte";
+  import NoteAiChatSheet from "$lib/components/notes/NoteAiChatSheet/NoteAiChatSheet.svelte";
   import { resolveTheme, hexToRgba, getImageTextColorVars } from "$lib/utils/themePalette";
   import { customThemes } from "$lib/stores/customThemes.svelte";
   import type { IconRef, Note, ThemeRef } from "$lib/types/entry";
@@ -64,6 +65,7 @@
   let showDeleteConfirm = $state(false);
   let moreOpen = $state(false);
   let themeSheetOpen = $state(false);
+  let aiChatOpen = $state(false);
   let pagesOpen = $state(false);
 
   // Same resolveTheme() as the card preview — a visible (but
@@ -301,6 +303,40 @@
       pushToast({ title: "Couldn't copy", description: "Clipboard access isn't available right now.", variant: "destructive" });
     }
   }
+
+  // Round 29: Pin in the Actions sheet (it already existed on the list
+  // card's overflow menu, but not from inside the editor). Same pattern as
+  // the theme/icon handlers above: mutate THIS editor's own `note` (the
+  // getEntry() copy, not the entries store's) and saveEntry() it, so the
+  // list re-sorts AND the editor's later autosave can't overwrite the pin
+  // with a stale value. Gated on the lock like Theme/Share/Copy — a locked
+  // entry's editor copy is a placeholder and shouldn't be re-saved from here.
+  function handleTogglePin() {
+    breadcrumb(`note header: Pin tapped (encrypted=${note.encrypted}, pinned=${note.isPinned})`);
+    moreOpen = false;
+    if (note.encrypted) {
+      pushToast({ title: "Unlock first", description: "Unlock this note before pinning it.", variant: "destructive" });
+      return;
+    }
+    note.isPinned = !note.isPinned;
+    saveEntry(note);
+    pushToast({
+      title: note.isPinned ? "Pinned" : "Unpinned",
+      description: note.isPinned ? "This note will stay at the top of your list." : "This note is back in its normal place.",
+    });
+  }
+
+  // Round 29: STUB entry point for chatting with AI about this note. Same
+  // lock gate and same sequential close-then-open Sheet pattern as Theme.
+  function handleAskAi() {
+    breadcrumb(`note header: Ask AI tapped (encrypted=${note.encrypted})`);
+    moreOpen = false;
+    if (note.encrypted) {
+      pushToast({ title: "Unlock first", description: "Unlock this note before chatting about it.", variant: "destructive" });
+      return;
+    }
+    aiChatOpen = true;
+  }
 </script>
 
 <header class="editor-header" style={headerStyle}>
@@ -354,11 +390,23 @@
 
 <Sheet bind:open={moreOpen} side="bottom" title="Actions">
   <div class="action-list">
+    <button class="action-row" onclick={handleTogglePin} aria-label={note.isPinned ? "Unpin note" : "Pin note"}>
+      <svg viewBox="0 0 24 24" width="18" height="18" fill={note.isPinned ? "currentColor" : "none"} stroke="currentColor" stroke-width="2">
+        <path d="M12 17v5" /><path d="M9 3h6l-1 7 3 3H7l3-3z" />
+      </svg>
+      <span>{note.isPinned ? "Unpin" : "Pin to top"}</span>
+    </button>
     <button class="action-row" onclick={handleFindReplace} aria-label="Find and replace">
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
         <circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.5" y2="16.5" />
       </svg>
       <span>Find &amp; replace</span>
+    </button>
+    <button class="action-row" onclick={handleAskAi} aria-label="Ask AI">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M18 6l-2.5 2.5M8.5 15.5 6 18" />
+      </svg>
+      <span>Ask AI</span>
     </button>
     <button class="action-row" onclick={handleShare}>
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
@@ -396,6 +444,7 @@
   </div>
 </Sheet>
 
+<NoteAiChatSheet bind:open={aiChatOpen} noteTitle={note.title} />
 <PagesPanel bind:open={pagesOpen} {note} {currentPageIndex} {onSwitchPage} {onAddPage} {onDeletePage} {onRenamePage} />
 
 <ThemeSectionsSheet

@@ -42,6 +42,11 @@
   import { onDestroy, untrack } from "svelte";
   import { Editor } from "@tiptap/core";
   import StarterKit from "@tiptap/starter-kit";
+  // Round 29: checklist blocks. TaskList/TaskItem ship in the same
+  // @tiptap/extension-list package StarterKit already depends on (that's
+  // where its bullet/ordered lists come from), so this adds no new
+  // package to the install — it's resolved as StarterKit's own sibling.
+  import { TaskList, TaskItem } from "@tiptap/extension-list";
   import Paragraph from "@tiptap/extension-paragraph";
   import { Bold } from "@tiptap/extension-bold";
   import { Italic } from "@tiptap/extension-italic";
@@ -144,6 +149,13 @@
           gapcursor: false,
         }),
         DivParagraph,
+        // Round 29: "- [ ]" style checklist inside a note. Non-nested (a
+        // task item holds paragraphs only) — nesting is a Tab-key
+        // affordance and there is no Tab key on the phone this targets.
+        // Saved HTML is <li data-type="taskItem" data-checked="...">, which
+        // TaskItem parses straight back, so notes round-trip unchanged.
+        TaskList,
+        TaskItem,
         NonLeakingBold,
         NonLeakingItalic,
         NonLeakingStrike,
@@ -309,6 +321,48 @@
   }
   .note-content :global(.ProseMirror li) {
     margin: 2px 0;
+  }
+  /* Round 29: checklist. The checkbox is Tiptap's own <label><input
+     type=checkbox></label> node view; the item text sits in the sibling
+     <div>. Checked items are struck through and dimmed (the Notion
+     reference), never hidden — the text stays editable.
+     Selectors go through ul[data-type="taskList"] > li on purpose: the
+     LIVE node-view <li> carries only data-checked, NOT data-type (that
+     attribute exists in the saved HTML, not in the editing DOM) — found by
+     the round 29 tests; a li[data-type="taskItem"] selector matches
+     nothing on screen. */
+  .note-content :global(.ProseMirror ul[data-type="taskList"]) {
+    list-style: none;
+    padding-left: 0;
+  }
+  .note-content :global(.ProseMirror ul[data-type="taskList"] > li) {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.55em;
+    margin: 4px 0;
+  }
+  .note-content :global(.ProseMirror ul[data-type="taskList"] > li > label) {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    /* Padding grows the tap target well past the 1.2em box itself. */
+    padding: 0.2em 0.15em;
+    user-select: none;
+  }
+  .note-content :global(.ProseMirror ul[data-type="taskList"] > li > label input[type="checkbox"]) {
+    width: 1.2em;
+    height: 1.2em;
+    margin: 0;
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+  .note-content :global(.ProseMirror ul[data-type="taskList"] > li > div) {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .note-content :global(.ProseMirror ul[data-type="taskList"] > li[data-checked="true"] > div) {
+    text-decoration: line-through;
+    opacity: 0.55;
   }
   /* Placeholder extension marks the empty paragraph with is-empty and
      sets data-placeholder on it — same attr(data-placeholder) pattern
