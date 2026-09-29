@@ -32,15 +32,43 @@
 //      commands entirely. Not cancellable while an IME composition is
 //      active (the platform doesn't allow it) — that case falls through
 //      to the safety net below.
-//   3. appendTransaction safety net — if a raw "\n"/"\r" ever does end up
-//      inside a text node (any path we couldn't cancel), split that block
-//      into one paragraph per line. Only looks at what the transaction
-//      changed, so ordinary typing costs a range check.
+//   3. appendTransaction safety net — repairs whatever 1 and 2 didn't
+//      catch, in two ways:
+//        a. a raw "\n"/"\r" that ends up inside a text node is split into
+//           one paragraph per line.
+//        b. ROUND 28, found on-device (Galaxy A13, build 5cc1358): some
+//           inserts reach the editor through NEITHER a `paste` NOR a
+//           `beforeinput` event at all — confirmed by this file's own
+//           diagnostic log, which recorded "document change of ~2356
+//           positions arrived via the browser DOM (not a paste/beforeinput
+//           we saw)" for content that then showed up with several
+//           originally-separate lines squashed onto one visual note line.
+//           This is a real Chromium/WebView behavior: some native/OS-level
+//           insert paths (observed alongside a Samsung keyboard clipboard
+//           chip) edit the contenteditable DOM directly, bypassing both
+//           events entirely, and ProseMirror's own DOM-change detection
+//           then parses whatever landed — a browser's own multi-line
+//           plain-text insert into a contenteditable typically comes out
+//           as ONE paragraph containing several hardBreak (<br>) nodes,
+//           not several paragraphs. That's indistinguishable, after the
+//           fact, from someone manually pressing Shift+Enter — except
+//           that a real Shift+Enter always arrives as its OWN transaction
+//           containing exactly one hardBreak node, while this arrives as
+//           a single transaction whose inserted content contains several.
+//           So: any transaction we didn't originate (no "paste"/
+//           "midnoteNewlineNormalize" meta) whose inserted slice contains
+//           2+ hardBreak nodes is treated as this case and split into
+//           real paragraphs, exactly like (a) above. One hardBreak is
+//           always left alone — that's the one case a genuine Shift+Enter
+//           and this bug are allowed to look identical, so it's resolved
+//           in favor of never touching real Shift+Enter presses.
+//      Both only look at what the transaction actually changed, so
+//      ordinary typing costs a cheap range check either way.
 //   4. Diagnostics into the on-device debug log (breadcrumb): which path a
 //      large insert took, how long our part took, and any big document
-//      change that arrived WITHOUT going through 1-3. Built because the
-//      real cause of the on-device slowness can't be reproduced off-device;
-//      remove once it's understood.
+//      change that arrived WITHOUT going through 1-3 (the log line that
+//      surfaced the round 28 bug above). Kept rather than removed —
+//      it already earned its place once.
 //
 // Trade-off, unchanged from round 25 and stated again on purpose: paste is
 // ALWAYS plain text, so formatting on content copied from elsewhere
@@ -93,14 +121,18 @@ export function insertPlainTextLines(view: EditorView, text: string): number {
 
 // ---- safety net -------------------------------------------------------
 
-// Splits one textblock on newline characters inside its text nodes, into
-// one block per line, keeping marks. Non-text inline nodes (hard breaks)
-// stay where they are. If `cursorOffset` (a content offset inside the
-// ORIGINAL block) is given, also returns where that offset lands as
-// {block index, content offset inside that new block}.
-function splitBlockOnNewlines(
+// Splits one textblock into one block per line, keeping marks. A line
+// break is: a newline character inside a text node (always), and — only
+// when `splitHardBreaks` is true — a hardBreak node too (round 28; see
+// this file's header). With `splitHardBreaks` false, a hardBreak is left
+// in place exactly as before, so a genuine Shift+Enter is never touched.
+// If `cursorOffset` (a content offset inside the ORIGINAL block) is
+// given, also returns where that offset lands as {block index, content
+// offset inside that new block}.
+function splitBlockOnBreaks(
   block: PMNode,
-  cursorOffset: number | null
+  cursorOffset: number | null,
+  splitHardBreaks: boolean
 ): { blocks: PMNode[]; cursor: { block: number; offset: number } | null } {
   const schema = block.type.schema;
   const lines: PMNode[][] = [[]];
@@ -110,6 +142,16 @@ function splitBlockOnNewlines(
 
   block.forEach((child) => {
     if (!child.isText) {
+      if (splitHardBreaks && child.type.name === "hardBreak") {
+        // The hardBreak itself is dropped, exactly like a "\n" character
+        // is dropped below — it's being replaced BY the paragraph break,
+        // not carried into either side of it.
+        if (cursorOffset !== null && !cursor && cursorOffset === src) cursor = { block: lines.length - 1, offset: sizes[sizes.length - 1] };
+        lines.push([]);
+        sizes.push(0);
+        src += child.nodeSize;
+        return;
+      }
       if (cursorOffset !== null && !cursor && cursorOffset === src) cursor = { block: lines.length - 1, offset: sizes[sizes.length - 1] };
       lines[lines.length - 1].push(child);
       sizes[sizes.length - 1] += child.nodeSize;
@@ -152,11 +194,18 @@ function splitBlockOnNewlines(
   };
 }
 
-// Ranges (in the new document) touched by these transactions.
-function changedRanges(transactions: readonly Transaction[]): Array<[number, number]> {
+// Ranges (in the new document) touched by transactions passing `include`.
+// Position mapping is threaded through EVERY transaction in the batch
+// regardless of which ones are included — skipping a non-included
+// transaction's own mapping would leave later positions wrong whenever
+// the batch has more than one transaction.
+function collectRanges(
+  transactions: readonly Transaction[],
+  include: (tr: Transaction, i: number) => boolean
+): Array<[number, number]> {
   const out: Array<[number, number]> = [];
   transactions.forEach((tr, i) => {
-    if (!tr.docChanged) return;
+    if (!tr.docChanged || !include(tr, i)) return;
     tr.mapping.maps.forEach((map, j) => {
       map.forEach((_os, _oe, ns, ne) => {
         let a = tr.mapping.slice(j + 1).map(ns, -1);
@@ -172,15 +221,75 @@ function changedRanges(transactions: readonly Transaction[]): Array<[number, num
   return out;
 }
 
-function normalizeNewlines(transactions: readonly Transaction[], state: EditorState): Transaction | null {
-  const hits = new Map<number, PMNode>();
+function changedRanges(transactions: readonly Transaction[]): Array<[number, number]> {
+  return collectRanges(transactions, () => true);
+}
+
+// Round 28: ranges (in the new document) touched by a transaction we did
+// NOT originate (no "paste"/"midnoteNewlineNormalize" meta) whose STEPS,
+// summed across the whole transaction, inserted 2+ hardBreak nodes.
+// Summed across all of a transaction's steps rather than checked one step
+// at a time: ProseMirror's own DOM-change detection typically produces
+// one step with a multi-hardBreak slice, but the equivalent built by hand
+// (as this file's own test suite does, and conceivably some other native
+// insert path might too) can just as easily arrive as several steps in
+// ONE transaction, each inserting a single hardBreak — which must be
+// caught exactly the same way, since it's still one uncaught batch
+// introducing several line breaks at once, not several separate real
+// Shift+Enter presses (each of which is always its OWN transaction).
+function hardBreakInsertRanges(transactions: readonly Transaction[]): Array<[number, number]> {
+  return collectRanges(transactions, (tr) => {
+    if (tr.getMeta("paste") || tr.getMeta("midnoteNewlineNormalize")) return false;
+    let hardBreaks = 0;
+    tr.steps.forEach((step) => {
+      const slice = (step as unknown as { slice?: Slice }).slice;
+      if (!slice) return;
+      slice.content.forEach((n) => {
+        if (n.type.name === "hardBreak") hardBreaks++;
+      });
+    });
+    // A single hardBreak is exactly what a real Shift+Enter produces —
+    // never treat that alone as this bug, no matter how it arrived.
+    return hardBreaks >= 2;
+  });
+}
+
+function repairBrokenLines(
+  transactions: readonly Transaction[],
+  state: EditorState,
+  log: (message: string) => void
+): Transaction | null {
+  const hits = new Map<number, { node: PMNode; hard: boolean }>();
   const size = state.doc.content.size;
-  for (const [a, b] of changedRanges(transactions)) {
+
+  const mark = (ranges: Array<[number, number]>, hard: boolean) => {
+    for (const [a, b] of ranges) {
+      const from = Math.max(0, Math.min(a, size));
+      const to = Math.max(from, Math.min(b, size));
+      state.doc.nodesBetween(from, to, (node, pos) => {
+        if (node.isTextblock) {
+          const prev = hits.get(pos);
+          if (hard || !prev) {
+            hits.set(pos, { node, hard: hard || (prev?.hard ?? false) });
+          }
+          return false;
+        }
+        return true;
+      });
+    }
+  };
+
+  mark(changedRanges(transactions), false);
+  // Only widen to hardBreak-splitting for blocks a qualifying step
+  // actually touched — never for a block that merely contains an OLD,
+  // legitimate multi-line Shift+Enter structure the user built up over
+  // separate edits and happened to touch again with an unrelated change.
+  for (const [a, b] of hardBreakInsertRanges(transactions)) {
     const from = Math.max(0, Math.min(a, size));
     const to = Math.max(from, Math.min(b, size));
     state.doc.nodesBetween(from, to, (node, pos) => {
       if (node.isTextblock) {
-        if (HAS_NEWLINE_RE.test(node.textContent)) hits.set(pos, node);
+        hits.set(pos, { node, hard: true });
         return false;
       }
       return true;
@@ -188,15 +297,24 @@ function normalizeNewlines(transactions: readonly Transaction[], state: EditorSt
   }
   if (hits.size === 0) return null;
 
+  // Only blocks that actually need it (a plain multi-paragraph paste that
+  // landed correctly already has no "\n" and no hardBreak run — this
+  // never touches it).
+  const toFix = [...hits.entries()].filter(
+    ([, v]) => HAS_NEWLINE_RE.test(v.node.textContent) || (v.hard && hasHardBreak(v.node))
+  );
+  if (toFix.length === 0) return null;
+
   const tr = state.tr;
   const sel = state.selection;
   let newCursor: number | null = null;
+  let hardBreaksFixed = 0;
   // Last block first, so earlier positions stay valid.
-  for (const pos of [...hits.keys()].sort((x, y) => y - x)) {
-    const node = hits.get(pos) as PMNode;
+  for (const [pos, { node, hard }] of toFix.sort((x, y) => y[0] - x[0])) {
     const end = pos + node.nodeSize;
     const cursorHere = sel.empty && sel.from > pos && sel.from < end;
-    const { blocks, cursor } = splitBlockOnNewlines(node, cursorHere ? sel.from - (pos + 1) : null);
+    const { blocks, cursor } = splitBlockOnBreaks(node, cursorHere ? sel.from - (pos + 1) : null, hard);
+    if (hard && blocks.length > 1) hardBreaksFixed += blocks.length - 1;
     tr.replaceWith(pos, end, blocks);
     if (cursor) {
       let p = pos;
@@ -211,7 +329,22 @@ function normalizeNewlines(transactions: readonly Transaction[], state: EditorSt
       /* selection left where the mapping put it */
     }
   }
+  if (hardBreaksFixed > 0) {
+    // Only reachable via the round-28 path (a real Shift+Enter is never
+    // in `toFix` at all) — logged because this means content arrived
+    // through neither of our own two handlers, the same on-device signal
+    // that found this bug in the first place.
+    log(`paste safety net: split ${hardBreaksFixed} hard-break-joined line(s) back into separate paragraphs (content arrived via neither paste nor beforeinput)`);
+  }
   return tr.setMeta("midnoteNewlineNormalize", true);
+}
+
+function hasHardBreak(node: PMNode): boolean {
+  let found = false;
+  node.forEach((child) => {
+    if (child.type.name === "hardBreak") found = true;
+  });
+  return found;
 }
 
 // ---- extension --------------------------------------------------------
@@ -298,7 +431,7 @@ export const PlainTextPaste = Extension.create<PlainTextPasteOptions>({
             if (grown >= 200) log(`document change of ~${grown} positions arrived via ${tr.getMeta("uiEvent") ?? "the browser DOM (not a paste/beforeinput we saw)"}`);
           }
 
-          return normalizeNewlines(transactions, newState);
+          return repairBrokenLines(transactions, newState, log);
         },
       }),
     ];
