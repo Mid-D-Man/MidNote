@@ -67,6 +67,17 @@ export type IconRef = { kind: "preset"; name: string } | { kind: "custom"; custo
 // transparency, downscaled to ~128px — see storage.ts's
 // storeCustomIconImage — with no contrast analysis needed since it's
 // never painted behind text).
+// A private, timestamped remark on a whole entry (round 30). No author
+// field: MidNote has no accounts, every comment is the device owner's. Kept
+// out of EntryRef on purpose — comments are content, not list-card
+// metadata, so they're on the three heavy interfaces below and are excluded
+// from the index rows (src-tauri/src/data/index.rs). See utils/comments.ts.
+export interface EntryComment {
+  id: string;
+  text: string;
+  createdAt: string; // ISO 8601
+}
+
 export interface CustomIcon {
   id: string;
   data: string;
@@ -158,6 +169,7 @@ export interface NotePage {
 }
 
 export interface Note extends EntryRef {
+  comments: EntryComment[];
   type: "regular";
   content: string;
   // Additional pages beyond this note's own main `content` field, which
@@ -190,6 +202,7 @@ export interface Annotation {
 }
 
 export interface Todo extends EntryRef {
+  comments: EntryComment[];
   type: "todo";
   categories: string[];
   steps: Step[];
@@ -247,6 +260,7 @@ export interface BoardViewport {
 }
 
 export interface Board extends EntryRef {
+  comments: EntryComment[];
   type: "board";
   nodes: BoardNode[];
   edges: BoardEdge[];

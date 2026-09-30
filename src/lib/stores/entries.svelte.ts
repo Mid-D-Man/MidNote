@@ -54,6 +54,7 @@ function seedSamples() {
       lockedPayload: null,
       lockedKeyFile: null,
       deletedAt: null,
+      comments: [],
     },
     {
       id: storage.generateId(),
@@ -75,6 +76,7 @@ function seedSamples() {
       lockedPayload: null,
       lockedKeyFile: null,
       deletedAt: null,
+      comments: [],
     },
   ];
   sample.forEach((n) => {

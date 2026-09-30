@@ -22,6 +22,7 @@ import { NO_THEME } from "$lib/types/entry";
 import { getColorSync } from "colorthief";
 import * as dix from "$lib/dixscript/client";
 import { breadcrumb } from "$lib/debug/log.svelte";
+import { sanitizeComments } from "$lib/utils/comments";
 
 const ENTRIES_KEY = "midnote:entries";
 const TAGS_KEY = "midnote:known-tags";
@@ -111,6 +112,8 @@ function normalizeEntry(e: unknown): Entry | null {
   if (typeof entry.lockedPayload !== "string") entry.lockedPayload = null;
   if (typeof entry.lockedKeyFile !== "string") entry.lockedKeyFile = null;
   if (typeof entry.deletedAt !== "string") entry.deletedAt = null;
+  // Round 30: comments. Older entries have no field; sanitize also drops junk.
+  entry.comments = sanitizeComments(entry.comments, generateId);
   if (entry.type === "regular" && !Array.isArray(entry.pages)) entry.pages = [];
   if (entry.type === "regular") {
     if (typeof entry.page1Name !== "string") entry.page1Name = null;
@@ -359,6 +362,7 @@ export function createNote(): Note {
     lockedPayload: null,
     lockedKeyFile: null,
     deletedAt: null,
+    comments: [],
   };
 }
 
@@ -380,6 +384,7 @@ export function createTodo(): Todo {
     lockedPayload: null,
     lockedKeyFile: null,
     deletedAt: null,
+    comments: [],
     categories: ["Steps"],
     steps: [],
     annotations: [],
@@ -404,6 +409,7 @@ export function createBoard(): Board {
     lockedPayload: null,
     lockedKeyFile: null,
     deletedAt: null,
+    comments: [],
     nodes: [],
     edges: [],
     viewport: null,

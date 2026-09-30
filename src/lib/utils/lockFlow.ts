@@ -48,13 +48,15 @@ import { pushToast } from "$lib/stores/toast.svelte";
 import { breadcrumb } from "$lib/debug/log.svelte";
 import { saveEntry } from "$lib/stores/entries.svelte";
 import { beginGlobalBusy, endGlobalBusy } from "$lib/stores/globalBusy.svelte";
+import { generateId } from "$lib/storage";
+import { sanitizeComments } from "$lib/utils/comments";
 
 interface LockedPayloadResult {
   encryptedDataB64: string;
   keyFileContent: string;
 }
 
-function buildPlaintextPayload(entry: Entry): string {
+export function buildPlaintextPayload(entry: Entry): string {
   // Tags used to travel inside this payload (see clearPlaintextFields'
   // old comment) because locking cleared them from the visible entry.
   // That's no longer true — tags now stay visible on a locked card (see
@@ -75,16 +77,21 @@ function buildPlaintextPayload(entry: Entry): string {
   // same reason a note's content does — clearPlaintextFields empties
   // them on the visible entry, and this payload is the only place the
   // real values survive a lock.
+  //
+  // `comments` (all three types, round 30): private remarks on the entry.
+  // They MUST travel here for the same reason content does — otherwise a
+  // locked note's comments would stay readable in the visible record on
+  // disk (and in the list index) while its body was encrypted.
   if (entry.type === "regular") {
-    return JSON.stringify({ content: entry.content, pages: entry.pages, page1Name: entry.page1Name });
+    return JSON.stringify({ content: entry.content, pages: entry.pages, page1Name: entry.page1Name, comments: entry.comments });
   }
   if (entry.type === "board") {
-    return JSON.stringify({ nodes: entry.nodes, edges: entry.edges, viewport: entry.viewport });
+    return JSON.stringify({ nodes: entry.nodes, edges: entry.edges, viewport: entry.viewport, comments: entry.comments });
   }
-  return JSON.stringify({ steps: entry.steps, annotations: entry.annotations });
+  return JSON.stringify({ steps: entry.steps, annotations: entry.annotations, comments: entry.comments });
 }
 
-function applyDecryptedPayload(entry: Entry, plaintextJson: string) {
+export function applyDecryptedPayload(entry: Entry, plaintextJson: string) {
   const payload = JSON.parse(plaintextJson);
   if (entry.type === "regular") {
     entry.content = payload.content;
@@ -109,6 +116,9 @@ function applyDecryptedPayload(entry: Entry, plaintextJson: string) {
     entry.steps = payload.steps;
     entry.annotations = payload.annotations;
   }
+  // Round 30. A payload written before comments existed has no field, so
+  // it restores as "no comments" — never undefined.
+  entry.comments = sanitizeComments(payload.comments, generateId);
   // BUGFIX/BACKWARD-COMPAT: tags now stay on the visible entry through a
   // lock (see clearPlaintextFields), so for anything locked under THAT
   // scheme entry.tags already holds the real tags and this payload has
@@ -124,7 +134,7 @@ function applyDecryptedPayload(entry: Entry, plaintextJson: string) {
   }
 }
 
-function clearPlaintextFields(entry: Entry) {
+export function clearPlaintextFields(entry: Entry) {
   if (entry.type === "regular") {
     entry.content = "";
     // Same reasoning as content — the real pages (and their names) live
@@ -142,6 +152,9 @@ function clearPlaintextFields(entry: Entry) {
     entry.steps = [];
     entry.annotations = [];
   }
+  // Round 30: comments are private content too — same treatment as the
+  // body (they live in the encrypted payload; see buildPlaintextPayload).
+  entry.comments = [];
   // BUGFIX: tags used to be cleared here too (matching
   // notes_index.mdix/todos_index.mdix's old "encrypted keeps title,
   // empties tags" convention) — a locked card showed literally nothing

@@ -22,6 +22,7 @@ import { save } from "@tauri-apps/plugin-dialog";
 import { isTauri } from "@tauri-apps/api/core";
 import { createNote, createTodo, generateId } from "$lib/storage";
 import { htmlToPlainText } from "$lib/utils/richText";
+import { sortByTime } from "$lib/utils/comments";
 import type { Entry, Note, Todo } from "$lib/types/entry";
 
 export function entryToPlainText(entry: Entry): string {
@@ -161,6 +162,7 @@ export function mergeNotes(selected: Note[]): Note {
 
   merged.tags = dedupeStrings(selected.flatMap((n) => n.tags));
   merged.isBookmarked = selected.some((n) => n.isBookmarked);
+  merged.comments = sortByTime(selected.flatMap((n) => n.comments)).map((c) => ({ ...c, id: generateId() }));
   return merged;
 }
 
@@ -175,6 +177,7 @@ export function mergeTodos(selected: Todo[]): Todo {
   merged.steps = selected.flatMap((t) => t.steps.map((s) => ({ ...s, id: generateId() })));
   merged.annotations = selected.flatMap((t) => t.annotations.map((a) => ({ ...a, id: generateId() })));
   merged.isBookmarked = selected.some((t) => t.isBookmarked);
+  merged.comments = sortByTime(selected.flatMap((t) => t.comments)).map((c) => ({ ...c, id: generateId() }));
   return merged;
 }
 
@@ -377,28 +380,38 @@ function isMobilePlatform(): boolean {
   return /android|iphone|ipad|ipod/i.test(navigator.userAgent);
 }
 
-export async function downloadFiles(files: ExportedFile[]): Promise<void> {
+/**
+ * Saves each file. Resolves to how many were ACTUALLY saved (round 30): on
+ * Android the save dialog can be cancelled per file, which used to be
+ * indistinguishable from success — so "Export as" would have announced
+ * "Exported" for a file nobody saved. Existing callers ignore the number.
+ */
+export async function downloadFiles(files: ExportedFile[]): Promise<number> {
   if (isTauri()) {
     if (!isMobilePlatform()) {
       try {
+        let saved = 0;
         for (const f of files) {
           const bytes = new Uint8Array(await f.blob.arrayBuffer());
           await writeFile(f.name, bytes, { baseDir: BaseDirectory.Download });
+          saved++;
         }
-        return;
+        return saved;
       } catch (err) {
         console.error("downloadFiles: plugin-fs write to $DOWNLOAD failed, falling back to save dialog:", err);
       }
     }
 
     try {
+      let saved = 0;
       for (const f of files) {
         const path = await save({ defaultPath: f.name });
         if (!path) continue; // user cancelled this file's dialog
         const bytes = new Uint8Array(await f.blob.arrayBuffer());
         await writeFile(path, bytes);
+        saved++;
       }
-      return;
+      return saved;
     } catch (err) {
       console.error("downloadFiles: save-dialog fallback also failed, falling back to blob-link download:", err);
     }
@@ -413,4 +426,5 @@ export async function downloadFiles(files: ExportedFile[]): Promise<void> {
     document.body.removeChild(a);
     URL.revokeObjectURL(a.href);
   }
+  return files.length;
 }

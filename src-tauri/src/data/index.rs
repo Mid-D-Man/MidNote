@@ -37,6 +37,7 @@ fn is_index_excluded(key: &str) -> bool {
             | "categories"
             | "steps"
             | "annotations"
+            | "comments"
             | "nodes"
             | "edges"
             | "viewport"

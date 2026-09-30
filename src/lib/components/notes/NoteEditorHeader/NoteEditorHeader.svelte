@@ -1,4 +1,6 @@
 <script lang="ts">
+  import CommentsSheet from "$lib/components/shared/CommentsSheet/CommentsSheet.svelte";
+  import ExportAsSheet from "$lib/components/shared/ExportAsSheet/ExportAsSheet.svelte";
   import { goto } from "$app/navigation";
   import Button from "$lib/components/ui/Button/Button.svelte";
   import Spinner from "$lib/components/ui/Spinner/Spinner.svelte";
@@ -64,6 +66,8 @@
   let isSaving = $state(false);
   let showDeleteConfirm = $state(false);
   let moreOpen = $state(false);
+  let commentsOpen = $state(false);
+  let exportAsOpen = $state(false);
   let themeSheetOpen = $state(false);
   let aiChatOpen = $state(false);
   let pagesOpen = $state(false);
@@ -337,6 +341,30 @@
     }
     aiChatOpen = true;
   }
+
+  // Round 30: Comments and Export as… in the Actions sheet. Same lock gate
+  // and same close-then-open (never nested) Sheet pattern as Theme/Pin: a
+  // locked entry's content and comments are cleared on the visible record,
+  // so there is nothing to show or export until it's unlocked.
+  function handleOpenComments() {
+    breadcrumb(`note header: Comments tapped (encrypted=${note.encrypted})`);
+    moreOpen = false;
+    if (note.encrypted) {
+      pushToast({ title: "Unlock first", description: "Unlock this note before opening its comments.", variant: "destructive" });
+      return;
+    }
+    commentsOpen = true;
+  }
+
+  function handleOpenExportAs() {
+    breadcrumb(`note header: Export as tapped (encrypted=${note.encrypted})`);
+    moreOpen = false;
+    if (note.encrypted) {
+      pushToast({ title: "Unlock first", description: "Unlock this note before exporting it as a document.", variant: "destructive" });
+      return;
+    }
+    exportAsOpen = true;
+  }
 </script>
 
 <header class="editor-header" style={headerStyle}>
@@ -388,6 +416,9 @@
   />
 </header>
 
+<CommentsSheet bind:open={commentsOpen} entry={note} />
+<ExportAsSheet bind:open={exportAsOpen} entry={note} />
+
 <Sheet bind:open={moreOpen} side="bottom" title="Actions">
   <div class="action-list">
     <button class="action-row" onclick={handleTogglePin} aria-label={note.isPinned ? "Unpin note" : "Pin note"}>
@@ -395,6 +426,18 @@
         <path d="M12 17v5" /><path d="M9 3h6l-1 7 3 3H7l3-3z" />
       </svg>
       <span>{note.isPinned ? "Unpin" : "Pin to top"}</span>
+    </button>
+    <button class="action-row" onclick={handleOpenComments} aria-label="Comments">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z" />
+      </svg>
+      <span>Comments{note.comments.length > 0 ? ` (${note.comments.length})` : ""}</span>
+    </button>
+    <button class="action-row" onclick={handleOpenExportAs} aria-label="Export as">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><polyline points="14 3 14 8 19 8" /><line x1="9" y1="14" x2="15" y2="14" /><line x1="9" y1="17.5" x2="13" y2="17.5" />
+      </svg>
+      <span>Export as…</span>
     </button>
     <button class="action-row" onclick={handleFindReplace} aria-label="Find and replace">
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">

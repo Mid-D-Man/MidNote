@@ -126,6 +126,29 @@ if (w.Range && !w.Range.prototype.getBoundingClientRect) {
   };
 }
 
+// Fifth jsdom gap (round 30): downloads. jsdom has no URL.createObjectURL,
+// and clicking a real <a download> makes it attempt (and complain about) a
+// navigation. Stubbed so the app's own blob-link download path runs for
+// real, and each "download" is RECORDED (name + the actual Blob) for the
+// `expectDownload` step to inspect — the file's real bytes, not just that
+// a click happened.
+w.__downloads = [];
+{
+  const blobsByUrl = new Map();
+  let seq = 0;
+  w.URL.createObjectURL = (blob) => {
+    const url = `blob:smoke/${seq++}`;
+    blobsByUrl.set(url, blob);
+    return url;
+  };
+  w.URL.revokeObjectURL = () => {};
+  const originalClick = w.HTMLAnchorElement.prototype.click;
+  w.HTMLAnchorElement.prototype.click = function () {
+    if (this.hasAttribute("download")) w.__downloads.push({ name: this.download, blob: blobsByUrl.get(this.href) });
+    else originalClick.call(this);
+  };
+}
+
 // Bare-identifier browser globals the SvelteKit client runtime and app
 // code touch directly (the way real browser globals work — `window`
 // properties are implicitly global). Extend this list if a new scenario
@@ -257,6 +280,46 @@ if (STEPS.length > 0 && errors.length === 0) {
       pm.dispatchEvent(ev);
       if (!ev.defaultPrevented) {
         errors.push(new Error(`${where}: the paste event wasn't handled (defaultPrevented is false) — the plain-text paste handler isn't wired into the editor.`));
+        break;
+      }
+    } else if (step.expectDownload) {
+      const want = step.expectDownload;
+      const d = w.__downloads[w.__downloads.length - 1];
+      if (!d || !d.blob) {
+        errors.push(new Error(`${where}: no download was triggered.`));
+        break;
+      }
+      if (!d.name.endsWith(want.ext)) {
+        errors.push(new Error(`${where}: last download was "${d.name}", expected a file ending ${want.ext}.`));
+        break;
+      }
+      // The app's `new Blob()` is Node's own (Blob isn't one of the globals
+      // copied from jsdom), so read it with Node's Blob.arrayBuffer() —
+      // jsdom's FileReader rejects a Blob from another implementation.
+      const buf = new Uint8Array(await d.blob.arrayBuffer());
+      const head = String.fromCharCode(...buf.slice(0, want.magic.length));
+      if (head !== want.magic || buf.length < (want.minBytes ?? 0)) {
+        errors.push(new Error(`${where}: "${d.name}" starts with ${JSON.stringify(head)} and is ${buf.length} bytes; expected magic ${JSON.stringify(want.magic)} and >= ${want.minBytes ?? 0} bytes.`));
+        break;
+      }
+    } else if (step.expectNoText) {
+      if (target.textContent.includes(step.expectNoText)) {
+        errors.push(new Error(`${where}: page text still contains "${step.expectNoText}".`));
+        break;
+      }
+    } else if (step.expectStored !== undefined || step.expectNotStored !== undefined) {
+      // Searches every localStorage value: proves a change reached the
+      // storage layer (saveEntry), not just the screen.
+      let all = "";
+      for (let k = 0; k < w.localStorage.length; k++) all += w.localStorage.getItem(w.localStorage.key(k)) + "\n";
+      const needle = step.expectStored ?? step.expectNotStored;
+      const has = all.includes(needle);
+      if (step.expectStored !== undefined && !has) {
+        errors.push(new Error(`${where}: "${needle}" was not found in stored data.`));
+        break;
+      }
+      if (step.expectNotStored !== undefined && has) {
+        errors.push(new Error(`${where}: "${needle}" is still in stored data.`));
         break;
       }
     } else if (step.clickSelector) {

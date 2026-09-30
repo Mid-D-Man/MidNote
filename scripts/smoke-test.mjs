@@ -198,6 +198,69 @@ const SCENARIOS = [
       { expectText: "isn't connected yet" },
     ],
   },
+  // Round 30: Export as… — real documents are built from the seeded note
+  // and the recorded download's actual bytes are checked (PDF starts
+  // "%PDF-", DOCX is a zip so starts "PK"), for all three entry types.
+  {
+    name: "note — export as PDF + Word",
+    path: `/note/${NOTE_ID}`,
+    seed: SEED_ENTRIES,
+    steps: [
+      { click: "More" },
+      { click: "Export as" },
+      { click: "Export as PDF" },
+      { wait: 500 },
+      { expectText: "Exported" },
+      { expectDownload: { ext: ".pdf", magic: "%PDF-", minBytes: 700 } },
+      { click: "More" },
+      { click: "Export as" },
+      { click: "Export as Word document" },
+      { wait: 500 },
+      { expectDownload: { ext: ".docx", magic: "PK", minBytes: 1500 } },
+    ],
+  },
+  {
+    name: "todo — export as PDF",
+    path: `/todo/${TODO_ID}`,
+    seed: SEED_ENTRIES,
+    steps: [{ click: "More" }, { click: "Export as" }, { click: "Export as PDF" }, { wait: 500 }, { expectDownload: { ext: ".pdf", magic: "%PDF-", minBytes: 700 } }],
+  },
+  {
+    name: "board — export as Word",
+    path: `/board/${BOARD_ID}`,
+    seed: SEED_ENTRIES,
+    steps: [{ click: "More" }, { click: "Export as" }, { click: "Export as Word document" }, { wait: 500 }, { expectDownload: { ext: ".docx", magic: "PK", minBytes: 1500 } }],
+  },
+  // Round 30: Comments. Post two, confirm both reach STORAGE (saveEntry),
+  // then delete one with the two-tap confirm and confirm it left storage
+  // too — a comment that shows on screen but never persists would pass a
+  // mount-only test.
+  {
+    name: "note — comments",
+    path: `/note/${NOTE_ID}`,
+    seed: SEED_ENTRIES,
+    steps: [
+      { click: "More" },
+      { click: "Comments" },
+      { type: { label: "Add a comment", value: "first remark zq1" } },
+      { wait: 200 },
+      { click: "Post comment" },
+      { expectText: "first remark zq1" },
+      { expectStored: "first remark zq1" },
+      { type: { label: "Add a comment", value: "second remark zq2" } },
+      { wait: 200 },
+      { click: "Post comment" },
+      { expectText: "second remark zq2" },
+      { click: "Delete comment" },
+      { expectText: "Delete?" },
+      { click: "Confirm delete comment" },
+      { expectText: "Comment deleted" },
+      { expectNotStored: "first remark zq1" },
+      { expectStored: "second remark zq2" },
+    ],
+  },
+  { name: "todo — comments", path: `/todo/${TODO_ID}`, seed: SEED_ENTRIES, steps: [{ click: "More" }, { click: "Comments" }, { type: { label: "Add a comment", value: "todo remark zq3" } }, { wait: 200 }, { click: "Post comment" }, { expectText: "todo remark zq3" }, { expectStored: "todo remark zq3" }] },
+  { name: "board — comments", path: `/board/${BOARD_ID}`, seed: SEED_ENTRIES, steps: [{ click: "More" }, { click: "Comments" }, { type: { label: "Add a comment", value: "board remark zq4" } }, { wait: 200 }, { click: "Post comment" }, { expectText: "board remark zq4" }, { expectStored: "board remark zq4" }] },
   { name: "todo — pin", path: `/todo/${TODO_ID}`, seed: SEED_ENTRIES, steps: [{ click: "More" }, { click: "Pin todo" }, { expectText: "Pinned" }] },
   { name: "board — pin", path: `/board/${BOARD_ID}`, seed: SEED_ENTRIES, steps: [{ click: "More" }, { click: "Pin board" }, { expectText: "Pinned" }] },
 ];
@@ -207,6 +270,9 @@ const SCENARIOS = [
 // one of:
 //   { click: "<aria-label>" }                          tap that element
 //   { type: { label: "<aria-label>", value: "..." } }  set an input's value + fire `input`
+//   { expectDownload: { ext, magic, minBytes } }        the last download's name ends with ext and its real bytes start with magic (round 30)
+//   { expectNoText: "..." }                             fail if the page text contains it
+//   { expectStored: "..." } / { expectNotStored: "..." } search everything saved to localStorage (round 30)
 //   { clickSelector: "<css>" }                         tap the first element matching a CSS selector (round 29)
 //   { paste: "<text>" }                                fire a text/plain `paste` event at the editor (round 27)
 //   { expectSelector: "<css>" }                        fail unless something matches
