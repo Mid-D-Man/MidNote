@@ -157,7 +157,6 @@ w.__downloads = [];
 // recorded in globalThis.__reminderCalls for the expectGlobal* steps.
 if (process.env.SMOKE_REMINDER_BACKEND === "fake") {
   const calls = (globalThis.__reminderCalls = []);
-  let last = null;
   globalThis.__midnoteReminderBackend = {
     supported: () => true,
     permissionState: async () => "granted",
@@ -166,13 +165,11 @@ if (process.env.SMOKE_REMINDER_BACKEND === "fake") {
       calls.push("createChannel");
     },
     schedule: async (p) => {
-      last = p;
       calls.push(`schedule:${p.id}:${p.schedule.at.date}:${p.title}`);
     },
     cancel: async (id) => {
       calls.push(`cancel:${id}`);
     },
-    pendingIds: async () => (last ? [last.id] : []),
     onTap: async () => () => {},
   };
 }

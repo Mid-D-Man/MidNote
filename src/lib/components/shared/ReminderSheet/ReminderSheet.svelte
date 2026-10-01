@@ -79,6 +79,7 @@
       error = result.message;
       return;
     }
+    if (result.route) breadcrumb(`reminder: scheduled via ${result.route}`);
     entry.reminderAt = result.at;
     saveEntry(entry);
     pushToast({ title: "Reminder set", description: formatReminderWhen(result.at) });

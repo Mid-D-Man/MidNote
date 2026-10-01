@@ -3,12 +3,11 @@
 // "Set reminder" idea.
 //
 // HOW IT'S DELIVERED. The official tauri-plugin-notification, which on
-// Android schedules through AlarmManager. Its source was read before any of
-// this was written (v2.5.0, the current release), and these facts are taken
-// from it, not assumed:
+// Android schedules through AlarmManager. Its source (v2.5.0) was read, and
+// these facts are taken from it, not assumed:
 //   - scheduling a time in the PAST is silently dropped (it logs an error
 //     natively and returns success to JS) — so the time is validated here
-//     first, and after scheduling the plugin's pending list is checked;
+//     first (MIN_LEAD_MS);
 //   - with `allowWhileIdle` it uses setExactAndAllowWhileIdle when the app
 //     may schedule exact alarms and setAndAllowWhileIdle (inexact) otherwise,
 //     so a reminder is never lost, only possibly a few minutes late if exact
@@ -16,10 +15,27 @@
 //     SCHEDULE_EXACT_ALARM up to Android 12) in the manifest to get exactness
 //     with no permission screen — see .github/workflows/build-andriod.yml;
 //   - rescheduling with the same notification id replaces the old alarm
-//     (FLAG_CANCEL_CURRENT on a PendingIntent keyed by the id), and a boot
-//     receiver re-registers pending alarms after a restart;
-//   - tapping the notification fires a plugin event carrying the `extra`
-//     object we attach (entry id + type), which is how a tap opens the note.
+//     (FLAG_CANCEL_CURRENT on a PendingIntent keyed by the id);
+//   - THE TWO SCHEDULING COMMANDS ARE NOT EQUAL (learned from the round 31
+//     device test, then confirmed in the Kotlin source). `notify` (Kotlin
+//     `show`) sets the alarm but never saves the notification: it can't be
+//     listed by `get_pending`, the boot receiver (which restores alarms from
+//     that saved copy) can't restore it, and the plugin never fills in
+//     `sourceJson`, so a tap reaches JS with NO notification/extra. `batch`
+//     does save it — keyed by id, as the `sourceJson` string, which is
+//     exactly what the plugin reads back for boot restore, get_pending and
+//     the tap payload. The plugin never builds `sourceJson` itself, so we
+//     send it: the notification's own JSON. Hence schedule() uses `batch`
+//     with `sourceJson` and falls back to `notify` (alarm only) if the
+//     device rejects that;
+//   - the old post-schedule `get_pending` check was REMOVED: after `notify`
+//     the list is always empty, so it reported "Android didn't accept that
+//     reminder" for an alarm that was in fact set and went off;
+//   - tapping the notification fires a plugin event carrying the saved
+//     notification (`sourceJson`), including the `extra` object we attach
+//     (entry id + type), which is how a tap opens the note. Reminders set
+//     before this fix (via `notify`) carry none: tapping those only opens
+//     the app.
 //
 // WHY `invoke` AND NOT THE @tauri-apps/plugin-notification PACKAGE. The
 // package is a thin wrapper around these same invoke() calls (its source was
@@ -215,17 +231,16 @@ export interface ReminderBackend {
   permissionState(): Promise<PermissionState>;
   requestPermission(): Promise<PermissionState>;
   createChannel(): Promise<void>;
-  schedule(payload: ReminderPayload): Promise<void>;
+  /** Resolves with a short note on how it was scheduled (for the debug log), or nothing. */
+  schedule(payload: ReminderPayload): Promise<string | void>;
   cancel(id: number): Promise<void>;
-  /** Ids the plugin currently has scheduled, or null when it couldn't tell. */
-  pendingIds(): Promise<number[] | null>;
   onTap(handler: (extra: unknown) => void): Promise<() => void>;
 }
 
 // ---- operations ----------------------------------------------------------
 
 export type SetReminderResult =
-  | { ok: true; at: string }
+  | { ok: true; at: string; route?: string }
   | { ok: false; reason: "unsupported" | "past" | "permission" | "failed"; message: string };
 
 function describe(err: unknown): string {
@@ -236,7 +251,8 @@ function describe(err: unknown): string {
  * Schedules (or replaces) the reminder. Does NOT touch entry data — the
  * caller saves `reminderAt` only when this says ok, so data and alarm can't
  * disagree. Order matters: validate, permission, channel, cancel the old
- * alarm, schedule, then confirm it really is pending.
+ * alarm, schedule. (No "is it pending?" lookup afterwards: the plugin's
+ * pending list can't be trusted — see the header.)
  */
 export async function setReminder(
   entry: ReminderSubject,
@@ -263,13 +279,8 @@ export async function setReminder(
     await backend.createChannel();
     const payload = buildReminderPayload(entry, at);
     await backend.cancel(payload.id);
-    await backend.schedule(payload);
-    // The plugin reports success even when it drops the alarm, so look.
-    const pending = await backend.pendingIds().catch(() => null);
-    if (pending && !pending.includes(payload.id)) {
-      return { ok: false, reason: "failed", message: "Android didn't accept that reminder. Try a different time." };
-    }
-    return { ok: true, at: at.toISOString() };
+    const route = await backend.schedule(payload);
+    return { ok: true, at: at.toISOString(), ...(route ? { route } : {}) };
   } catch (err) {
     return { ok: false, reason: "failed", message: `Couldn't set the reminder: ${describe(err)}` };
   }
@@ -349,16 +360,6 @@ function toPermissionState(value: unknown): PermissionState {
   return "prompt";
 }
 
-function pendingIdsFrom(result: unknown): number[] | null {
-  const list = Array.isArray(result)
-    ? result
-    : result && typeof result === "object"
-      ? Object.values(result as Record<string, unknown>).find(Array.isArray)
-      : undefined;
-  if (!Array.isArray(list)) return null;
-  return list.map((n) => (n && typeof n === "object" ? (n as { id?: unknown }).id : undefined)).filter((id): id is number => typeof id === "number");
-}
-
 const tauriBackend: ReminderBackend = {
   supported: () => {
     try {
@@ -385,12 +386,21 @@ const tauriBackend: ReminderBackend = {
     });
   },
   schedule: async (payload) => {
-    await invoke("plugin:notification|notify", { options: payload });
+    // `batch` saves the notification (boot restore, tap payload); `notify`
+    // does not — see the header. `sourceJson` is the notification's own JSON.
+    const sourceJson = JSON.stringify(payload);
+    try {
+      await invoke("plugin:notification|batch", { notifications: [{ ...payload, sourceJson }] });
+      return "batch";
+    } catch (err) {
+      // Alarm only (no boot restore, tap can't open the note) beats no alarm.
+      await invoke("plugin:notification|notify", { options: payload });
+      return `notify (batch failed: ${describe(err)})`;
+    }
   },
   cancel: async (id) => {
     await invoke("plugin:notification|cancel", { notifications: [id] });
   },
-  pendingIds: async () => pendingIdsFrom(await invoke("plugin:notification|get_pending")),
   onTap: async (handler) => {
     const listener = await addPluginListener<{ notification?: { extra?: unknown } }>("notification", "actionPerformed", (payload) =>
       handler(payload?.notification?.extra)
