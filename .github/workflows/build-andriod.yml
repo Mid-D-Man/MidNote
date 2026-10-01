@@ -146,7 +146,24 @@ jobs:
       # writing). Same reasoning as before for doing this here rather
       # than committing gen/android: it's regenerated fresh every run,
       # so there's no manifest to hand-edit once and forget about.
-      - name: Patch AndroidManifest for keyboard resize and storage access
+      # Round 31 (reminders): the exact-alarm permissions. The notification
+      # plugin (tauri-plugin-notification) schedules reminders through
+      # AlarmManager and, per its own source, uses setExactAndAllowWhileIdle
+      # only when the app is allowed to schedule exact alarms, otherwise the
+      # inexact setAndAllowWhileIdle (a reminder can then arrive minutes late).
+      #   - USE_EXACT_ALARM (Android 13+): granted automatically at install,
+      #     no Settings screen. Google Play restricts it to alarm/calendar
+      #     apps; MidNote is sideloaded, so that doesn't apply today. If the
+      #     app is ever published on Play, swap this for SCHEDULE_EXACT_ALARM
+      #     plus a "grant in Settings" prompt.
+      #   - SCHEDULE_EXACT_ALARM, capped at Android 12L (maxSdkVersion 32):
+      #     already granted by default on those versions. Capped because from
+      #     Android 13 it is denied until the user grants it, and the line
+      #     above makes it unnecessary there.
+      # The plugin's own manifest contributes POST_NOTIFICATIONS, WAKE_LOCK and
+      # RECEIVE_BOOT_COMPLETED through Gradle's manifest merge, so those are not
+      # repeated here.
+      - name: Patch AndroidManifest for keyboard resize, storage access and exact alarms
         run: |
           python3 - <<'PY'
           import xml.etree.ElementTree as ET
@@ -188,9 +205,27 @@ jobs:
               root.insert(0, el)
               added += 1
 
+          # Round 31: exact alarms for reminders. (name, maxSdkVersion or None)
+          alarm_perms = [
+              ("android.permission.USE_EXACT_ALARM", None),
+              ("android.permission.SCHEDULE_EXACT_ALARM", "32"),
+          ]
+          max_sdk_attr = f"{{{ns}}}maxSdkVersion"
+          alarm_added = 0
+          for perm, max_sdk in alarm_perms:
+              if perm in existing:
+                  continue
+              el = ET.Element("uses-permission")
+              el.set(name_attr, perm)
+              if max_sdk:
+                  el.set(max_sdk_attr, max_sdk)
+              root.insert(0, el)
+              alarm_added += 1
+
           tree.write(path, encoding="utf-8", xml_declaration=True)
           print(f"Patched {len(activities)} <activity> element(s) with windowSoftInputMode=adjustResize")
           print(f"Added {added} storage <uses-permission> entr{'y' if added == 1 else 'ies'} ({len(needed) - added} already present)")
+          print(f"Added {alarm_added} exact-alarm <uses-permission> entr{'y' if alarm_added == 1 else 'ies'} ({len(alarm_perms) - alarm_added} already present)")
           PY
 
       # --target restricts this to the one ABI that's actually needed. The
