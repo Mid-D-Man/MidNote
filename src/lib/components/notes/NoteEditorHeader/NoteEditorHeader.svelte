@@ -1,6 +1,8 @@
 <script lang="ts">
   import CommentsSheet from "$lib/components/shared/CommentsSheet/CommentsSheet.svelte";
   import ExportAsSheet from "$lib/components/shared/ExportAsSheet/ExportAsSheet.svelte";
+  import ReminderSheet from "$lib/components/shared/ReminderSheet/ReminderSheet.svelte";
+  import { isActiveReminder, formatReminderWhen } from "$lib/utils/reminders";
   import { goto } from "$app/navigation";
   import Button from "$lib/components/ui/Button/Button.svelte";
   import Spinner from "$lib/components/ui/Spinner/Spinner.svelte";
@@ -68,6 +70,7 @@
   let moreOpen = $state(false);
   let commentsOpen = $state(false);
   let exportAsOpen = $state(false);
+  let reminderOpen = $state(false);
   let themeSheetOpen = $state(false);
   let aiChatOpen = $state(false);
   let pagesOpen = $state(false);
@@ -365,6 +368,20 @@
     }
     exportAsOpen = true;
   }
+
+  // Round 31: Reminder. Same lock gate and close-then-open Sheet pattern as
+  // Comments / Export as — a locked entry's editor copy is a placeholder, so
+  // it isn't re-saved from here; unlock first. (Locking an entry that
+  // already HAS a reminder is handled in lockFlow.ts.)
+  function handleOpenReminder() {
+    breadcrumb(`note header: Reminder tapped (encrypted=${note.encrypted})`);
+    moreOpen = false;
+    if (note.encrypted) {
+      pushToast({ title: "Unlock first", description: "Unlock this note before setting a reminder on it.", variant: "destructive" });
+      return;
+    }
+    reminderOpen = true;
+  }
 </script>
 
 <header class="editor-header" style={headerStyle}>
@@ -418,6 +435,7 @@
 
 <CommentsSheet bind:open={commentsOpen} entry={note} />
 <ExportAsSheet bind:open={exportAsOpen} entry={note} />
+<ReminderSheet bind:open={reminderOpen} entry={note} />
 
 <Sheet bind:open={moreOpen} side="bottom" title="Actions">
   <div class="action-list">
@@ -438,6 +456,12 @@
         <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><polyline points="14 3 14 8 19 8" /><line x1="9" y1="14" x2="15" y2="14" /><line x1="9" y1="17.5" x2="13" y2="17.5" />
       </svg>
       <span>Export as…</span>
+    </button>
+    <button class="action-row" onclick={handleOpenReminder} aria-label="Reminder">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.7 21a2 2 0 0 1-3.4 0" />
+      </svg>
+      <span>{isActiveReminder(note.reminderAt) ? `Reminder · ${formatReminderWhen(note.reminderAt as string)}` : "Reminder"}</span>
     </button>
     <button class="action-row" onclick={handleFindReplace} aria-label="Find and replace">
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">

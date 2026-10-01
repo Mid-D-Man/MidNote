@@ -261,6 +261,105 @@ const SCENARIOS = [
   },
   { name: "todo — comments", path: `/todo/${TODO_ID}`, seed: SEED_ENTRIES, steps: [{ click: "More" }, { click: "Comments" }, { type: { label: "Add a comment", value: "todo remark zq3" } }, { wait: 200 }, { click: "Post comment" }, { expectText: "todo remark zq3" }, { expectStored: "todo remark zq3" }] },
   { name: "board — comments", path: `/board/${BOARD_ID}`, seed: SEED_ENTRIES, steps: [{ click: "More" }, { click: "Comments" }, { type: { label: "Add a comment", value: "board remark zq4" } }, { wait: 200 }, { click: "Post comment" }, { expectText: "board remark zq4" }, { expectStored: "board remark zq4" }] },
+  // Round 31: Reminder, against a recording fake of the Android notification
+  // plugin (the real one can't run in jsdom). Checks the whole chain a user
+  // triggers: the sheet -> the backend calls (exact time, once) -> the saved
+  // `reminderAt` in storage -> delete cancels the alarm AND clears storage.
+  // Times are set in UTC (see TZ in runScenario), so the asserted ISO string
+  // is exact.
+  {
+    name: "note — reminder set + delete",
+    path: `/note/${NOTE_ID}`,
+    seed: SEED_ENTRIES,
+    reminderBackend: true,
+    steps: [
+      { click: "More" },
+      { click: "Reminder" },
+      { expectText: "Select time" },
+      { type: { label: "Reminder time", value: "12:00" } },
+      { type: { label: "Reminder date", value: "2099-01-01" } },
+      { wait: 200 },
+      { click: "Set reminder" },
+      { wait: 300 },
+      { expectText: "Reminder set" },
+      { expectGlobalCount: { name: "__reminderCalls", substring: "schedule:", count: 1 } },
+      { expectGlobalIncludes: { name: "__reminderCalls", substring: "2099-01-01T12:00:00.000Z:Smoke test note" } },
+      { expectStored: '"reminderAt":"2099-01-01T12:00:00.000Z"' },
+      { click: "More" },
+      { click: "Reminder" },
+      { expectText: "Delete reminder" },
+      { click: "Delete reminder" },
+      { wait: 300 },
+      { expectText: "Reminder deleted" },
+      { expectGlobalCount: { name: "__reminderCalls", substring: "cancel:", count: 2 } },
+      { expectNotStored: "2099-01-01T12:00:00.000Z" },
+    ],
+  },
+  // A past time must be refused on screen and must never reach the plugin
+  // (which would silently drop it and still report success).
+  {
+    name: "note — reminder in the past refused",
+    path: `/note/${NOTE_ID}`,
+    seed: SEED_ENTRIES,
+    reminderBackend: true,
+    steps: [
+      { click: "More" },
+      { click: "Reminder" },
+      { type: { label: "Reminder time", value: "10:00" } },
+      { type: { label: "Reminder date", value: "2000-01-01" } },
+      { wait: 200 },
+      { click: "Set reminder" },
+      { wait: 200 },
+      { expectText: "Pick a time in the future" },
+      { expectGlobalCount: { name: "__reminderCalls", substring: "schedule:", count: 0 } },
+      { expectNotStored: '"reminderAt":"2000' },
+    ],
+  },
+  // A quick-pick chip fills the fields and the default flow works end to end.
+  {
+    name: "note — reminder preset",
+    path: `/note/${NOTE_ID}`,
+    seed: SEED_ENTRIES,
+    reminderBackend: true,
+    steps: [
+      { click: "More" },
+      { click: "Reminder" },
+      { click: "Tomorrow 9 AM" },
+      { click: "Set reminder" },
+      { wait: 300 },
+      { expectText: "Reminder set" },
+      { expectGlobalIncludes: { name: "__reminderCalls", substring: "T09:00:00.000Z" } },
+    ],
+  },
+  {
+    name: "todo — reminder",
+    path: `/todo/${TODO_ID}`,
+    seed: SEED_ENTRIES,
+    reminderBackend: true,
+    steps: [{ click: "More" }, { click: "Reminder" }, { click: "Set reminder" }, { wait: 300 }, { expectText: "Reminder set" }, { expectGlobalIncludes: { name: "__reminderCalls", substring: "Smoke test todo" } }],
+  },
+  {
+    name: "board — reminder",
+    path: `/board/${BOARD_ID}`,
+    seed: SEED_ENTRIES,
+    reminderBackend: true,
+    steps: [{ click: "More" }, { click: "Reminder" }, { click: "Set reminder" }, { wait: 300 }, { expectText: "Reminder set" }, { expectGlobalIncludes: { name: "__reminderCalls", substring: "Smoke test board" } }],
+  },
+  // No Android / no plugin (a desktop or browser preview): the sheet says so
+  // instead of pretending, and nothing can be scheduled.
+  {
+    name: "note — reminder unsupported here",
+    path: `/note/${NOTE_ID}`,
+    seed: SEED_ENTRIES,
+    steps: [{ click: "More" }, { click: "Reminder" }, { expectText: "installed Android app" }, { expectNoText: "Set reminder" }],
+  },
+  // A note whose reminder is in the future shows the bell on its list card.
+  {
+    name: "home — reminder bell on card",
+    path: "/",
+    seed: SEED_ENTRIES.map((e) => (e.id === NOTE_ID ? { ...e, reminderAt: "2099-01-01T12:00:00.000Z" } : e)),
+    steps: [{ expectSelector: ".reminder-badge" }],
+  },
   { name: "todo — pin", path: `/todo/${TODO_ID}`, seed: SEED_ENTRIES, steps: [{ click: "More" }, { click: "Pin todo" }, { expectText: "Pinned" }] },
   { name: "board — pin", path: `/board/${BOARD_ID}`, seed: SEED_ENTRIES, steps: [{ click: "More" }, { click: "Pin board" }, { expectText: "Pinned" }] },
 ];
@@ -271,6 +370,8 @@ const SCENARIOS = [
 //   { click: "<aria-label>" }                          tap that element
 //   { type: { label: "<aria-label>", value: "..." } }  set an input's value + fire `input`
 //   { expectDownload: { ext, magic, minBytes } }        the last download's name ends with ext and its real bytes start with magic (round 30)
+//   { expectGlobalIncludes: { name, substring } }       some entry of the recording array globalThis[name] contains substring (round 31)
+//   { expectGlobalCount: { name, substring, count } }   exactly `count` entries contain it
 //   { expectNoText: "..." }                             fail if the page text contains it
 //   { expectStored: "..." } / { expectNotStored: "..." } search everything saved to localStorage (round 30)
 //   { clickSelector: "<css>" }                         tap the first element matching a CSS selector (round 29)
@@ -287,6 +388,11 @@ function runScenario(scenario) {
     const child = spawn(process.execPath, [WORKER], {
       env: {
         ...process.env,
+        // Fixed zone: reminder times are asserted as exact UTC strings built
+        // from local-time inputs, so the result can't depend on whose machine
+        // runs this.
+        TZ: "UTC",
+        ...(scenario.reminderBackend ? { SMOKE_REMINDER_BACKEND: "fake" } : {}),
         SMOKE_BUILD_DIR: BUILD_DIR,
         SMOKE_ROUTE_PATH: scenario.path,
         SMOKE_SEED_ENTRIES: JSON.stringify(scenario.seed),

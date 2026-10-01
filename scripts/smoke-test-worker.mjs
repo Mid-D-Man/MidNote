@@ -149,6 +149,34 @@ w.__downloads = [];
   };
 }
 
+// Round 31: a recording stand-in for the Android notification plugin, so
+// the whole Reminder sheet can be driven in jsdom (which has no Android and
+// no Tauri). Installed only for scenarios that ask for it
+// (SMOKE_REMINDER_BACKEND=fake); without it the app sees its real backend,
+// which reports "unsupported" here — itself a scenario. Every call is
+// recorded in globalThis.__reminderCalls for the expectGlobal* steps.
+if (process.env.SMOKE_REMINDER_BACKEND === "fake") {
+  const calls = (globalThis.__reminderCalls = []);
+  let last = null;
+  globalThis.__midnoteReminderBackend = {
+    supported: () => true,
+    permissionState: async () => "granted",
+    requestPermission: async () => "granted",
+    createChannel: async () => {
+      calls.push("createChannel");
+    },
+    schedule: async (p) => {
+      last = p;
+      calls.push(`schedule:${p.id}:${p.schedule.at.date}:${p.title}`);
+    },
+    cancel: async (id) => {
+      calls.push(`cancel:${id}`);
+    },
+    pendingIds: async () => (last ? [last.id] : []),
+    onTap: async () => () => {},
+  };
+}
+
 // Bare-identifier browser globals the SvelteKit client runtime and app
 // code touch directly (the way real browser globals work — `window`
 // properties are implicitly global). Extend this list if a new scenario
@@ -300,6 +328,20 @@ if (STEPS.length > 0 && errors.length === 0) {
       const head = String.fromCharCode(...buf.slice(0, want.magic.length));
       if (head !== want.magic || buf.length < (want.minBytes ?? 0)) {
         errors.push(new Error(`${where}: "${d.name}" starts with ${JSON.stringify(head)} and is ${buf.length} bytes; expected magic ${JSON.stringify(want.magic)} and >= ${want.minBytes ?? 0} bytes.`));
+        break;
+      }
+    } else if (step.expectGlobalIncludes || step.expectGlobalCount) {
+      // Round 31: inspect a recording array on globalThis (e.g. the fake
+      // reminder backend's __reminderCalls).
+      const spec = step.expectGlobalIncludes ?? step.expectGlobalCount;
+      const lines = Array.isArray(globalThis[spec.name]) ? globalThis[spec.name] : [];
+      const hits = lines.filter((l) => String(l).includes(spec.substring)).length;
+      if (step.expectGlobalIncludes && hits === 0) {
+        errors.push(new Error(`${where}: no entry in ${spec.name} contains "${spec.substring}". Recorded: ${JSON.stringify(lines).slice(0, 300)}`));
+        break;
+      }
+      if (step.expectGlobalCount && hits !== spec.count) {
+        errors.push(new Error(`${where}: expected ${spec.count} entries in ${spec.name} containing "${spec.substring}", found ${hits}. Recorded: ${JSON.stringify(lines).slice(0, 300)}`));
         break;
       }
     } else if (step.expectNoText) {

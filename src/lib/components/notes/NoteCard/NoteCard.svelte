@@ -1,6 +1,8 @@
 <script lang="ts">
   import Card from "$lib/components/ui/Card/Card.svelte";
   import LockBadge from "$lib/components/shared/LockBadge/LockBadge.svelte";
+  import ReminderBadge from "$lib/components/shared/ReminderBadge/ReminderBadge.svelte";
+  import { isActiveReminder } from "$lib/utils/reminders";
   import CardOverflowMenu from "$lib/components/shared/CardOverflowMenu/CardOverflowMenu.svelte";
   import TagsPopup from "$lib/components/shared/TagsPopup/TagsPopup.svelte";
   import { lockEntry, unlockEntry } from "$lib/utils/lockFlow";
@@ -215,6 +217,9 @@
     {/if}
     {#if note.encrypted}
       <LockBadge />
+    {/if}
+    {#if isActiveReminder(note.reminderAt)}
+      <ReminderBadge at={note.reminderAt as string} />
     {/if}
     <h3 class="title" class:struck={note.struck}>{note.title || "Untitled"}</h3>
   </div>

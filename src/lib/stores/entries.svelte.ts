@@ -5,6 +5,7 @@ import type { Entry, Note, Todo } from "$lib/types/entry";
 import * as storage from "$lib/storage";
 import { NO_THEME } from "$lib/types/entry";
 import { untrack } from "svelte";
+import { cancelReminderSilently, syncReminderSilently } from "$lib/utils/reminders";
 
 // Starts empty rather than seeded synchronously at module-evaluation
 // time (as it did back when storage.ts was pure localStorage) — real
@@ -55,6 +56,7 @@ function seedSamples() {
       lockedKeyFile: null,
       deletedAt: null,
       comments: [],
+      reminderAt: null,
     },
     {
       id: storage.generateId(),
@@ -77,6 +79,7 @@ function seedSamples() {
       lockedKeyFile: null,
       deletedAt: null,
       comments: [],
+      reminderAt: null,
     },
   ];
   sample.forEach((n) => {
@@ -129,18 +132,24 @@ export function saveEntry(entry: Entry) {
 // storage.ts's moveToTrash/TRASH_RETENTION_DAYS.
 export function removeEntry(id: string) {
   storage.moveToTrash(id);
+  // Round 31: a trashed entry must not go on notifying. The saved
+  // `reminderAt` is kept on purpose, so restoring it can bring the reminder back.
+  cancelReminderSilently(id);
   refresh();
 }
 
 export function restoreEntry(id: string) {
   storage.restoreFromTrash(id);
   refresh();
+  const restored = entries.find((e) => e.id === id);
+  if (restored) void syncReminderSilently(restored);
 }
 
 // The real, permanent delete — only the Trash view's own "Delete
 // forever" should ever call this.
 export function purgeEntry(id: string) {
   storage.deleteEntry(id);
+  cancelReminderSilently(id); // already cancelled at trash time; harmless and makes this path safe on its own
   refresh();
 }
 

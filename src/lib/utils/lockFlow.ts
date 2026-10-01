@@ -50,6 +50,7 @@ import { saveEntry } from "$lib/stores/entries.svelte";
 import { beginGlobalBusy, endGlobalBusy } from "$lib/stores/globalBusy.svelte";
 import { generateId } from "$lib/storage";
 import { sanitizeComments } from "$lib/utils/comments";
+import { syncReminderSilently } from "$lib/utils/reminders";
 
 interface LockedPayloadResult {
   encryptedDataB64: string;
@@ -248,6 +249,9 @@ export async function lockEntry(entry: Entry): Promise<boolean> {
   try {
     await performLock(entry, password, choice);
     if (choice === "app") setSessionAppPassword(password);
+    // Round 31: an existing reminder's stored notification still carries the
+    // real title — re-register it so the lock screen only ever sees "Locked note".
+    void syncReminderSilently(entry);
     pushToast({ title: "Locked", description: "This note is now locked." });
     return true;
   } catch (err) {
@@ -281,6 +285,7 @@ export async function unlockEntry(entry: Entry): Promise<boolean> {
       const wasAppMode = entry.lockKeyMode === "app";
       await performUnlock(entry, password);
       if (wasAppMode) setSessionAppPassword(password);
+      void syncReminderSilently(entry); // round 31: back to the real title
       pushToast({ title: "Unlocked", description: "This note has been unlocked." });
       return true;
     } catch (err) {

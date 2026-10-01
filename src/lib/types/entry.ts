@@ -158,6 +158,10 @@ export interface EntryRef {
   // see purgeExpiredTrash — so this being set is never permanent on its
   // own.
   deletedAt: string | null;
+  // When this entry's reminder notification should fire (ISO 8601), or null.
+  // Lightweight metadata, so it lives here and flows into the list index.
+  // See utils/reminders.ts.
+  reminderAt: string | null;
 }
 
 export interface NotePage {

@@ -10,6 +10,8 @@
   import { initFromBackend } from "$lib/stores/entries.svelte";
   import { sync as syncTags } from "$lib/stores/tags.svelte";
   import { onMount } from "svelte";
+  import { goto } from "$app/navigation";
+  import { installReminderTapHandler } from "$lib/utils/reminders";
   import type { Snippet } from "svelte";
 
   let { children }: { children: Snippet } = $props();
@@ -49,6 +51,10 @@
       // module-evaluation order between the two stores.
       syncTags();
       storageReady = true;
+      // Round 31: tapping a reminder notification opens its note/todo/board.
+      // No-op outside the Android app. The returned unsubscribe isn't kept:
+      // the root layout lives for the whole session.
+      void installReminderTapHandler((path) => goto(path));
     })();
   });
 </script>

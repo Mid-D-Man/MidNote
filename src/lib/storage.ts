@@ -112,6 +112,8 @@ function normalizeEntry(e: unknown): Entry | null {
   if (typeof entry.lockedPayload !== "string") entry.lockedPayload = null;
   if (typeof entry.lockedKeyFile !== "string") entry.lockedKeyFile = null;
   if (typeof entry.deletedAt !== "string") entry.deletedAt = null;
+  // Round 31: reminder time. Anything that isn't a parseable date is dropped.
+  if (typeof entry.reminderAt !== "string" || Number.isNaN(Date.parse(entry.reminderAt))) entry.reminderAt = null;
   // Round 30: comments. Older entries have no field; sanitize also drops junk.
   entry.comments = sanitizeComments(entry.comments, generateId);
   if (entry.type === "regular" && !Array.isArray(entry.pages)) entry.pages = [];
@@ -362,6 +364,7 @@ export function createNote(): Note {
     lockedPayload: null,
     lockedKeyFile: null,
     deletedAt: null,
+    reminderAt: null,
     comments: [],
   };
 }
@@ -384,6 +387,7 @@ export function createTodo(): Todo {
     lockedPayload: null,
     lockedKeyFile: null,
     deletedAt: null,
+    reminderAt: null,
     comments: [],
     categories: ["Steps"],
     steps: [],
@@ -409,6 +413,7 @@ export function createBoard(): Board {
     lockedPayload: null,
     lockedKeyFile: null,
     deletedAt: null,
+    reminderAt: null,
     comments: [],
     nodes: [],
     edges: [],

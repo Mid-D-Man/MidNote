@@ -8,6 +8,8 @@
   import SelectionActionBar from "$lib/components/shared/SelectionActionBar/SelectionActionBar.svelte";
   import CardOverflowMenu from "$lib/components/shared/CardOverflowMenu/CardOverflowMenu.svelte";
   import LockBadge from "$lib/components/shared/LockBadge/LockBadge.svelte";
+  import ReminderBadge from "$lib/components/shared/ReminderBadge/ReminderBadge.svelte";
+  import { isActiveReminder } from "$lib/utils/reminders";
   import TagsPopup from "$lib/components/shared/TagsPopup/TagsPopup.svelte";
   import { entries, saveEntry, removeEntry, toggleBookmark, toggleStrikethrough, togglePinned } from "$lib/stores/entries.svelte";
   import type { Note, Todo, Board, Entry } from "$lib/types/entry";
@@ -626,6 +628,9 @@
                     {#if item.encrypted}
                       <LockBadge />
                     {/if}
+                    {#if isActiveReminder(item.reminderAt)}
+                      <ReminderBadge at={item.reminderAt as string} />
+                    {/if}
                     <strong class:struck={item.struck}>{item.title || "Untitled"}</strong>
                   </div>
                   {#if !item.encrypted}
@@ -726,6 +731,9 @@
                     {/if}
                     {#if item.encrypted}
                       <LockBadge />
+                    {/if}
+                    {#if isActiveReminder(item.reminderAt)}
+                      <ReminderBadge at={item.reminderAt as string} />
                     {/if}
                     <strong class:struck={item.struck}>{item.title || "Untitled"}</strong>
                   </div>
