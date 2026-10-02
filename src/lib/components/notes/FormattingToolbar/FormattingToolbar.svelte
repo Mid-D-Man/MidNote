@@ -24,6 +24,9 @@
   import type { Editor } from "@tiptap/core";
   import FontSizePicker from "$lib/components/notes/FontSizePicker/FontSizePicker.svelte";
   import ColorSwatchPicker from "$lib/components/notes/ColorSwatchPicker/ColorSwatchPicker.svelte";
+  import FontPicker from "$lib/components/notes/FontPicker/FontPicker.svelte";
+  import { customFonts } from "$lib/stores/customFonts.svelte";
+  import { fontOptions, matchOption } from "$lib/utils/fonts";
   import { breadcrumb } from "$lib/debug/log.svelte";
   import { getKeyboardInset } from "$lib/utils/keyboardInset.svelte";
 
@@ -92,6 +95,20 @@
     const raw = editor?.getAttributes("textStyle").fontSize as string | undefined;
     return raw ? Math.round(parseFloat(raw)) : 15;
   });
+  // Round 33: the font under the caret/selection. The stored value is the
+  // CSS family string; matchOption maps it back to a picker entry (an
+  // imported font that has since been deleted matches nothing, so no entry
+  // is highlighted rather than a wrong one).
+  const fontChoices = $derived(fontOptions(customFonts.map((f) => f.name)));
+  const currentFontKey = $derived.by(() => {
+    tick;
+    const raw = editor?.getAttributes("textStyle").fontFamily as string | undefined;
+    return matchOption(fontChoices, raw ?? null)?.key ?? null;
+  });
+  const hasFontOverride = $derived.by(() => {
+    tick;
+    return !!editor?.getAttributes("textStyle").fontFamily;
+  });
   const canUndo = $derived.by(() => {
     tick;
     return editor?.can().undo() ?? false;
@@ -101,7 +118,7 @@
     return editor?.can().redo() ?? false;
   });
 
-  type PopupName = "format" | "size" | "color" | "background" | null;
+  type PopupName = "format" | "size" | "font" | "color" | "background" | null;
   let openPopup = $state<PopupName>(null);
 
   function togglePopup(name: PopupName) {
@@ -151,6 +168,16 @@
         onClose={() => (openPopup = null)}
       />
     </div>
+  {:else if openPopup === "font"}
+    <div class="popup">
+      <FontPicker
+        options={fontChoices}
+        selectedKey={currentFontKey}
+        onChange={(family) =>
+          tap("font", () => (family ? editor?.chain().focus().setFontFamily(family).run() : editor?.chain().focus().unsetFontFamily().run()))}
+        onClose={() => (openPopup = null)}
+      />
+    </div>
   {:else if openPopup === "color"}
     <div class="popup">
       <ColorSwatchPicker
@@ -182,6 +209,9 @@
     </button>
     <button type="button" class="icon-btn" class:active={openPopup === "size"} onclick={() => togglePopup("size")} aria-label="Text size">
       <span class="size-icon">{currentFontSize}</span>
+    </button>
+    <button type="button" class="icon-btn" class:active={openPopup === "font" || hasFontOverride} onclick={() => togglePopup("font")} aria-label="Text font">
+      <span class="font-icon">Aa</span>
     </button>
     <button type="button" class="icon-btn" class:active={openPopup === "color" || !!active.color} onclick={() => togglePopup("color")} aria-label="Text color">
       <span class="a-icon" style="color:{active.color ?? 'inherit'}">A</span>
@@ -305,6 +335,11 @@
     font-family: var(--font-sans);
     font-weight: 700;
     font-size: 16px;
+  }
+  .font-icon {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 14px;
   }
   .roman-icon {
     font-family: var(--font-display);

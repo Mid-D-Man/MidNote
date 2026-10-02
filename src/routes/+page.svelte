@@ -25,7 +25,7 @@
   import { resolveTheme, hexToRgba, resolveIcon, getImageTextColorVars } from "$lib/utils/themePalette";
   import { customThemes } from "$lib/stores/customThemes.svelte";
   import { customIcons } from "$lib/stores/customIcons.svelte";
-  import { appBodyTheme, loadLastActiveView, setLastActiveView, type ActiveView } from "$lib/stores/settings.svelte";
+  import { appBodyTheme, loadLastActiveView, setLastActiveView, listViewMode, setListViewMode, type ActiveView } from "$lib/stores/settings.svelte";
   import { lockEntry, unlockEntry } from "$lib/utils/lockFlow";
 
   // BUGFIX: this used to always start on "notes" — since navigating to
@@ -65,6 +65,9 @@
   const todos = $derived(entries.filter((e): e is Todo => e.type === "todo" && !e.deletedAt));
   const boards = $derived(entries.filter((e): e is Board => e.type === "board" && !e.deletedAt));
 
+  // Round 33: list (one card per row) or grid (two compact cards per row).
+  // One setting for all three tabs.
+  const isGrid = $derived(listViewMode.value === "grid");
   const displayItems = $derived(activeView === "notes" ? notes : activeView === "todos" ? todos : boards);
   const tagList = $derived(activeView === "notes" ? noteTags : activeView === "todos" ? todoTags : boardTags);
   // Singular noun for this tab, used by the New/Create buttons, the
@@ -486,6 +489,37 @@
             <option value="alphabetical">A-Z</option>
             <option value="bookmarked">Bookmarked</option>
           </select>
+          <div class="view-toggle" role="group" aria-label="Layout">
+            <button
+              type="button"
+              class:active={!isGrid}
+              aria-label="List view"
+              aria-pressed={!isGrid}
+              onclick={() => {
+                breadcrumb("view: list");
+                setListViewMode("list");
+              }}
+            >
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <line x1="4" y1="6" x2="20" y2="6" /><line x1="4" y1="12" x2="20" y2="12" /><line x1="4" y1="18" x2="20" y2="18" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              class:active={isGrid}
+              aria-label="Grid view"
+              aria-pressed={isGrid}
+              onclick={() => {
+                breadcrumb("view: grid");
+                setListViewMode("grid");
+              }}
+            >
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <rect x="4" y="4" width="7" height="7" rx="1" /><rect x="13" y="4" width="7" height="7" rx="1" />
+                <rect x="4" y="13" width="7" height="7" rx="1" /><rect x="13" y="13" width="7" height="7" rx="1" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         <div class="tags-section">
@@ -525,7 +559,7 @@
               </Button>
             </div>
           {:else}
-            <div class="grid">
+            <div class="grid view-{listViewMode.value}">
             {#each sortedItems as item (item.id)}
               {#if item.type === "regular"}
                 <NoteCard
@@ -541,6 +575,7 @@
                   onToggleStrikethrough={toggleStrikethrough}
                   onTogglePin={togglePinned}
                   unlockingToOpen={lockBusyIds.has(item.id)}
+                  compact={isGrid}
                 />
               {:else if item.type === "board"}
                 <!-- Brought to parity with the todo row above (kebab
@@ -555,6 +590,7 @@
                 {@const resolvedBoardIcon = resolveIcon(item.icon, customIcons)}
                 <div
                   class="todo-item"
+                  class:compact={isGrid}
                   class:selected={selectedIds.has(item.id)}
                   class:has-image-theme={resolveTheme(item.headerTheme, customThemes).kind === "image"}
                   style={listCardStyle(item)}
@@ -650,6 +686,7 @@
                 {@const resolvedItemIcon = resolveIcon(item.icon, customIcons)}
                 <div
                   class="todo-item"
+                  class:compact={isGrid}
                   class:selected={selectedIds.has(item.id)}
                   class:has-image-theme={resolveTheme(item.headerTheme, customThemes).kind === "image"}
                   style={listCardStyle(item)}
@@ -1007,6 +1044,62 @@
     grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
     gap: var(--space-4);
   }
+  /* Round 33. "list" is one card per row at every width; "grid" is compact
+     cards, two per row on a phone (the 480px media block below) and as many
+     as fit on a wider screen. */
+  .grid.view-list {
+    grid-template-columns: 1fr;
+  }
+  .grid.view-grid {
+    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    gap: var(--space-3);
+  }
+  .view-toggle {
+    flex-shrink: 0;
+    display: flex;
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    overflow: hidden;
+  }
+  .view-toggle button {
+    width: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    color: var(--text-lo);
+    cursor: pointer;
+  }
+  .view-toggle button + button {
+    border-left: 1px solid var(--hairline);
+  }
+  .view-toggle button.active {
+    background: var(--accent-wash);
+    color: var(--accent);
+  }
+  /* Compact todo/board cards (NoteCard has its own compact rules). The
+     corner actions are absolutely positioned across the top, so the title
+     row drops below them instead of squeezing between them — in a ~160px
+     card there is no room beside them. */
+  .todo-item.compact {
+    padding: var(--space-3);
+  }
+  .todo-item.compact .title-row {
+    margin: 28px 0 0 0;
+  }
+  .todo-item.compact .title-row strong {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    font-size: 14px;
+  }
+  .todo-item.compact .meta {
+    font-size: 11px;
+  }
   .todo-item {
     position: relative;
     display: flex;
@@ -1178,6 +1271,9 @@
     }
     .grid {
       grid-template-columns: 1fr;
+    }
+    .grid.view-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
     }
     .controls {
       flex-wrap: wrap;

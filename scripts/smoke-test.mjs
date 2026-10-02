@@ -362,6 +362,73 @@ const SCENARIOS = [
   },
   { name: "todo — pin", path: `/todo/${TODO_ID}`, seed: SEED_ENTRIES, steps: [{ click: "More" }, { click: "Pin todo" }, { expectText: "Pinned" }] },
   { name: "board — pin", path: `/board/${BOARD_ID}`, seed: SEED_ENTRIES, steps: [{ click: "More" }, { click: "Pin board" }, { expectText: "Pinned" }] },
+  // Round 33: the toolbar's font picker through the real editor. The note
+  // has no selection, so choosing a font sets a STORED MARK at the caret;
+  // the picker reads it back through editor.getAttributes, so "Font Mono"
+  // turning pressed proves the command ran in the real Tiptap editor (a
+  // missing FontFamily extension makes setFontFamily throw and fails this).
+  {
+    name: "note — font picker",
+    path: `/note/${NOTE_ID}`,
+    seed: SEED_ENTRIES,
+    steps: [
+      { click: "Text font" },
+      { expectSelector: '[aria-label="Font list"]' },
+      { expectSelector: '[aria-label="Font Default"][aria-pressed="true"]' },
+      { click: "Font Mono" },
+      { expectSelector: '[aria-label="Font Mono"][aria-pressed="true"]' },
+      { click: "Font Serif" },
+      { expectSelector: '[aria-label="Font Serif"][aria-pressed="true"]' },
+      { click: "Font Default" },
+      { expectSelector: '[aria-label="Font Default"][aria-pressed="true"]' },
+      { click: "Close" },
+      { expectNoText: "Add your own fonts in Settings" },
+    ],
+  },
+  // Round 33: Settings -> Fonts. The sheet opens from the Settings list, the
+  // default note font can be chosen, and the choice reaches localStorage
+  // (the note editor reads it from there on its next load).
+  {
+    name: "settings — fonts + default font",
+    path: "/",
+    seed: SEED_ENTRIES,
+    steps: [
+      { click: "Open menu" },
+      { click: "Open settings" },
+      { click: "Open fonts settings" },
+      { expectText: "Default note font" },
+      { expectText: "No fonts imported yet" },
+      { expectSelector: '[aria-label="Import font"]' },
+      { click: "Default font Mono" },
+      { expectSelector: '[aria-label="Default font Mono"][aria-pressed="true"]' },
+      { expectStored: "ui-monospace, Consolas, monospace" },
+      { click: "Default font Default" },
+      { expectNotStored: "ui-monospace, Consolas, monospace" },
+    ],
+  },
+  // Round 33: landing-page list/grid. Default is list; Grid view switches
+  // the container class, makes the note cards compact, persists, and the
+  // todo/board cards follow (the Todos tab is clicked by selector — tabs
+  // have no aria-label).
+  {
+    name: "home — list / grid view",
+    path: "/",
+    seed: SEED_ENTRIES,
+    steps: [
+      { expectSelector: ".grid.view-list" },
+      { expectSelector: '[aria-label="List view"][aria-pressed="true"]' },
+      { click: "Grid view" },
+      { expectSelector: ".grid.view-grid" },
+      { expectSelector: ".note-card.compact" },
+      { expectSelector: '[aria-label="Grid view"][aria-pressed="true"]' },
+      { expectStored: "grid" },
+      { clickSelector: ".view-tabs button:nth-child(2)" },
+      { expectSelector: ".grid.view-grid .todo-item.compact" },
+      { click: "List view" },
+      { expectSelector: ".grid.view-list" },
+      { expectNotStored: "grid" },
+    ],
+  },
 ];
 
 // steps (round 26): an ordered script of interactions, run after the
@@ -409,10 +476,20 @@ function runScenario(scenario) {
   });
 }
 
-console.log(`Smoke-testing ${SCENARIOS.length} scenario(s) against ${path.relative(REPO_ROOT, BUILD_DIR)}/\n`);
+// Round 33: `SMOKE_ONLY=grid npm run smoke` runs just the scenarios whose name
+// contains that text — for iterating on one feature, and for negative
+// controls (break the feature, watch only its scenario fail) that would
+// otherwise blow the 300 s command limit running everything.
+const SELECTED = process.env.SMOKE_ONLY ? SCENARIOS.filter((sc) => sc.name.includes(process.env.SMOKE_ONLY)) : SCENARIOS;
+if (SELECTED.length === 0) {
+  console.error(`SMOKE_ONLY="${process.env.SMOKE_ONLY}" matched no scenario.`);
+  process.exit(1);
+}
+
+console.log(`Smoke-testing ${SELECTED.length} scenario(s) against ${path.relative(REPO_ROOT, BUILD_DIR)}/\n`);
 
 let anyFailed = false;
-for (const scenario of SCENARIOS) {
+for (const scenario of SELECTED) {
   process.stdout.write(`  ${scenario.name.padEnd(22)} ${scenario.path.padEnd(28)} `);
   const { code, output } = await runScenario(scenario);
   if (code === 0) {

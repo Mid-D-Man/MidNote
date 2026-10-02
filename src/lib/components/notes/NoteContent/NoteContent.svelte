@@ -52,14 +52,14 @@
   import { Italic } from "@tiptap/extension-italic";
   import { Strike } from "@tiptap/extension-strike";
   import { Underline } from "@tiptap/extension-underline";
-  import { TextStyle, Color, BackgroundColor, FontSize } from "@tiptap/extension-text-style";
+  import { TextStyle, Color, BackgroundColor, FontSize, FontFamily } from "@tiptap/extension-text-style";
   import { Placeholder } from "@tiptap/extensions";
   import { PersistentMarks } from "$lib/utils/persistentMarksExtension";
   import { FindReplace } from "$lib/utils/findReplaceExtension";
   import { PlainTextPaste } from "$lib/utils/plainTextPasteExtension";
   import { breadcrumb } from "$lib/debug/log.svelte";
   import { stripHtml } from "$lib/utils/richText";
-  import { noteLinesEnabled } from "$lib/stores/settings.svelte";
+  import { noteLinesEnabled, noteFont } from "$lib/stores/settings.svelte";
 
   // Paragraphs render/parse as <div>, matching every note already saved
   // by the previous contenteditable-based editor (note.content is still
@@ -164,6 +164,11 @@
         Color,
         BackgroundColor,
         FontSize,
+        // Round 33: per-selection font. Writes `font-family` onto the same
+        // textStyle span as size/color, so it round-trips through saved HTML
+        // like they do. The note-wide DEFAULT font is not this — it's the
+        // inline style on .note-content below, from Settings.
+        FontFamily,
         PersistentMarks,
         // Round 26: regex find & replace. Registers only the plugin
         // (state + highlight decorations) — it is inert until the find
@@ -276,7 +281,7 @@
   class="note-content"
   class:empty={isEmpty}
   class:lined={noteLinesEnabled.value && !hasSelection}
-  style="font-size: {baseFontSize}px; line-height: {Math.round(baseFontSize * 1.7)}px"
+  style="font-size: {baseFontSize}px; line-height: {Math.round(baseFontSize * 1.7)}px{noteFont.value ? `; font-family: ${noteFont.value}` : ''}"
 ></div>
 
 <style>

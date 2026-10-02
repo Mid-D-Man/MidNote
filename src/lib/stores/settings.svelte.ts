@@ -160,3 +160,48 @@ export function loadLastActiveView(): ActiveView {
 export function setLastActiveView(view: ActiveView) {
   if (typeof localStorage !== "undefined") localStorage.setItem(ACTIVE_VIEW_KEY, view);
 }
+
+// Round 33 — default font for the note editor. The value is a CSS
+// font-family string (see utils/fonts.ts), or null for the app's normal
+// sans. It is only the default: a word the user picked a font for keeps its
+// own (the inline style Tiptap writes), and a deleted imported font simply
+// falls through to the generic family after it.
+import { sanitizeFamilyValue } from "$lib/utils/fonts";
+
+const NOTE_FONT_KEY = "midnote:note-font";
+
+function loadNoteFont(): string | null {
+  if (typeof localStorage === "undefined") return null;
+  return sanitizeFamilyValue(localStorage.getItem(NOTE_FONT_KEY));
+}
+
+export const noteFont = $state<{ value: string | null }>({ value: loadNoteFont() });
+
+export function setNoteFont(family: string | null) {
+  const clean = sanitizeFamilyValue(family);
+  noteFont.value = clean;
+  if (typeof localStorage === "undefined") return;
+  if (clean === null) localStorage.removeItem(NOTE_FONT_KEY);
+  else localStorage.setItem(NOTE_FONT_KEY, clean);
+}
+
+// Round 33 — landing-page card layout. One setting for all three tabs
+// (notes, todos, boards). "list" is the long-standing one-card-per-row look
+// on a phone; "grid" is two compact cards per row (more of your notes on one
+// screen). Allowlisted on read, like ActiveView above, so a value written by
+// some other build can never put the list into a state with no CSS.
+const LIST_VIEW_KEY = "midnote:list-view";
+
+export type ListViewMode = "list" | "grid";
+
+function loadListViewMode(): ListViewMode {
+  if (typeof localStorage === "undefined") return "list";
+  return localStorage.getItem(LIST_VIEW_KEY) === "grid" ? "grid" : "list";
+}
+
+export const listViewMode = $state<{ value: ListViewMode }>({ value: loadListViewMode() });
+
+export function setListViewMode(mode: ListViewMode) {
+  listViewMode.value = mode;
+  if (typeof localStorage !== "undefined") localStorage.setItem(LIST_VIEW_KEY, mode);
+}

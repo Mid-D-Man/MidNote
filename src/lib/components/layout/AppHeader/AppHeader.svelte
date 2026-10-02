@@ -49,7 +49,7 @@
 </script>
 
 <header class="app-header" style={headerStyle}>
-  <Button variant="ghost" size="icon" onclick={() => (menuOpen = true)}>
+  <Button variant="ghost" size="icon" aria-label="Open menu" onclick={() => (menuOpen = true)}>
     <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
       <line x1="3" y1="6" x2="21" y2="6" />
       <line x1="3" y1="12" x2="21" y2="12" />
@@ -77,7 +77,7 @@
     <Button variant="ghost" onclick={() => { menuOpen = false; authOpen = true; }}>
       Sign Up
     </Button>
-    <Button variant="ghost" onclick={() => { menuOpen = false; settingsOpen = true; }}>
+    <Button variant="ghost" aria-label="Open settings" onclick={() => { menuOpen = false; settingsOpen = true; }}>
       Settings
     </Button>
   </nav>

@@ -2,11 +2,13 @@
   import Sheet from "$lib/components/ui/Sheet/Sheet.svelte";
   import Switch from "$lib/components/ui/Switch/Switch.svelte";
   import ThemeSectionsSheet from "$lib/components/shared/ThemeSectionsSheet/ThemeSectionsSheet.svelte";
+  import FontsSheet from "$lib/components/shared/FontsSheet/FontsSheet.svelte";
   import {
     debugPanelVisible,
     setDebugPanelVisible,
     noteLinesEnabled,
     setNoteLinesEnabled,
+    noteFont,
     appHeaderTheme,
     appBodyTheme,
     setAppHeaderTheme,
@@ -18,10 +20,22 @@
   import { sessionAppPassword, setSessionAppPassword } from "$lib/stores/lockSession.svelte";
   import { askPassword } from "$lib/stores/lockPrompt.svelte";
   import { entries } from "$lib/stores/entries.svelte";
+  import { customFonts } from "$lib/stores/customFonts.svelte";
+  import { fontOptions, matchOption } from "$lib/utils/fonts";
 
   let { open = $bindable(false) }: { open?: boolean } = $props();
 
   let themeSheetOpen = $state(false);
+  let fontsSheetOpen = $state(false);
+  // Shown on the Fonts row so the current default is visible without opening it.
+  const noteFontLabel = $derived(matchOption(fontOptions(customFonts.map((f) => f.name)), noteFont.value)?.label ?? "Default");
+
+  function handleOpenFontsSheet() {
+    breadcrumb("settings: fonts row tapped");
+    // Same sequential sheet swap as the Theme row: close this Sheet, open the next.
+    open = false;
+    fontsSheetOpen = true;
+  }
   // Swatch preview on this row shows the HEADER slot specifically — it's
   // the one visible everywhere at a glance (the tab bar), while body is
   // the scrollable area behind the list. Both are still editable once
@@ -86,6 +100,13 @@
         aria-hidden="true"
       ></span>
     </button>
+    <button class="settings-row settings-row-button" onclick={handleOpenFontsSheet} aria-label="Open fonts settings">
+      <div class="row-text">
+        <span class="row-label">Fonts</span>
+        <span class="row-desc">Default note font and your own imported fonts.</span>
+      </div>
+      <span class="row-value">{noteFontLabel}</span>
+    </button>
     <div class="settings-row">
       <div class="row-text">
         <span class="row-label">App password</span>
@@ -136,6 +157,8 @@
   </div>
 </Sheet>
 
+<FontsSheet bind:open={fontsSheetOpen} />
+
 <!-- No icon/onIconChange passed — the landing page has no icon slot,
      see entry.ts's `icon` comment. ThemeSectionsSheet hides that row
      entirely when the prop is simply omitted like this. -->
@@ -185,6 +208,11 @@
     width: 100%;
     text-align: left;
     cursor: pointer;
+  }
+  .row-value {
+    flex-shrink: 0;
+    font-size: 13px;
+    color: var(--text-lo);
   }
   .theme-swatch {
     width: 28px;

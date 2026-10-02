@@ -12,6 +12,7 @@
   import { onMount } from "svelte";
   import { goto } from "$app/navigation";
   import { installReminderTapHandler } from "$lib/utils/reminders";
+  import { initCustomFonts } from "$lib/stores/customFonts.svelte";
   import type { Snippet } from "svelte";
 
   let { children }: { children: Snippet } = $props();
@@ -40,6 +41,12 @@
     // Capture always runs regardless of the panel's own visibility
     // setting — see settings.svelte.ts's comment on debugPanelVisible.
     installGlobalCapture();
+
+    // Round 33: register imported fonts with the browser. Independent of
+    // entry loading (a note just paints in its fallback face for the moment
+    // before its font arrives), so it runs alongside rather than gating
+    // anything. Never throws.
+    void initCustomFonts();
 
     (async () => {
       await initFromBackend();

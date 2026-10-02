@@ -9,9 +9,16 @@
 //            an empty line)
 //   Run    = a stretch of text inside a block sharing one style
 //
-// Deliberately no images, tables or fonts: the editor can't produce any of
-// them, so the model has nothing to carry. If the editor ever grows one,
-// this is the single place it gets added and both writers pick it up.
+// Deliberately no images or tables: the editor can't produce either, so the
+// model has nothing to carry. If the editor ever grows one, this is the
+// single place it gets added and both writers pick it up.
+//
+// Fonts (round 33) are the one thing the editor CAN produce that is left out
+// on purpose: an imported font lives only on the device that imported it, the
+// PDF writer has the Helvetica family only, and a .docx naming a font the
+// reader doesn't have just falls back anyway. Text keeps its size, colour and
+// bold/italic; only the typeface is dropped. A `font-family` style on a span
+// is simply never read here.
 //
 // Comments are NOT part of an export. They are private margin notes on the
 // entry, not part of the document someone would hand to another person.

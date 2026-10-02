@@ -28,6 +28,7 @@
     onToggleStrikethrough,
     onTogglePin,
     unlockingToOpen = false,
+    compact = false,
   }: {
     note: Note;
     onToggleBookmark: (id: string) => void;
@@ -56,6 +57,9 @@
     // internal handleToggleLock — one consistent "this card is busy"
     // signal on screen, regardless of which of the two things caused it.
     unlockingToOpen?: boolean;
+    // Round 33: the grid layout of the landing page — smaller padding, the
+    // title wraps to two lines below the corner buttons, a 3-line preview.
+    compact?: boolean;
   } = $props();
 
   // note.content is HTML now (see NoteContent.svelte) — strip tags for
@@ -155,7 +159,7 @@
   }
 </script>
 
-<Card class="note-card {selected ? 'selected' : ''} {resolved.kind === 'image' ? 'has-image-theme' : ''}" style={cardStyle} onclick={handleClick} {...pressHandlers}>
+<Card class="note-card {selected ? 'selected' : ''} {compact ? 'compact' : ''} {resolved.kind === 'image' ? 'has-image-theme' : ''}" style={cardStyle} onclick={handleClick} {...pressHandlers}>
   {#if resolved.kind === "image"}
     <div class="theme-scrim" aria-hidden="true"></div>
   {/if}
@@ -302,6 +306,29 @@
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
+  }
+  /* Round 33: compact (grid) card. The corner buttons are absolutely
+     positioned across the top, so the title row drops below them. */
+  :global(.note-card.compact) {
+    padding: var(--space-3);
+  }
+  :global(.note-card.compact) .title-row {
+    margin: 28px 0 var(--space-1) 0;
+  }
+  :global(.note-card.compact) .title {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    font-size: 14px;
+  }
+  :global(.note-card.compact) .preview {
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    min-height: 0;
+    margin-bottom: var(--space-2);
+    font-size: 12px;
   }
   .title.struck {
     text-decoration: line-through;
