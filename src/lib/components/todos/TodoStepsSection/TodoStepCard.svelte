@@ -8,6 +8,8 @@
     stepNumber,
     title,
     content,
+    done = false,
+    onToggleDone,
     onUpdate,
     onDelete,
     canMoveUp = false,
@@ -20,6 +22,9 @@
     stepNumber: number;
     title: string;
     content: string;
+    // Round 36: the step's checkbox.
+    done?: boolean;
+    onToggleDone?: (done: boolean) => void;
     onUpdate: (title: string, content: string) => void;
     onDelete: () => void;
     // Round 35: reorder within the category, and re-file under another one.
@@ -39,8 +44,15 @@
   }
 </script>
 
-<Card class="step-card">
+<Card class="step-card {done ? 'done' : ''}">
   <div class="row">
+    <input
+      type="checkbox"
+      class="check"
+      checked={done}
+      onchange={(e) => onToggleDone?.((e.currentTarget as HTMLInputElement).checked)}
+      aria-label={done ? `Mark step ${stepNumber} not done` : `Mark step ${stepNumber} done`}
+    />
     <span class="step-num">Step {stepNumber}</span>
     <Input value={title} oninput={(e) => commitTitle((e.target as HTMLInputElement).value)} placeholder="Step title..." aria-label="Step title" class="title-input" />
     <Button variant="ghost" size="icon" aria-label="Delete step" onclick={onDelete} class="delete-btn">
@@ -95,6 +107,23 @@
     align-items: center;
     gap: var(--space-2);
     min-width: 0;
+  }
+  /* Round 36: a big enough target for a thumb, in the accent colour. */
+  .check {
+    flex-shrink: 0;
+    width: 22px;
+    height: 22px;
+    margin: 0;
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+  /* A finished step reads as finished: dimmed, its title struck through. The
+     inputs stay fully editable — done is a mark, not a lock. */
+  :global(.step-card.done) {
+    opacity: 0.7;
+  }
+  :global(.step-card.done .title-input) {
+    text-decoration: line-through;
   }
   .tools {
     display: flex;

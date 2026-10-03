@@ -12,7 +12,7 @@
   import { breadcrumb } from "$lib/debug/log.svelte";
   import { unlockForSession, relockSilently } from "$lib/utils/lockFlow";
   import { renameCategory } from "$lib/utils/todoCategories";
-  import { removeWhere, reinsert, removeCategoryFrom, restoreCategory, nextCategoryAfterRemoval, moveWithinCategory, moveToCategory } from "$lib/utils/todoEdits";
+  import { removeWhere, reinsert, removeCategoryFrom, restoreCategory, nextCategoryAfterRemoval, moveWithinCategory, moveToCategory, setStepDone, categoryProgress, countDone } from "$lib/utils/todoEdits";
   import { pushToast, dismissToast } from "$lib/stores/toast.svelte";
   import { resolveTheme, hexToRgba, getImageTextColorVars } from "$lib/utils/themePalette";
   import { customThemes } from "$lib/stores/customThemes.svelte";
@@ -156,7 +156,7 @@
   }
 
   function addStep() {
-    todo.steps.push({ id: generateId(), category: currentCategory, title: "", content: "" });
+    todo.steps.push({ id: generateId(), category: currentCategory, title: "", content: "", done: false });
     persist();
   }
 
@@ -177,6 +177,15 @@
       todo.steps = reinsert(todo.steps, cut.removed);
       persist();
     });
+  }
+
+  // Round 36: tick / untick a step. Applied through setStepDone so the list
+  // keeps its order and every other step is untouched.
+  function toggleStep(stepId: string, done: boolean) {
+    const next = setStepDone(todo.steps, stepId, done);
+    if (!next) return;
+    todo.steps = next;
+    persist();
   }
 
   // Round 35: reorder within the current category / re-file under another one.
@@ -220,6 +229,9 @@
   }
 
   const stepsForCategory = $derived(todo.steps.filter((s) => s.category === currentCategory));
+  // Round 36: done/total per category tab, and the same for the open one.
+  const progress = $derived(categoryProgress(todo.categories, todo.steps));
+  const currentDone = $derived(countDone(stepsForCategory));
 
   let unlocking = $state(false);
   async function handleUnlock() {
@@ -318,6 +330,7 @@
       onAddCategory={addCategory}
       onRemoveCategory={removeCategory}
       onRenameCategory={renameCategoryTo}
+      {progress}
     />
 
     <div class="body" style={bodyStyle}>
@@ -331,6 +344,8 @@
           categories={todo.categories}
           onMoveStep={moveStep}
           onMoveStepTo={moveStepTo}
+          onToggleStep={toggleStep}
+          doneCount={currentDone}
         />
       </div>
     </div>

@@ -410,6 +410,12 @@ if (STEPS.length > 0 && errors.length === 0) {
         break;
       }
       el.click();
+    } else if (step.expectNoSelector) {
+      // Round 36: the inverse of expectSelector — something must NOT be on the page.
+      if (target.querySelector(step.expectNoSelector)) {
+        errors.push(new Error(`${where}: ${step.expectNoSelector} matched, but it should not be on the page.`));
+        break;
+      }
     } else if (step.expectSelector) {
       if (!target.querySelector(step.expectSelector)) {
         errors.push(new Error(`${where}: nothing matched ${step.expectSelector}.`));

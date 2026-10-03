@@ -71,7 +71,7 @@ export function entryToPlainText(entry: Entry): string {
   }
   const lines: string[] = [entry.title || "Untitled", ""];
   for (const step of entry.steps) {
-    lines.push(`[${step.category}] ${step.title}`);
+    lines.push(`[${step.category}] ${step.done ? "[x]" : "[ ]"} ${step.title}`);
     if (step.content) lines.push(step.content);
     lines.push("");
   }

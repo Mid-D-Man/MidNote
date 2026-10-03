@@ -86,6 +86,9 @@ function normalizeEntry(e: unknown): Entry | null {
   }
   if (entry.type === "todo") {
     if (!Array.isArray(entry.steps)) entry.steps = [];
+    // Round 36: every step carries a boolean `done`. Old entries (and the odd
+    // hand-edited one) lack it or hold something else; only a real `true` counts.
+    entry.steps = (entry.steps as Array<Record<string, unknown>>).map((s) => ({ ...s, done: s?.done === true }));
     if (!Array.isArray(entry.annotations)) entry.annotations = [];
     if (!Array.isArray(entry.categories) || (entry.categories as unknown[]).length === 0) entry.categories = ["Steps"];
   }

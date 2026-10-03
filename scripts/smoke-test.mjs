@@ -508,6 +508,34 @@ const SCENARIOS = [
       { expectStored: '"title":"AAA","content":""' },
     ],
   },
+  // Round 36: step checkboxes. The seed's steps have NO `done` field (the
+  // shape saved before this round), so this also proves old data loads as
+  // "not done" and that ticking is stored as a real boolean. The category tab
+  // gets its check mark only when EVERY step in it is ticked, and loses it
+  // again when one is unticked.
+  {
+    name: "todo — step checkboxes and category all-done",
+    path: `/todo/${TODO_ID}`,
+    seed: TODO_TWO_STEPS,
+    steps: [
+      { expectNoSelector: ".tab-pill.all-done" },
+      { expectSelector: '[aria-label="0 of 2 steps done"]' },
+      { click: "Mark step 1 done" },
+      { expectStored: '"done":true' },
+      { expectStored: '"done":false' },
+      { expectSelector: '[aria-label="1 of 2 steps done"]' },
+      { expectNoSelector: ".tab-pill.all-done" },
+      { click: "Mark step 2 done" },
+      { expectSelector: ".tab-pill.all-done" },
+      { expectText: "all steps done" },
+      { expectSelector: '[aria-label="2 of 2 steps done"]' },
+      { click: "Mark step 1 not done" },
+      { expectNoSelector: ".tab-pill.all-done" },
+      { expectSelector: '[aria-label="1 of 2 steps done"]' },
+    ],
+  },
+  // A todo with no steps must not claim to be complete (zero of zero is not "all done").
+  { name: "todo — empty category is not all-done", path: "/todo/new", seed: SEED_ENTRIES, steps: [{ expectSelector: ".tab-pill" }, { expectNoSelector: ".tab-pill.all-done" }] },
   { name: "board — pin", path: `/board/${BOARD_ID}`, seed: SEED_ENTRIES, steps: [{ click: "More" }, { click: "Pin board" }, { expectText: "Pinned" }] },
   // Round 33: the toolbar's font picker through the real editor. The note
   // has no selection, so choosing a font sets a STORED MARK at the caret;

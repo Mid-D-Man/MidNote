@@ -9,6 +9,7 @@
     onAddCategory,
     onRemoveCategory,
     onRenameCategory,
+    progress = {},
   }: {
     categories: string[];
     currentCategory: string;
@@ -18,6 +19,10 @@
     // Round 34: rename the SELECTED category. Returns ok:false with a
     // message instead of throwing so the row can show why (empty / taken).
     onRenameCategory: (from: string, to: string) => { ok: true } | { ok: false; message: string };
+    // Round 36: done/total per category. A category whose steps are ALL ticked
+    // (and that has at least one) gets a check mark on its tab; others with
+    // steps show how far along they are.
+    progress?: Record<string, { done: number; total: number; allDone: boolean }>;
   } = $props();
 
   let isAdding = $state(false);
@@ -133,9 +138,15 @@
           <button
             class="tab-pill"
             class:active={currentCategory === category}
+            class:all-done={progress[category]?.allDone}
             onclick={() => onCategoryChange(category)}
           >
+            {#if progress[category]?.allDone}<span class="tick" aria-hidden="true">✓</span>{/if}
             {category}
+            {#if progress[category] && progress[category].total > 0 && !progress[category].allDone}
+              <span class="frac">{progress[category].done}/{progress[category].total}</span>
+            {/if}
+            {#if progress[category]?.allDone}<span class="sr-only"> — all steps done</span>{/if}
           </button>
           {#if categories.length > 1}
             <button class="remove" onclick={() => remove(category)} aria-label="Remove {category}">×</button>
@@ -196,6 +207,30 @@
     background: var(--surface);
     color: var(--text-lo);
     cursor: pointer;
+  }
+  .tab-pill.all-done {
+    border-color: var(--accent);
+  }
+  .tick {
+    font-weight: 700;
+    color: var(--accent);
+    margin-right: 2px;
+  }
+  .tab-pill.active .tick {
+    color: var(--bg);
+  }
+  .frac {
+    margin-left: 4px;
+    font-size: 11px;
+    opacity: 0.75;
+  }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
   }
   .tab-pill.active {
     background: var(--accent);

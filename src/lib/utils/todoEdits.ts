@@ -106,3 +106,36 @@ export function moveToCategory(steps: readonly Step[], id: string, category: str
   rest.splice(last === -1 ? rest.length : last + 1, 0, moved);
   return rest;
 }
+
+// --- Round 36: step checkboxes -------------------------------------------
+
+/** The step list with step `id` ticked / unticked. null (nothing changes) for an unknown id or when it is already in that state. */
+export function setStepDone(steps: readonly Step[], id: string, done: boolean): Step[] | null {
+  const i = steps.findIndex((s) => s.id === id);
+  if (i === -1 || steps[i].done === done) return null;
+  return steps.map((s, k) => (k === i ? { ...s, done } : s));
+}
+
+export type CategoryProgress = { done: number; total: number; allDone: boolean };
+
+export function countDone(steps: readonly Step[]): number {
+  return steps.reduce((n, s) => n + (s.done ? 1 : 0), 0);
+}
+
+/**
+ * done/total for every category. `allDone` needs at least one step: an empty
+ * category has nothing finished, so it must not show the "complete" mark
+ * (a brand-new todo would otherwise open with a tick on its only tab).
+ */
+export function categoryProgress(categories: readonly string[], steps: readonly Step[]): Record<string, CategoryProgress> {
+  const out: Record<string, CategoryProgress> = {};
+  for (const c of categories) out[c] = { done: 0, total: 0, allDone: false };
+  for (const s of steps) {
+    const p = out[s.category];
+    if (!p) continue; // a step filed under a category that isn't in the list is never counted
+    p.total += 1;
+    if (s.done) p.done += 1;
+  }
+  for (const p of Object.values(out)) p.allDone = p.total > 0 && p.done === p.total;
+  return out;
+}

@@ -196,6 +196,9 @@ export interface Step {
   category: string;
   title: string;
   content: string;
+  // Round 36: the step's checkbox. Entries saved before this have no field;
+  // storage.ts normalizeEntry fills in false on load.
+  done: boolean;
 }
 
 export interface Annotation {

@@ -12,6 +12,8 @@
     categories,
     onMoveStep,
     onMoveStepTo,
+    onToggleStep,
+    doneCount = 0,
   }: {
     steps: Step[];
     category: string;
@@ -22,6 +24,9 @@
     categories: string[];
     onMoveStep: (id: string, dir: -1 | 1) => void;
     onMoveStepTo: (id: string, category: string) => void;
+    // Round 36: tick/untick, and how many of `steps` are ticked (for the header).
+    onToggleStep: (id: string, done: boolean) => void;
+    doneCount?: number;
   } = $props();
 
   const label = $derived(category.charAt(0).toUpperCase() + category.slice(1));
@@ -29,7 +34,14 @@
 
 <div class="steps-section">
   <div class="header">
-    <h3>{label}</h3>
+    <h3>
+      {label}
+      {#if steps.length > 0}
+        <span class="count" class:complete={doneCount === steps.length} aria-label={`${doneCount} of ${steps.length} steps done`}>
+          {doneCount}/{steps.length}
+        </span>
+      {/if}
+    </h3>
     <Button size="sm" aria-label="Add step" onclick={onAddStep}>
       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
         <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
@@ -50,6 +62,8 @@
           stepNumber={i + 1}
           title={step.title}
           content={step.content}
+          done={step.done}
+          onToggleDone={(d) => onToggleStep(step.id, d)}
           onUpdate={(title, content) => onUpdateStep(step.id, title, content)}
           onDelete={() => onDeleteStep(step.id)}
           canMoveUp={i > 0}
@@ -88,6 +102,16 @@
     margin: 0;
     min-width: 0;
     overflow-wrap: break-word;
+  }
+  .count {
+    margin-left: var(--space-2);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-lo);
+  }
+  .count.complete {
+    color: var(--accent);
   }
   .list {
     flex: 1;
