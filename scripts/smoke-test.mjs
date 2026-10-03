@@ -361,6 +361,61 @@ const SCENARIOS = [
     steps: [{ expectSelector: ".reminder-badge" }],
   },
   { name: "todo — pin", path: `/todo/${TODO_ID}`, seed: SEED_ENTRIES, steps: [{ click: "More" }, { click: "Pin todo" }, { expectText: "Pinned" }] },
+  // Round 34: rename a todo's sub-category through the real UI. Asserts the
+  // new name is what got SAVED (the step's own `category` field moved with
+  // it, not just the tab label) and the old name is gone from storage — a
+  // rename that only relabelled the tab would leave the step filed under a
+  // category that no longer exists.
+  {
+    name: "todo — rename category",
+    path: `/todo/${TODO_ID}`,
+    seed: SEED_ENTRIES,
+    steps: [
+      { click: "Rename category" },
+      { type: { label: "Category name", value: "Chores" } },
+      { click: "Save category name" },
+      { expectText: "Chores" },
+      { expectStored: '"category":"Chores"' },
+      { expectNotStored: '"category":"Steps"' },
+    ],
+  },
+  { name: "todo — rename category blank refused", path: `/todo/${TODO_ID}`, seed: SEED_ENTRIES, steps: [{ click: "Rename category" }, { type: { label: "Category name", value: "   " } }, { click: "Save category name" }, { expectText: "Give the category a name" }, { expectStored: '"category":"Steps"' }] },
+  // Round 34: Share (note/todo/board) hands the entry's text to the native
+  // share sheet. The fake sheet records what it was given, so this proves the
+  // tap really reaches it with the entry's own title + content (the old code
+  // never got past "Sharing isn't available here" / "coming soon").
+  { name: "note — share", path: `/note/${NOTE_ID}`, seed: SEED_ENTRIES, share: "fake", steps: [{ click: "More" }, { click: "Share" }, { wait: 200 }, { expectGlobalIncludes: { name: "__shareCalls", substring: "native:Smoke test note" } }, { expectNoText: "Sharing isn't available" }] },
+  { name: "todo — share", path: `/todo/${TODO_ID}`, seed: SEED_ENTRIES, share: "fake", steps: [{ click: "More" }, { click: "Share" }, { wait: 200 }, { expectGlobalIncludes: { name: "__shareCalls", substring: "native:Smoke test todo" } }, { expectNoText: "coming soon" }] },
+  { name: "board — share", path: `/board/${BOARD_ID}`, seed: SEED_ENTRIES, share: "fake", steps: [{ click: "More" }, { click: "Share" }, { wait: 200 }, { expectGlobalIncludes: { name: "__shareCalls", substring: "native:Smoke test board" } }] },
+  // Android reports "cancelled" even after a successful send: no toast either way.
+  { name: "note — share cancelled is silent", path: `/note/${NOTE_ID}`, seed: SEED_ENTRIES, share: "cancel", steps: [{ click: "More" }, { click: "Share" }, { wait: 200 }, { expectGlobalIncludes: { name: "__shareCalls", substring: "native:" } }, { expectNoText: "Couldn" }, { expectNoText: "Copied to clipboard" }] },
+  // Round 34: Markdown export. Real bytes, starting with the title as an H1.
+  { name: "note — export markdown", path: `/note/${NOTE_ID}`, seed: SEED_ENTRIES, steps: [{ click: "More" }, { click: "Export as" }, { click: "Export as Markdown" }, { wait: 500 }, { expectDownload: { ext: ".md", magic: "# Smoke test note", minBytes: 20 } }] },
+  { name: "todo — export markdown", path: `/todo/${TODO_ID}`, seed: SEED_ENTRIES, steps: [{ click: "More" }, { click: "Export as" }, { click: "Export as Markdown" }, { wait: 500 }, { expectDownload: { ext: ".md", magic: "# Smoke test todo", minBytes: 20 } }] },
+  // Round 34: the top-bar download button opens the same format picker (it
+  // used to write a .txt straight away), so a single tap path reaches Markdown.
+  { name: "note — top-bar export opens picker", path: `/note/${NOTE_ID}`, seed: SEED_ENTRIES, steps: [{ click: "Export" }, { expectSelector: '[aria-label="Export as Markdown"]' }, { expectSelector: '[aria-label="Export as PDF"]' }, { click: "Export as Markdown" }, { wait: 500 }, { expectDownload: { ext: ".md", magic: "# Smoke test note", minBytes: 20 } }] },
+  // Round 34: editing a comment through the real sheet. Post one, edit it,
+  // and the SAVED text is the edited one (the old text is gone from storage).
+  {
+    name: "note — edit comment",
+    path: `/note/${NOTE_ID}`,
+    seed: SEED_ENTRIES,
+    steps: [
+      { click: "More" },
+      { click: "Comments" },
+      { type: { label: "Add a comment", value: "first draft remark" } },
+      { click: "Post comment" },
+      { expectStored: "first draft remark" },
+      { click: "Edit comment" },
+      { expectText: "Editing comment" },
+      { type: { label: "Edit comment text", value: "revised remark" } },
+      { click: "Save comment" },
+      { expectStored: "revised remark" },
+      { expectNotStored: "first draft remark" },
+      { expectNoText: "Editing comment" },
+    ],
+  },
   { name: "board — pin", path: `/board/${BOARD_ID}`, seed: SEED_ENTRIES, steps: [{ click: "More" }, { click: "Pin board" }, { expectText: "Pinned" }] },
   // Round 33: the toolbar's font picker through the real editor. The note
   // has no selection, so choosing a font sets a STORED MARK at the caret;
@@ -460,6 +515,7 @@ function runScenario(scenario) {
         // runs this.
         TZ: "UTC",
         ...(scenario.reminderBackend ? { SMOKE_REMINDER_BACKEND: "fake" } : {}),
+        ...(scenario.share ? { SMOKE_SHARE: scenario.share } : {}),
         SMOKE_BUILD_DIR: BUILD_DIR,
         SMOKE_ROUTE_PATH: scenario.path,
         SMOKE_SEED_ENTRIES: JSON.stringify(scenario.seed),

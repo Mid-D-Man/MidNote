@@ -8,6 +8,7 @@
     "opener:default",
     "fs:allow-download-write",
     "dialog:allow-save",
-    "notification:default"
+    "notification:default",
+    "sharekit:default"
   ]
 }

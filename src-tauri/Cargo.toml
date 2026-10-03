@@ -25,6 +25,12 @@ tauri-plugin-dialog = "2"
 # Round 31: reminders. Schedules Android notifications through AlarmManager. 2.x only
 # (the 3.0 alpha targets Tauri 3). Registered in lib.rs, allowed in capabilities/default.json.
 tauri-plugin-notification = "2"
+# Round 34: sharing a note/todo/board as text through Android's share sheet. The
+# WebView has no navigator.share, so this needs native code. Pinned to the 0.3 line
+# (0.4 is still release-candidate only). Source read at 0.3.1: Kotlin SharePlugin
+# (ACTION_SEND chooser) + commands share_text/share_file. Registered in lib.rs,
+# allowed in capabilities/default.json.
+tauri-plugin-sharekit = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

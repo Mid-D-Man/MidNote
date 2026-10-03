@@ -50,6 +50,22 @@ export function makeComment(text: string, id: string, now: Date = new Date()): E
   return { id, text: trimmed.slice(0, MAX_COMMENT_LENGTH), createdAt: now.toISOString() };
 }
 
+/**
+ * `comments` with the text of comment `id` replaced — id and createdAt are
+ * kept, so it keeps its place in the list and its original time. Returns null
+ * (changing nothing) when the comment is gone or the new text is empty;
+ * "empty" must not silently delete a comment, that is what Delete is for.
+ */
+export function editComment(comments: readonly EntryComment[], id: string, text: string): EntryComment[] | null {
+  const index = comments.findIndex((c) => c.id === id);
+  if (index === -1) return null;
+  const trimmed = text.replace(/\s+$/g, "").replace(/^\s*\n/, "");
+  if (!trimmed.trim()) return null;
+  const next = comments.map((c) => ({ ...c }));
+  next[index].text = trimmed.slice(0, MAX_COMMENT_LENGTH);
+  return next;
+}
+
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const pad = (n: number) => String(n).padStart(2, "0");
 

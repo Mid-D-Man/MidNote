@@ -1,6 +1,7 @@
 <script lang="ts">
   // Round 30 — "Export as…" from the Actions sheet of the note, todo and
-  // board editors: pick Plain text, Word document or PDF for this one entry.
+  // board editors: pick Plain text, Markdown, Word document or PDF for this
+  // one entry (Markdown added in round 34).
   //
   // The files are built by utils/export (no dependency — see docx.ts /
   // pdf.ts headers) and handed to the same downloadFiles() the existing
@@ -59,7 +60,7 @@
         disabled={busy !== null}
         aria-label={`Export as ${f.label}`}
       >
-        <span class="badge">{f.id === "txt" ? "TXT" : f.id === "docx" ? "DOC" : "PDF"}</span>
+        <span class="badge">{f.id === "txt" ? "TXT" : f.id === "md" ? "MD" : f.id === "docx" ? "DOC" : "PDF"}</span>
         <span class="text">
           <span class="label">{f.label}</span>
           <span class="detail">{f.detail}</span>

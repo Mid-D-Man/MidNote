@@ -5,7 +5,7 @@ import type { Entry, Note, Todo } from "$lib/types/entry";
 import * as storage from "$lib/storage";
 import { NO_THEME } from "$lib/types/entry";
 import { untrack } from "svelte";
-import { cancelReminderSilently, syncReminderSilently } from "$lib/utils/reminders";
+import { cancelReminderSilently, syncReminderSilently, refreshReminderTitle } from "$lib/utils/reminders";
 
 // Starts empty rather than seeded synchronously at module-evaluation
 // time (as it did back when storage.ts was pure localStorage) — real
@@ -123,6 +123,9 @@ export function refresh() {
 export function saveEntry(entry: Entry) {
   storage.upsertEntry(entry);
   refresh();
+  // Round 34: a rename must reach the scheduled notification's title. No-op
+  // (and no native call) unless the entry has a reminder whose title changed.
+  if (entry.reminderAt) void refreshReminderTitle(entry).catch(() => {});
 }
 
 // Soft delete — every existing "Delete" affordance (CardOverflowMenu,

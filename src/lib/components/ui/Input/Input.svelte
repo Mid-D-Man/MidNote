@@ -5,12 +5,14 @@
     class: className = "",
     oninput,
     onkeydown,
+    "aria-label": ariaLabel,
   }: {
     value?: string;
     placeholder?: string;
     class?: string;
     oninput?: (e: Event) => void;
     onkeydown?: (e: KeyboardEvent) => void;
+    "aria-label"?: string;
   } = $props();
 </script>
 
@@ -18,6 +20,7 @@
   type="text"
   bind:value
   {placeholder}
+  aria-label={ariaLabel}
   class="input {className}"
   oninput={(e) => oninput?.(e)}
   onkeydown={(e) => onkeydown?.(e)}

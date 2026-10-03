@@ -185,12 +185,31 @@ export function isActiveReminder(reminderAt: string | null | undefined, now: Dat
 
 // ---- notification payload ------------------------------------------------
 
+/**
+ * Status-bar icon. Android's small notification icon can't be a path or a
+ * URL: it is the NAME of a drawable inside the APK, and only its alpha
+ * channel is used (white shape on transparent). The files live in
+ * src-tauri/icons/android-notification/ and the Android build copies them
+ * into res/drawable-<density>/ (build-andriod.yml, "Apply MidNote
+ * notification icon" step), because the Android project is regenerated on
+ * every build. Without that step the name matches nothing and the plugin
+ * quietly falls back to Android's stock "i" icon — a missing icon degrades,
+ * it never fails the reminder.
+ */
+export const NOTIFICATION_ICON = "ic_stat_midnote";
+/** The app's --accent (tokens.css), used as the icon tint. */
+export const NOTIFICATION_ICON_COLOR = "#3355d1";
+
 export interface ReminderPayload {
   id: number;
   channelId: string;
   title: string;
   body: string;
   autoCancel: boolean;
+  /** Status-bar icon: the NAME of a drawable shipped in the APK (see NOTIFICATION_ICON). */
+  icon: string;
+  /** Tint Android/One UI applies to that icon. */
+  iconColor: string;
   schedule: { at: { date: string; repeating: false; allowWhileIdle: true } };
   extra: { entryId: string; entryType: string };
 }
@@ -208,6 +227,8 @@ export function buildReminderPayload(entry: ReminderSubject, at: Date): Reminder
     title,
     body: "Reminder \u00b7 tap to open",
     autoCancel: true,
+    icon: NOTIFICATION_ICON,
+    iconColor: NOTIFICATION_ICON_COLOR,
     schedule: { at: { date: at.toISOString(), repeating: false, allowWhileIdle: true } },
     extra: { entryId: entry.id, entryType: entry.type },
   };
@@ -234,7 +255,40 @@ export interface ReminderBackend {
   /** Resolves with a short note on how it was scheduled (for the debug log), or nothing. */
   schedule(payload: ReminderPayload): Promise<string | void>;
   cancel(id: number): Promise<void>;
+  /**
+   * The title the OS currently holds for this reminder, or null when it can't
+   * be told (not scheduled, or scheduled through the old `notify` route that
+   * never saved a copy). null always means "leave the alarm alone".
+   */
+  pendingTitle(id: number): Promise<string | null>;
   onTap(handler: (extra: unknown) => void): Promise<() => void>;
+}
+
+// What was last handed to the OS as each reminder's title, per entry id, for
+// this session. refreshReminderTitle() asks the plugin instead when an entry
+// isn't in here (after an app restart).
+const scheduledTitle = new Map<string, string>();
+
+/** Pull the title for `id` out of get_pending's reply, tolerant of the shapes the plugin bridge can use. */
+export function pendingTitleFrom(raw: unknown, id: number): string | null {
+  let list: unknown[] | null = null;
+  if (Array.isArray(raw)) list = raw;
+  else if (raw && typeof raw === "object") {
+    for (const v of Object.values(raw as Record<string, unknown>)) {
+      if (Array.isArray(v)) {
+        list = v;
+        break;
+      }
+    }
+  }
+  if (!list) return null;
+  for (const item of list) {
+    if (item && typeof item === "object" && (item as { id?: unknown }).id === id) {
+      const t = (item as { title?: unknown }).title;
+      return typeof t === "string" ? t : "";
+    }
+  }
+  return null;
 }
 
 // ---- operations ----------------------------------------------------------
@@ -280,6 +334,7 @@ export async function setReminder(
     const payload = buildReminderPayload(entry, at);
     await backend.cancel(payload.id);
     const route = await backend.schedule(payload);
+    scheduledTitle.set(entry.id, payload.title);
     return { ok: true, at: at.toISOString(), ...(route ? { route } : {}) };
   } catch (err) {
     return { ok: false, reason: "failed", message: `Couldn't set the reminder: ${describe(err)}` };
@@ -296,6 +351,7 @@ export async function clearReminder(
   if (!backend.supported()) return { ok: true };
   try {
     await backend.cancel(reminderNotificationId(entryId));
+    scheduledTitle.delete(entryId);
     return { ok: true };
   } catch (err) {
     return { ok: false, message: `Couldn't cancel the reminder: ${describe(err)}` };
@@ -326,8 +382,45 @@ export async function syncReminderSilently(
     const payload = buildReminderPayload(entry, new Date(entry.reminderAt as string));
     await backend.cancel(payload.id);
     await backend.schedule(payload);
+    scheduledTitle.set(entry.id, payload.title);
   } catch {
     /* best effort: the reminder set earlier is still scheduled as it was */
+  }
+}
+
+/**
+ * Round 34: a reminder's notification keeps the TITLE it was set with, so a
+ * note renamed afterwards still notified under its old name. Called after
+ * every save of an entry that has a reminder; it re-registers the alarm only
+ * when the title the OS holds differs from the current one, so ordinary saves
+ * (typing, pinning, tagging) cost nothing. Returns true when it rescheduled.
+ *
+ * It never touches an alarm it can't verify: if the OS's current title is
+ * unknown (nothing remembered this session and the plugin has no saved copy)
+ * it does nothing, and an alarm due within MIN_LEAD_MS is left alone because
+ * a cancel + reschedule that close to the time could drop it.
+ */
+export async function refreshReminderTitle(
+  entry: ReminderSubject,
+  backend: ReminderBackend = getBackend(),
+  now: Date = new Date()
+): Promise<boolean> {
+  try {
+    if (!entry.reminderAt || !backend.supported() || !isActiveReminder(entry.reminderAt, now)) return false;
+    const at = new Date(entry.reminderAt);
+    if (at.getTime() - now.getTime() < MIN_LEAD_MS) return false;
+    const title = buildReminderPayload(entry, at).title;
+    let known: string | null | undefined = scheduledTitle.get(entry.id);
+    if (known === undefined) known = await backend.pendingTitle(reminderNotificationId(entry.id));
+    if (known === null || known === undefined) return false;
+    if (known === title) {
+      scheduledTitle.set(entry.id, title);
+      return false;
+    }
+    await syncReminderSilently(entry, backend, now);
+    return scheduledTitle.get(entry.id) === title;
+  } catch {
+    return false;
   }
 }
 
@@ -398,6 +491,7 @@ const tauriBackend: ReminderBackend = {
       return `notify (batch failed: ${describe(err)})`;
     }
   },
+  pendingTitle: async (id) => pendingTitleFrom(await invoke("plugin:notification|get_pending"), id),
   cancel: async (id) => {
     await invoke("plugin:notification|cancel", { notifications: [id] });
   },

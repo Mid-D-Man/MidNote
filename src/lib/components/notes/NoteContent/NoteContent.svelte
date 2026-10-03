@@ -57,6 +57,7 @@
   import { PersistentMarks } from "$lib/utils/persistentMarksExtension";
   import { FindReplace } from "$lib/utils/findReplaceExtension";
   import { PlainTextPaste } from "$lib/utils/plainTextPasteExtension";
+  import { sliceToPlainText } from "$lib/utils/clipboardText";
   import { breadcrumb } from "$lib/debug/log.svelte";
   import { stripHtml } from "$lib/utils/richText";
   import { noteLinesEnabled, noteFont } from "$lib/stores/settings.svelte";
@@ -202,6 +203,11 @@
         }),
       ],
       content: initialContent,
+      // Round 34: copy puts ONE newline between lines on the clipboard, not
+      // two. Direct view props outrank plugin props in ProseMirror, so this
+      // wins over Tiptap's built-in ClipboardTextSerializer. See
+      // utils/clipboardText.ts.
+      editorProps: { clipboardTextSerializer: sliceToPlainText },
       // (Round 25's editorProps.handlePaste lived here. Removed in round
       // 27 — its "skips the HTML-parsing pipeline" claim was wrong, it
       // split the current line on a mid-line paste, and it left a stray

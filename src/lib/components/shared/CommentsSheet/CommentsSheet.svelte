@@ -23,12 +23,16 @@
   import { generateId } from "$lib/storage";
   import { pushToast } from "$lib/stores/toast.svelte";
   import { breadcrumb } from "$lib/debug/log.svelte";
-  import { makeComment, formatCommentTime, sortByTime, MAX_COMMENT_LENGTH } from "$lib/utils/comments";
+  import { makeComment, editComment, formatCommentTime, sortByTime, MAX_COMMENT_LENGTH } from "$lib/utils/comments";
   import type { Entry } from "$lib/types/entry";
 
   let { open = $bindable(false), entry }: { open?: boolean; entry: Entry } = $props();
 
   let draft = $state("");
+  // Round 34: editing reuses the composer. `editingId` is the comment being
+  // changed (its text is loaded into `draft`); the send button then saves
+  // instead of posting, and Cancel puts things back.
+  let editingId = $state<string | null>(null);
   let armedId = $state<string | null>(null);
   let armTimer: ReturnType<typeof setTimeout> | null = null;
   let logEl = $state<HTMLDivElement | null>(null);
@@ -47,7 +51,10 @@
 
   // A stale "Delete?" must not survive closing the sheet.
   $effect(() => {
-    if (!open) disarm();
+    if (!open) {
+      disarm();
+      cancelEdit();
+    }
   });
 
   function disarm() {
@@ -59,7 +66,34 @@
   }
   onDestroy(disarm);
 
+  function startEdit(id: string) {
+    const c = entry.comments.find((x) => x.id === id);
+    if (!c) return;
+    disarm();
+    editingId = id;
+    draft = c.text;
+    queueMicrotask(() => {
+      grow();
+      inputEl?.focus();
+    });
+  }
+
+  function cancelEdit() {
+    editingId = null;
+    draft = "";
+    if (inputEl) inputEl.style.height = "auto";
+  }
+
   function post() {
+    if (editingId) {
+      const next = editComment(entry.comments, editingId, draft);
+      if (!next) return;
+      breadcrumb(`comments: edited on ${entry.type} ${entry.id}`);
+      entry.comments = next;
+      saveEntry(entry);
+      cancelEdit();
+      return;
+    }
     const c = makeComment(draft, generateId());
     if (!c) return;
     breadcrumb(`comments: added (${c.text.length} chars) to ${entry.type} ${entry.id}`);
@@ -117,6 +151,14 @@
                 <button
                   type="button"
                   class="del"
+                  onclick={() => startEdit(c.id)}
+                  aria-label="Edit comment"
+                >
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  class="del"
                   class:armed={armedId === c.id}
                   onclick={() => onDeleteTap(c.id)}
                   aria-label={armedId === c.id ? "Confirm delete comment" : "Delete comment"}
@@ -131,6 +173,12 @@
       {/if}
     </div>
 
+    {#if editingId}
+      <div class="editing-bar">
+        <span>Editing comment</span>
+        <button type="button" class="del" onclick={cancelEdit} aria-label="Cancel editing">Cancel</button>
+      </div>
+    {/if}
     <div class="composer">
       <textarea
         bind:this={inputEl}
@@ -138,12 +186,12 @@
         class="field"
         rows="1"
         maxlength={MAX_COMMENT_LENGTH}
-        placeholder="Add a comment…"
-        aria-label="Add a comment"
+        placeholder={editingId ? "Edit your comment…" : "Add a comment…"}
+        aria-label={editingId ? "Edit comment text" : "Add a comment"}
         oninput={grow}
         onkeydown={onKeydown}
       ></textarea>
-      <button type="button" class="send" onclick={post} disabled={!draft.trim()} aria-label="Post comment">
+      <button type="button" class="send" onclick={post} disabled={!draft.trim()} aria-label={editingId ? "Save comment" : "Post comment"}>
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
           <line x1="12" y1="19" x2="12" y2="5" /><polyline points="5 12 12 5 19 12" />
         </svg>
@@ -200,6 +248,7 @@
     gap: var(--space-2);
   }
   .when {
+    margin-right: auto; /* Edit and delete sit together at the right */
     font-size: 11px;
     color: var(--text-faint);
   }
@@ -214,6 +263,13 @@
     font-family: var(--font-sans);
     font-size: 12px;
     cursor: pointer;
+  }
+  .editing-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--text-lo);
   }
   .del.armed {
     background: var(--danger);

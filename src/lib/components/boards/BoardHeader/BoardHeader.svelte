@@ -22,7 +22,8 @@
   import { removeEntry, saveEntry } from "$lib/stores/entries.svelte";
   import { createBoard } from "$lib/storage";
   import { breadcrumb } from "$lib/debug/log.svelte";
-  import { shareFiles } from "$lib/utils/share";
+  import { copyAppearance } from "$lib/utils/duplicate";
+  import { shareText, shareOutcomeToast } from "$lib/utils/share";
   import { entryToPlainText, buildExportFiles, buildEncryptedBackupFile, downloadFiles } from "$lib/utils/selectionActions";
   import { resolveTheme, hexToRgba, getImageTextColorVars } from "$lib/utils/themePalette";
   import { customThemes } from "$lib/stores/customThemes.svelte";
@@ -148,6 +149,7 @@
       target: idMap.get(e.target)!,
     }));
     copy.viewport = board.viewport ? { ...board.viewport } : null;
+    copyAppearance(board, copy); // round 34: themes + icon used to be dropped
     saveEntry(copy);
     goto(`/board/${copy.id}`);
     pushToast({ title: "Board duplicated", description: "Your board has been duplicated." });
@@ -164,8 +166,9 @@
       pushToast({ title: "Encrypted backup downloaded", description: "This board is still locked — the file holds only encrypted data, not its readable content." });
       return;
     }
-    downloadFiles(buildExportFiles([board], "separate"));
-    pushToast({ title: "Board downloaded", description: "Your board has been downloaded as a text file." });
+    // Round 34: opens the "Export as" picker (see NoteEditorHeader). A locked
+    // board still takes the encrypted-backup path above.
+    exportAsOpen = true;
   }
 
   async function handleShare() {
@@ -175,14 +178,10 @@
       pushToast({ title: "Unlock first", description: "Unlock this board before sharing it.", variant: "destructive" });
       return;
     }
-    const name = `${board.title || "board"}.txt`;
-    const blob = new Blob([entryToPlainText(board)], { type: "text/plain" });
-    const result = await shareFiles([{ name, blob }], { title: board.title || "Board" });
-    if (result === "shared") {
-      pushToast({ title: "Shared" });
-    } else if (result !== "cancelled") {
-      pushToast({ title: "Sharing isn't available here", description: "Try Export instead." });
-    }
+    const result = await shareText(entryToPlainText(board), { title: board.title || "Board", log: breadcrumb });
+    breadcrumb(`board header: Share -> ${result}`);
+    const toast = shareOutcomeToast(result);
+    if (toast) pushToast(toast);
   }
 
   // Same encrypted-gating reasoning as this header's other content
@@ -363,7 +362,7 @@
       </svg>
       <span>{isActiveReminder(board.reminderAt) ? `Reminder · ${formatReminderWhen(board.reminderAt as string)}` : "Reminder"}</span>
     </button>
-    <button class="action-row" onclick={handleShare}>
+    <button class="action-row" onclick={handleShare} aria-label="Share">
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
         <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" />
         <line x1="8.6" y1="13.5" x2="15.4" y2="17.5" /><line x1="15.4" y1="6.5" x2="8.6" y2="10.5" />

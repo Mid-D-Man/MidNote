@@ -14,6 +14,8 @@
   import { removeEntry, saveEntry } from "$lib/stores/entries.svelte";
   import { createTodo } from "$lib/storage";
   import { breadcrumb } from "$lib/debug/log.svelte";
+  import { copyAppearance } from "$lib/utils/duplicate";
+  import { shareText, shareOutcomeToast } from "$lib/utils/share";
   import { resolveTheme, hexToRgba, getImageTextColorVars } from "$lib/utils/themePalette";
   import { customThemes } from "$lib/stores/customThemes.svelte";
   import { buildExportFiles, buildEncryptedBackupFile, downloadFiles, entryToPlainText } from "$lib/utils/selectionActions";
@@ -143,6 +145,7 @@
     copy.categories = [...todo.categories];
     copy.steps = todo.steps.map((s) => ({ ...s, id: crypto.randomUUID() }));
     copy.annotations = todo.annotations.map((a) => ({ ...a, id: crypto.randomUUID() }));
+    copyAppearance(todo, copy); // round 34: themes + icon used to be dropped
     saveEntry(copy);
     goto(`/todo/${copy.id}`);
     pushToast({ title: "Todo duplicated", description: "Your todo has been duplicated." });
@@ -173,8 +176,9 @@
       pushToast({ title: "Encrypted backup downloaded", description: "This todo is still locked — the file holds only encrypted data, not its readable content." });
       return;
     }
-    downloadFiles(buildExportFiles([todo], "separate"));
-    pushToast({ title: "Todo downloaded", description: "Your todo has been downloaded as a text file." });
+    // Round 34: opens the "Export as" picker (see NoteEditorHeader). A locked
+    // todo still takes the encrypted-backup path above.
+    exportAsOpen = true;
   }
 
   async function handleShare() {
@@ -184,7 +188,10 @@
       pushToast({ title: "Unlock first", description: "Unlock this todo before sharing it.", variant: "destructive" });
       return;
     }
-    pushToast({ title: "Share todo", description: "Share functionality coming soon." });
+    const result = await shareText(entryToPlainText(todo), { title: todo.title || "Todo", log: breadcrumb });
+    breadcrumb(`todo header: Share -> ${result}`);
+    const toast = shareOutcomeToast(result);
+    if (toast) pushToast(toast);
   }
 
   // Same encrypted-gating reasoning as this header's other content
@@ -345,7 +352,7 @@
       </svg>
       <span>{isActiveReminder(todo.reminderAt) ? `Reminder · ${formatReminderWhen(todo.reminderAt as string)}` : "Reminder"}</span>
     </button>
-    <button class="action-row" onclick={handleShare}>
+    <button class="action-row" onclick={handleShare} aria-label="Share">
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
         <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" />
         <line x1="8.6" y1="13.5" x2="15.4" y2="17.5" /><line x1="15.4" y1="6.5" x2="8.6" y2="10.5" />

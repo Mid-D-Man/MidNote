@@ -170,7 +170,29 @@ if (process.env.SMOKE_REMINDER_BACKEND === "fake") {
     cancel: async (id) => {
       calls.push(`cancel:${id}`);
     },
+    // Round 34: the fake never has a saved copy, so a rename leaves it alone.
+    pendingTitle: async () => null,
     onTap: async () => () => {},
+  };
+}
+
+// Round 34: a recording stand-in for the native share sheet (the real one is
+// tauri-plugin-sharekit, Android only). SMOKE_SHARE=fake -> every shared text
+// is pushed onto globalThis.__shareCalls as "native:<text>"; SMOKE_SHARE=cancel
+// makes the sheet reject the way Android does when you pick an app ("Share
+// cancelled"), so the "silent, no false toast" path is exercised too.
+if (process.env.SMOKE_SHARE === "fake" || process.env.SMOKE_SHARE === "cancel") {
+  const calls = (globalThis.__shareCalls = []);
+  const cancel = process.env.SMOKE_SHARE === "cancel";
+  globalThis.__midnoteShareDeps = {
+    native: async (text) => {
+      calls.push(`native:${text}`);
+      if (cancel) throw new Error("Share cancelled");
+    },
+    web: null,
+    clipboard: async (text) => {
+      calls.push(`clipboard:${text}`);
+    },
   };
 }
 

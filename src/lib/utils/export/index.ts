@@ -10,11 +10,13 @@ import { buildExportFiles, safeFileName, type ExportedFile } from "$lib/utils/se
 import { entryToBlocks } from "./blocks";
 import { buildDocx } from "./docx";
 import { buildPdf } from "./pdf";
+import { blocksToMarkdown } from "./markdown";
 
-export type DocFormat = "txt" | "docx" | "pdf";
+export type DocFormat = "txt" | "md" | "docx" | "pdf";
 
 export const DOC_FORMATS: ReadonlyArray<{ id: DocFormat; label: string; detail: string }> = [
   { id: "txt", label: "Plain text", detail: ".txt · text only, opens anywhere" },
+  { id: "md", label: "Markdown", detail: ".md · bold, italic, lists and checklists as plain text" },
   { id: "docx", label: "Word document", detail: ".docx · keeps bold, colours, lists and checklists" },
   { id: "pdf", label: "PDF", detail: ".pdf · ready to print or send (Latin text only)" },
 ];
@@ -32,6 +34,7 @@ export function buildEntryDocument(entry: Entry, format: DocFormat): ExportedFil
   const base = safeFileName(entry.title, "MidNote-export");
   const title = entry.title || "Untitled";
   const blocks = entryToBlocks(entry);
+  if (format === "md") return { name: `${base}.md`, blob: new Blob([blocksToMarkdown(blocks)], { type: "text/markdown" }) };
   if (format === "docx") return { name: `${base}.docx`, blob: blobOf(buildDocx(blocks, title), DOCX_MIME) };
   return { name: `${base}.pdf`, blob: blobOf(buildPdf(blocks, title), "application/pdf") };
 }

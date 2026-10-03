@@ -11,6 +11,7 @@
   import { createTodo, getEntry, generateId } from "$lib/storage";
   import { breadcrumb } from "$lib/debug/log.svelte";
   import { unlockForSession, relockSilently } from "$lib/utils/lockFlow";
+  import { renameCategory } from "$lib/utils/todoCategories";
   import { resolveTheme, hexToRgba, getImageTextColorVars } from "$lib/utils/themePalette";
   import { customThemes } from "$lib/stores/customThemes.svelte";
   import Spinner from "$lib/components/ui/Spinner/Spinner.svelte";
@@ -103,6 +104,17 @@
       currentCategory = name;
       persist();
     }
+  }
+
+  // Round 34: rename the selected sub-category. renameCategory() edits the
+  // list, every step and every annotation together (they reference the
+  // category by name); see utils/todoCategories.ts.
+  function renameCategoryTo(from: string, to: string) {
+    const result = renameCategory(todo, from, to);
+    if (!result.ok) return result;
+    if (currentCategory === from) currentCategory = result.name;
+    persist();
+    return { ok: true as const };
   }
 
   function removeCategory(name: string) {
@@ -246,6 +258,7 @@
       onCategoryChange={(c) => (currentCategory = c)}
       onAddCategory={addCategory}
       onRemoveCategory={removeCategory}
+      onRenameCategory={renameCategoryTo}
     />
 
     <div class="body" style={bodyStyle}>

@@ -8,16 +8,52 @@
     onCategoryChange,
     onAddCategory,
     onRemoveCategory,
+    onRenameCategory,
   }: {
     categories: string[];
     currentCategory: string;
     onCategoryChange: (category: string) => void;
     onAddCategory: (category: string) => void;
     onRemoveCategory: (category: string) => void;
+    // Round 34: rename the SELECTED category. Returns ok:false with a
+    // message instead of throwing so the row can show why (empty / taken).
+    onRenameCategory: (from: string, to: string) => { ok: true } | { ok: false; message: string };
   } = $props();
 
   let isAdding = $state(false);
   let newCategory = $state("");
+  // Round 34: rename row. Opened from the header's Rename button, always
+  // for the currently selected category (so there is nothing to aim at on a
+  // phone); `renameFrom` pins which one in case the selection changes while
+  // the row is open.
+  let isRenaming = $state(false);
+  let renameFrom = $state("");
+  let renameValue = $state("");
+  let renameError = $state<string | null>(null);
+
+  function startRename() {
+    isAdding = false;
+    renameFrom = currentCategory;
+    renameValue = currentCategory;
+    renameError = null;
+    isRenaming = true;
+  }
+
+  function cancelRename() {
+    isRenaming = false;
+    renameError = null;
+  }
+
+  function commitRename() {
+    const result = onRenameCategory(renameFrom, renameValue);
+    if (result.ok) cancelRename();
+    else renameError = result.message;
+  }
+
+  function renameKeydown(e: KeyboardEvent) {
+    if (e.key === "Enter") commitRename();
+    if (e.key === "Escape") cancelRename();
+  }
 
   function commitAdd() {
     if (newCategory.trim()) {
@@ -46,13 +82,36 @@
 <div class="tabs-wrap">
   <div class="header">
     <span class="label">Sub-categories</span>
-    <Button size="sm" variant="outline" onclick={() => (isAdding = !isAdding)}>
-      <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2">
-        <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
-      </svg>
-      Add
-    </Button>
+    <div class="header-actions">
+      <Button size="sm" variant="outline" aria-label="Rename category" disabled={categories.length === 0} onclick={startRename}>
+        Rename
+      </Button>
+      <Button
+        size="sm"
+        variant="outline"
+        onclick={() => {
+          isRenaming = false;
+          isAdding = !isAdding;
+        }}
+      >
+        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+        </svg>
+        Add
+      </Button>
+    </div>
   </div>
+
+  {#if isRenaming}
+    <div class="add-row">
+      <Input bind:value={renameValue} placeholder="Category name..." aria-label="Category name" onkeydown={renameKeydown} />
+      <Button size="sm" aria-label="Save category name" onclick={commitRename}>Save</Button>
+      <Button size="sm" variant="ghost" aria-label="Cancel rename" onclick={cancelRename}>Cancel</Button>
+    </div>
+    {#if renameError}
+      <p class="rename-error" role="status">{renameError}</p>
+    {/if}
+  {/if}
 
   {#if isAdding}
     <div class="add-row">
@@ -104,6 +163,15 @@
     font-size: 13px;
     font-weight: 600;
     color: var(--text-hi);
+  }
+  .header-actions {
+    display: flex;
+    gap: var(--space-2);
+  }
+  .rename-error {
+    margin: 0;
+    font-size: 12px;
+    color: var(--danger);
   }
   .add-row {
     display: flex;

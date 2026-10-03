@@ -11,9 +11,10 @@
   import TagSelector from "$lib/components/shared/TagSelector/TagSelector.svelte";
   import { pushToast } from "$lib/stores/toast.svelte";
   import { removeEntry, saveEntry } from "$lib/stores/entries.svelte";
-  import { createNote } from "$lib/storage";
+  import { createNote, generateId } from "$lib/storage";
+  import { copyAppearance, copyNotePages } from "$lib/utils/duplicate";
   import { breadcrumb } from "$lib/debug/log.svelte";
-  import { shareFiles } from "$lib/utils/share";
+  import { shareText, shareOutcomeToast } from "$lib/utils/share";
   import { entryToPlainText, buildExportFiles, buildEncryptedBackupFile, downloadFiles } from "$lib/utils/selectionActions";
   import ThemeSectionsSheet from "$lib/components/shared/ThemeSectionsSheet/ThemeSectionsSheet.svelte";
   import PagesPanel from "$lib/components/notes/PagesPanel/PagesPanel.svelte";
@@ -221,6 +222,9 @@
     copy.title = `${note.title} (Copy)`;
     copy.content = note.content;
     copy.tags = [...note.tags];
+    // Round 34: pages, first-page name, themes and icon used to be dropped.
+    copyNotePages(note, copy, generateId);
+    copyAppearance(note, copy);
     saveEntry(copy);
     goto(`/note/${copy.id}`);
     pushToast({ title: "Note duplicated", description: "Your note has been duplicated." });
@@ -271,8 +275,11 @@
       pushToast({ title: "Encrypted backup downloaded", description: "This note is still locked — the file holds only encrypted data, not its readable content." });
       return;
     }
-    downloadFiles(buildExportFiles([note], "separate"));
-    pushToast({ title: "Note downloaded", description: "Your note has been downloaded as a text file." });
+    // Round 34: the top-bar button opens the "Export as" format picker
+    // (Text / Markdown / Word / PDF) instead of always writing a .txt. A
+    // locked note still takes the encrypted-backup path above — there is no
+    // readable content to put in a document.
+    exportAsOpen = true;
   }
 
   async function handleShare() {
@@ -282,14 +289,10 @@
       pushToast({ title: "Unlock first", description: "Unlock this note before sharing it.", variant: "destructive" });
       return;
     }
-    const name = `${note.title || "note"}.txt`;
-    const blob = new Blob([entryToPlainText(note)], { type: "text/plain" });
-    const result = await shareFiles([{ name, blob }], { title: note.title || "Note" });
-    if (result === "shared") {
-      pushToast({ title: "Shared" });
-    } else if (result !== "cancelled") {
-      pushToast({ title: "Sharing isn't available here", description: "Try Export instead." });
-    }
+    const result = await shareText(entryToPlainText(note), { title: note.title || "Note", log: breadcrumb });
+    breadcrumb(`note header: Share -> ${result}`);
+    const toast = shareOutcomeToast(result);
+    if (toast) pushToast(toast);
   }
 
   // Same encrypted-gating reasoning as Theme/Pages/Share/Duplicate above
@@ -475,7 +478,7 @@
       </svg>
       <span>Ask AI</span>
     </button>
-    <button class="action-row" onclick={handleShare}>
+    <button class="action-row" onclick={handleShare} aria-label="Share">
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
         <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" />
         <line x1="8.6" y1="13.5" x2="15.4" y2="17.5" /><line x1="15.4" y1="6.5" x2="8.6" y2="10.5" />

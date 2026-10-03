@@ -19,7 +19,7 @@
   import { createLongPressHandlers } from "$lib/utils/longPress";
   import { createSwipeHandlers } from "$lib/utils/swipe";
   import { mergeNotes, mergeTodos, buildExportFiles, buildEncryptedBackupFile, downloadFiles, type ExportFormat } from "$lib/utils/selectionActions";
-  import { shareFiles } from "$lib/utils/share";
+  import { shareText, shareOutcomeToast, entriesToShareText } from "$lib/utils/share";
   import { pushToast } from "$lib/stores/toast.svelte";
   import { breadcrumb } from "$lib/debug/log.svelte";
   import { resolveTheme, hexToRgba, resolveIcon, getImageTextColorVars } from "$lib/utils/themePalette";
@@ -359,24 +359,32 @@
     saveEntry(item);
   }
 
+  // Round 34: shares the selection as TEXT through the phone's share sheet
+  // (utils/share.ts). Locked items are skipped — their content is cleared
+  // while locked, so sharing them would send nothing — and the toast says
+  // how many. If sharing is impossible here the old behaviour stays as the
+  // fallback: download the files instead of leaving a dead end.
   async function handleSendSelected() {
-    const files = buildExportFiles(selectedEntries, "separate");
-    const title = files.length === 1 ? files[0].name : `${files.length} items from MidNote`;
-    const result = await shareFiles(files, { title });
-    if (result === "shared") {
-      pushToast({ title: "Shared" });
-      exitSelectMode();
-    } else if (result === "cancelled") {
-      // User dismissed the native share sheet — a normal, silent outcome.
-    } else {
-      // Not supported (or a genuine error) on this WebView — fall back
-      // to a download so the action still does something useful rather
-      // than a dead end. Real platform uncertainty, not a guess dressed
-      // up as one — see share.ts's header comment.
-      await downloadFiles(files);
-      pushToast({ title: "Sharing isn't available here", description: "Downloaded instead." });
-      exitSelectMode();
+    const { text, skippedLocked } = entriesToShareText(selectedEntries);
+    if (!text) {
+      pushToast({ title: "Nothing to share", description: "The selected items are locked. Unlock them first.", variant: "destructive" });
+      return;
     }
+    const title = selectedEntries.length === 1 ? selectedEntries[0].title || "MidNote" : `${selectedEntries.length} items from MidNote`;
+    const result = await shareText(text, { title, log: breadcrumb });
+    breadcrumb(`home: share ${selectedEntries.length} selected -> ${result} (${skippedLocked} locked skipped)`);
+    if (result === "unsupported" || result === "toolarge") {
+      await downloadFiles(buildExportFiles(selectedEntries, "separate"));
+      pushToast({ title: result === "toolarge" ? "Too long to share as text" : "Sharing isn't available here", description: "Downloaded instead." });
+      exitSelectMode();
+      return;
+    }
+    const toast = shareOutcomeToast(result);
+    if (toast) pushToast(toast);
+    else if (skippedLocked > 0) {
+      pushToast({ title: "Locked items skipped", description: `${skippedLocked} locked item${skippedLocked === 1 ? "" : "s"} weren't included.` });
+    }
+    if (result !== "cancelled") exitSelectMode();
   }
 
   function handleMergeSelected() {
