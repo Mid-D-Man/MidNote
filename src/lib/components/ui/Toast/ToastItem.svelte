@@ -4,8 +4,18 @@
   let {
     toast,
   }: {
-    toast: { id: string; title: string; description?: string; variant?: string };
+    toast: { id: string; title: string; description?: string; variant?: string; action?: { label: string; run: () => void } };
   } = $props();
+
+  // Round 35: the action button sits INSIDE a toast whose own pointer handlers
+  // capture the pointer for swipe-to-dismiss. Captured, the button would never
+  // receive its click, so its pointer/key events stop here instead of reaching
+  // the toast. Dismiss first, then run: a throwing action can't leave the toast stuck.
+  function runAction() {
+    const run = toast.action?.run;
+    dismissToast(toast.id);
+    run?.();
+  }
 
   // Swipe left OR right to dismiss. Split into its own component (one
   // instance per toast) because each visible toast needs independent
@@ -83,6 +93,18 @@
   {#if toast.description}
     <p>{toast.description}</p>
   {/if}
+  {#if toast.action}
+    <button
+      type="button"
+      class="action"
+      aria-label={toast.action.label}
+      onpointerdown={(e) => e.stopPropagation()}
+      onkeydown={(e) => e.stopPropagation()}
+      onclick={runAction}
+    >
+      {toast.action.label}
+    </button>
+  {/if}
 </div>
 
 <style>
@@ -106,6 +128,18 @@
     display: block;
     font-size: 13px;
     color: var(--text-hi);
+  }
+  .toast .action {
+    margin-top: var(--space-2);
+    min-height: 32px;
+    padding: 0 var(--space-3);
+    background: transparent;
+    border: 1px solid var(--accent);
+    border-radius: var(--radius-sm);
+    color: var(--accent);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
   }
   .toast p {
     margin: var(--space-1) 0 0;

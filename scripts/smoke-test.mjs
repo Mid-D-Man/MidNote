@@ -100,6 +100,19 @@ const SEED_ENTRIES = [
 // would use) after the initial mount settles, so a crash inside that
 // handler shows up here the same way it showed up on-device, instead of
 // only in a debug log after the fact.
+// Round 35: the seeded todo with two distinctly titled steps (for reorder/undo).
+const TODO_TWO_STEPS = SEED_ENTRIES.map((e) =>
+  e.id === TODO_ID
+    ? {
+        ...e,
+        steps: [
+          { id: "sA", category: "Steps", title: "AAA", content: "" },
+          { id: "sB", category: "Steps", title: "BBB", content: "" },
+        ],
+      }
+    : e
+);
+
 const SCENARIOS = [
   { name: "home / list page", path: "/", seed: SEED_ENTRIES },
   { name: "note — new", path: "/note/new", seed: SEED_ENTRIES },
@@ -414,6 +427,85 @@ const SCENARIOS = [
       { expectStored: "revised remark" },
       { expectNotStored: "first draft remark" },
       { expectNoText: "Editing comment" },
+    ],
+  },
+  // Round 35: removing the SELECTED category when exactly two exist. The tabs
+  // component decided the next selection by re-reading `categories.length`
+  // AFTER the removal (so "2 before" looked like "1 after"), skipped the
+  // switch, and left the editor on a category that no longer existed — an
+  // empty list whose "Add Step" filed steps under a dead name, invisible
+  // everywhere. The surviving tab must become the active one.
+  {
+    name: "todo — remove selected category lands on the survivor",
+    path: `/todo/${TODO_ID}`,
+    seed: SEED_ENTRIES,
+    steps: [
+      { click: "Add category" },
+      { type: { label: "New category name", value: "Extra" } },
+      { click: "Save new category" },
+      { expectSelector: ".tab-pill.active" },
+      { click: "Remove Extra" },
+      // Exactly one tab is left, and it is the active one. (The Undo toast
+      // itself mentions "Extra", so this checks the tabs, not the page text.)
+      { expectSelector: ".tab-pill-wrap:only-child .tab-pill.active" },
+    ],
+  },
+  // Round 35: todo editor — undo, reorder, move. The two-step seed has
+  // distinctly titled steps so an order change is visible in storage.
+  {
+    name: "todo — delete step, undo brings it back",
+    path: `/todo/${TODO_ID}`,
+    seed: TODO_TWO_STEPS,
+    steps: [
+      { click: "Delete step" },
+      { expectText: "Step deleted" },
+      { expectNotStored: "AAA" },
+      { click: "Undo" },
+      { expectStored: "AAA" },
+      { expectNoText: "Step deleted" },
+      { expectStoredOrder: ["AAA", "BBB"] },
+    ],
+  },
+  {
+    name: "todo — remove category + its steps, undo restores both",
+    path: `/todo/${TODO_ID}`,
+    seed: TODO_TWO_STEPS,
+    steps: [
+      { click: "Add category" },
+      { type: { label: "New category name", value: "Extra" } },
+      { click: "Save new category" },
+      { click: "Add step" },
+      { expectStored: '"category":"Extra"' },
+      { click: "Remove Extra" },
+      { expectText: "Removed" },
+      { expectNotStored: '"category":"Extra"' },
+      { click: "Undo" },
+      { expectStored: '"category":"Extra"' },
+      { expectSelector: ".tab-pill.active" },
+    ],
+  },
+  {
+    name: "todo — move step down reorders storage",
+    path: `/todo/${TODO_ID}`,
+    seed: TODO_TWO_STEPS,
+    steps: [
+      { expectSelector: '[aria-label="Move step up"][disabled]' },
+      { click: "Move step down" },
+      { expectStoredOrder: ["BBB", "AAA"] },
+    ],
+  },
+  {
+    name: "todo — move step to another category",
+    path: `/todo/${TODO_ID}`,
+    seed: TODO_TWO_STEPS,
+    steps: [
+      { click: "Add category" },
+      { type: { label: "New category name", value: "Extra" } },
+      { click: "Save new category" },
+      { clickSelector: ".tab-pill-wrap:nth-child(1) .tab-pill" },
+      { type: { label: "Move step to category", value: "Extra" } },
+      { expectText: "Step moved" },
+      { expectStored: '"title":"AAA","content":""' },
     ],
   },
   { name: "board — pin", path: `/board/${BOARD_ID}`, seed: SEED_ENTRIES, steps: [{ click: "More" }, { click: "Pin board" }, { expectText: "Pinned" }] },

@@ -9,12 +9,19 @@
     onAddStep,
     onUpdateStep,
     onDeleteStep,
+    categories,
+    onMoveStep,
+    onMoveStepTo,
   }: {
     steps: Step[];
     category: string;
     onAddStep: () => void;
     onUpdateStep: (id: string, title: string, content: string) => void;
     onDeleteStep: (id: string) => void;
+    // Round 35: every category of the todo (for "Move to…"), and the two edits.
+    categories: string[];
+    onMoveStep: (id: string, dir: -1 | 1) => void;
+    onMoveStepTo: (id: string, category: string) => void;
   } = $props();
 
   const label = $derived(category.charAt(0).toUpperCase() + category.slice(1));
@@ -23,7 +30,7 @@
 <div class="steps-section">
   <div class="header">
     <h3>{label}</h3>
-    <Button size="sm" onclick={onAddStep}>
+    <Button size="sm" aria-label="Add step" onclick={onAddStep}>
       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
         <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
       </svg>
@@ -45,6 +52,12 @@
           content={step.content}
           onUpdate={(title, content) => onUpdateStep(step.id, title, content)}
           onDelete={() => onDeleteStep(step.id)}
+          canMoveUp={i > 0}
+          canMoveDown={i < steps.length - 1}
+          otherCategories={categories.filter((c) => c !== category)}
+          onMoveUp={() => onMoveStep(step.id, -1)}
+          onMoveDown={() => onMoveStep(step.id, 1)}
+          onMoveTo={(c) => onMoveStepTo(step.id, c)}
         />
       {/each}
     {/if}

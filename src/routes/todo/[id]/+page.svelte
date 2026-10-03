@@ -1,7 +1,7 @@
 <script lang="ts">
   import { page } from "$app/stores";
   import { goto, onNavigate } from "$app/navigation";
-  import { onMount, untrack } from "svelte";
+  import { onMount, onDestroy, untrack } from "svelte";
   import TodoHeader from "$lib/components/todos/TodoHeader/TodoHeader.svelte";
   import TodoCategoryTabs from "$lib/components/todos/TodoCategoryTabs/TodoCategoryTabs.svelte";
   import TodoStepsSection from "$lib/components/todos/TodoStepsSection/TodoStepsSection.svelte";
@@ -12,6 +12,8 @@
   import { breadcrumb } from "$lib/debug/log.svelte";
   import { unlockForSession, relockSilently } from "$lib/utils/lockFlow";
   import { renameCategory } from "$lib/utils/todoCategories";
+  import { removeWhere, reinsert, removeCategoryFrom, restoreCategory, nextCategoryAfterRemoval, moveWithinCategory, moveToCategory } from "$lib/utils/todoEdits";
+  import { pushToast, dismissToast } from "$lib/stores/toast.svelte";
   import { resolveTheme, hexToRgba, getImageTextColorVars } from "$lib/utils/themePalette";
   import { customThemes } from "$lib/stores/customThemes.svelte";
   import Spinner from "$lib/components/ui/Spinner/Spinner.svelte";
@@ -117,11 +119,40 @@
     return { ok: true as const };
   }
 
+  // Round 35: every destructive edit on this page offers Undo. The toast is
+  // dismissed when the page goes away (onDestroy below): an Undo that
+  // outlived the editor would write this stale copy of the todo back over
+  // whatever changed elsewhere in the meantime.
+  let undoToastId: string | null = null;
+  function offerUndo(title: string, run: () => void) {
+    if (undoToastId) dismissToast(undoToastId);
+    undoToastId = pushToast({ title, action: { label: "Undo", run: () => { undoToastId = null; run(); } }, durationMs: 8000 });
+  }
+  onDestroy(() => {
+    if (undoToastId) dismissToast(undoToastId);
+  });
+
   function removeCategory(name: string) {
-    todo.categories = todo.categories.filter((c) => c !== name);
-    todo.steps = todo.steps.filter((s) => s.category !== name);
-    todo.annotations = todo.annotations.filter((a) => a.category !== name);
+    const plan = removeCategoryFrom(todo, name);
+    if (!plan) return; // unknown, or the last category — a todo always keeps one
+    const next = nextCategoryAfterRemoval(todo.categories, name, currentCategory);
+    todo.categories = plan.categories;
+    todo.steps = plan.steps;
+    todo.annotations = plan.annotations;
+    // The selection is decided HERE, from the list as it was before the
+    // removal. The tabs component used to decide it after, from the already
+    // shortened list, and with two categories left the editor on a dead one.
+    if (next !== null) currentCategory = next;
     persist();
+    const lost = plan.undo.steps.length + plan.undo.annotations.length;
+    offerUndo(lost > 0 ? `Removed "${name}" and its ${lost} item${lost === 1 ? "" : "s"}` : `Removed "${name}"`, () => {
+      const back = restoreCategory(todo, plan.undo);
+      todo.categories = back.categories;
+      todo.steps = back.steps;
+      todo.annotations = back.annotations;
+      currentCategory = name;
+      persist();
+    });
   }
 
   function addStep() {
@@ -138,8 +169,30 @@
   }
 
   function deleteStep(stepId: string) {
-    todo.steps = todo.steps.filter((s) => s.id !== stepId);
+    const cut = removeWhere(todo.steps, (s) => s.id === stepId);
+    if (cut.removed.length === 0) return;
+    todo.steps = cut.list;
     persist();
+    offerUndo("Step deleted", () => {
+      todo.steps = reinsert(todo.steps, cut.removed);
+      persist();
+    });
+  }
+
+  // Round 35: reorder within the current category / re-file under another one.
+  function moveStep(stepId: string, dir: -1 | 1) {
+    const next = moveWithinCategory(todo.steps, stepId, dir);
+    if (!next) return;
+    todo.steps = next;
+    persist();
+  }
+
+  function moveStepTo(stepId: string, category: string) {
+    const next = moveToCategory(todo.steps, stepId, category);
+    if (!next) return;
+    todo.steps = next;
+    persist();
+    pushToast({ title: "Step moved", description: `Now under "${category}".` });
   }
 
   function addAnnotation(category: string) {
@@ -156,8 +209,14 @@
   }
 
   function deleteAnnotation(annotationId: string) {
-    todo.annotations = todo.annotations.filter((a) => a.id !== annotationId);
+    const cut = removeWhere(todo.annotations, (a) => a.id === annotationId);
+    if (cut.removed.length === 0) return;
+    todo.annotations = cut.list;
     persist();
+    offerUndo("Note deleted", () => {
+      todo.annotations = reinsert(todo.annotations, cut.removed);
+      persist();
+    });
   }
 
   const stepsForCategory = $derived(todo.steps.filter((s) => s.category === currentCategory));
@@ -269,6 +328,9 @@
           onAddStep={addStep}
           onUpdateStep={updateStep}
           onDeleteStep={deleteStep}
+          categories={todo.categories}
+          onMoveStep={moveStep}
+          onMoveStepTo={moveStepTo}
         />
       </div>
     </div>

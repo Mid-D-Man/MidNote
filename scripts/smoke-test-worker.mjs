@@ -312,6 +312,9 @@ if (STEPS.length > 0 && errors.length === 0) {
       }
       el.value = step.type.value;
       el.dispatchEvent(new w.Event("input", { bubbles: true }));
+      // Round 35: a <select> reports a choice through `change`, not `input`
+      // (the todo step card's "Move step to category"). Harmless for text fields.
+      el.dispatchEvent(new w.Event("change", { bubbles: true }));
     } else if (step.paste !== undefined) {
       // Round 27: fire a real `paste` event (with a text/plain clipboard)
       // at the live Tiptap editor. jsdom has no ClipboardEvent or
@@ -366,6 +369,21 @@ if (STEPS.length > 0 && errors.length === 0) {
     } else if (step.expectNoText) {
       if (target.textContent.includes(step.expectNoText)) {
         errors.push(new Error(`${where}: page text still contains "${step.expectNoText}".`));
+        break;
+      }
+    } else if (step.expectStoredOrder) {
+      // Round 35: the listed strings must appear in stored data in THIS order
+      // (first occurrence of each) — proves a reorder reached storage.
+      let all = "";
+      for (let k = 0; k < w.localStorage.length; k++) all += w.localStorage.getItem(w.localStorage.key(k)) + "\n";
+      const at = step.expectStoredOrder.map((s) => all.indexOf(s));
+      const missing = step.expectStoredOrder.filter((_, i) => at[i] === -1);
+      if (missing.length > 0) {
+        errors.push(new Error(`${where}: not found in stored data: ${JSON.stringify(missing)}.`));
+        break;
+      }
+      if (!at.every((v, i) => i === 0 || v > at[i - 1])) {
+        errors.push(new Error(`${where}: stored order is not ${JSON.stringify(step.expectStoredOrder)} (positions ${JSON.stringify(at)}).`));
         break;
       }
     } else if (step.expectStored !== undefined || step.expectNotStored !== undefined) {

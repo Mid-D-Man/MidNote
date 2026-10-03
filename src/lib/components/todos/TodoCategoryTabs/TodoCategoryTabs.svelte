@@ -71,11 +71,12 @@
     }
   }
 
+  // Round 35: the parent picks the next selection (see removeCategory in
+  // todo/[id]/+page.svelte). This used to do it here, AFTER the removal, off
+  // the already-shortened `categories` prop — with two categories that read as
+  // "only one left, nothing to switch to" and left the editor on a dead tab.
   function remove(category: string) {
     onRemoveCategory(category);
-    if (currentCategory === category && categories.length > 1) {
-      onCategoryChange(categories[0] === category ? categories[1] : categories[0]);
-    }
   }
 </script>
 
@@ -89,6 +90,7 @@
       <Button
         size="sm"
         variant="outline"
+        aria-label="Add category"
         onclick={() => {
           isRenaming = false;
           isAdding = !isAdding;
@@ -115,8 +117,8 @@
 
   {#if isAdding}
     <div class="add-row">
-      <Input bind:value={newCategory} placeholder="Category name..." onkeydown={keydown} />
-      <Button size="sm" onclick={commitAdd}>Save</Button>
+      <Input bind:value={newCategory} placeholder="Category name..." aria-label="New category name" onkeydown={keydown} />
+      <Button size="sm" aria-label="Save new category" onclick={commitAdd}>Save</Button>
     </div>
   {/if}
 

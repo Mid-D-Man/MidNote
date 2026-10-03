@@ -7,16 +7,21 @@ export interface ToastMsg {
   title: string;
   description?: string;
   variant?: "default" | "destructive";
+  // Round 35: an optional button on the toast ("Undo"). It runs once, then
+  // the toast goes away.
+  action?: { label: string; run: () => void };
+  durationMs?: number;
 }
 
 import { untrack } from "svelte";
 
 export const toasts = $state<ToastMsg[]>([]);
 
-export function pushToast(t: Omit<ToastMsg, "id">) {
+export function pushToast(t: Omit<ToastMsg, "id">): string {
   const id = crypto.randomUUID();
   toasts.push({ id, ...t });
-  setTimeout(() => dismissToast(id), 4000);
+  setTimeout(() => dismissToast(id), t.durationMs ?? 4000);
+  return id;
 }
 
 export function dismissToast(id: string) {
