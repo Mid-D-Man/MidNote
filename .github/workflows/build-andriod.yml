@@ -116,6 +116,29 @@ jobs:
           cp -f "$SRC/mipmap-anydpi-v26/ic_launcher.xml" "$DEST/mipmap-anydpi-v26/ic_launcher.xml"
           echo "Applied MidNote launcher icons over the generated Android project."
 
+      # Round 34: the reminder notification's status-bar icon. The plugin
+      # (tauri-plugin-notification) falls back to Android's built-in "i"
+      # info icon unless the APK contains a drawable whose name is passed as
+      # `icon` (src/lib/utils/reminders.ts NOTIFICATION_ICON =
+      # "ic_stat_midnote"). Same reason as the launcher-icon step above:
+      # gen/android is regenerated every run, so the files have to be copied
+      # in every run. Each file is a white silhouette of the MidNote "M" on a
+      # transparent background (Android only reads the alpha channel of a
+      # small icon), pre-sized for every density. `set -e` + the explicit
+      # existence check make a missing file fail the build loudly instead of
+      # silently shipping the "i" again.
+      - name: Apply MidNote notification icon
+        run: |
+          set -e
+          SRC="src-tauri/icons/android-notification"
+          DEST="src-tauri/gen/android/app/src/main/res"
+          for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            test -f "$SRC/drawable-$density/ic_stat_midnote.png"
+            mkdir -p "$DEST/drawable-$density"
+            cp -f "$SRC/drawable-$density/ic_stat_midnote.png" "$DEST/drawable-$density/ic_stat_midnote.png"
+          done
+          echo "Applied MidNote notification icon (5 densities)."
+
       # Default-generated manifest doesn't set windowSoftInputMode, which
       # leaves the soft keyboard free to overlay fixed-bottom UI (the
       # formatting toolbar) instead of the window resizing to make room
