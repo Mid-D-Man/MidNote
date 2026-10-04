@@ -22,6 +22,8 @@
   import { removeEntry, saveEntry } from "$lib/stores/entries.svelte";
   import { createBoard } from "$lib/storage";
   import { breadcrumb } from "$lib/debug/log.svelte";
+  import { toggleReadAloud, readAloud, stopReadingFor } from "$lib/stores/readAloud.svelte";
+  import { onDestroy } from "svelte";
   import { copyAppearance } from "$lib/utils/duplicate";
   import { shareText, shareOutcomeToast } from "$lib/utils/share";
   import { entryToPlainText, buildExportFiles, buildEncryptedBackupFile, downloadFiles } from "$lib/utils/selectionActions";
@@ -170,6 +172,16 @@
     // board still takes the encrypted-backup path above.
     exportAsOpen = true;
   }
+
+  // Round 37: read this entry aloud through the phone's speech engine, or stop it
+  // if it is the one being read. The reading must not outlive the editor that
+  // started it, so it stops when this page goes away.
+  const isReading = $derived(readAloud.status !== "idle" && readAloud.id === board.id);
+  async function handleReadAloud() {
+    moreOpen = false;
+    await toggleReadAloud(board);
+  }
+  onDestroy(() => stopReadingFor(board.id));
 
   async function handleShare() {
     breadcrumb(`board header: Share tapped (encrypted=${board.encrypted})`);
@@ -361,6 +373,12 @@
         <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.7 21a2 2 0 0 1-3.4 0" />
       </svg>
       <span>{isActiveReminder(board.reminderAt) ? `Reminder · ${formatReminderWhen(board.reminderAt as string)}` : "Reminder"}</span>
+    </button>
+    <button class="action-row" onclick={handleReadAloud} aria-label={isReading ? "Stop reading" : "Read aloud"}>
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><path d="M15.5 8.5a5 5 0 0 1 0 7" /><path d="M19 5a10 10 0 0 1 0 14" />
+      </svg>
+      <span>{isReading ? "Stop reading" : "Read aloud"}</span>
     </button>
     <button class="action-row" onclick={handleShare} aria-label="Share">
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">

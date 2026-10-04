@@ -14,6 +14,8 @@
   import { createNote, generateId } from "$lib/storage";
   import { copyAppearance, copyNotePages } from "$lib/utils/duplicate";
   import { breadcrumb } from "$lib/debug/log.svelte";
+  import { toggleReadAloud, readAloud, stopReadingFor } from "$lib/stores/readAloud.svelte";
+  import { onDestroy } from "svelte";
   import { shareText, shareOutcomeToast } from "$lib/utils/share";
   import { entryToPlainText, buildExportFiles, buildEncryptedBackupFile, downloadFiles } from "$lib/utils/selectionActions";
   import ThemeSectionsSheet from "$lib/components/shared/ThemeSectionsSheet/ThemeSectionsSheet.svelte";
@@ -282,6 +284,16 @@
     exportAsOpen = true;
   }
 
+  // Round 37: read this entry aloud through the phone's speech engine, or stop it
+  // if it is the one being read. The reading must not outlive the editor that
+  // started it, so it stops when this page goes away.
+  const isReading = $derived(readAloud.status !== "idle" && readAloud.id === note.id);
+  async function handleReadAloud() {
+    moreOpen = false;
+    await toggleReadAloud(note);
+  }
+  onDestroy(() => stopReadingFor(note.id));
+
   async function handleShare() {
     breadcrumb(`note header: Share tapped (encrypted=${note.encrypted})`);
     moreOpen = false;
@@ -389,7 +401,7 @@
 
 <header class="editor-header" style={headerStyle}>
   <div class="row">
-    <Button variant="ghost" size="icon" onclick={handleBack}>
+    <Button variant="ghost" size="icon" aria-label="Back" onclick={handleBack}>
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
         <line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" />
       </svg>
@@ -477,6 +489,12 @@
         <path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M18 6l-2.5 2.5M8.5 15.5 6 18" />
       </svg>
       <span>Ask AI</span>
+    </button>
+    <button class="action-row" onclick={handleReadAloud} aria-label={isReading ? "Stop reading" : "Read aloud"}>
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><path d="M15.5 8.5a5 5 0 0 1 0 7" /><path d="M19 5a10 10 0 0 1 0 14" />
+      </svg>
+      <span>{isReading ? "Stop reading" : "Read aloud"}</span>
     </button>
     <button class="action-row" onclick={handleShare} aria-label="Share">
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">

@@ -3,6 +3,8 @@
   import Switch from "$lib/components/ui/Switch/Switch.svelte";
   import ThemeSectionsSheet from "$lib/components/shared/ThemeSectionsSheet/ThemeSectionsSheet.svelte";
   import FontsSheet from "$lib/components/shared/FontsSheet/FontsSheet.svelte";
+  import ReadAloudSheet from "$lib/components/shared/ReadAloudSheet/ReadAloudSheet.svelte";
+  import { ttsSettings } from "$lib/stores/readAloud.svelte";
   import {
     debugPanelVisible,
     setDebugPanelVisible,
@@ -27,6 +29,16 @@
 
   let themeSheetOpen = $state(false);
   let fontsSheetOpen = $state(false);
+  let readAloudSheetOpen = $state(false);
+  // Shown on the Read aloud row so the current speed is visible without opening it.
+  const readAloudValue = $derived(`${ttsSettings.rate.toFixed(1)}×`);
+
+  function handleOpenReadAloudSheet() {
+    breadcrumb("settings: read aloud row tapped");
+    // Same sequential sheet swap as the Fonts row.
+    open = false;
+    readAloudSheetOpen = true;
+  }
   // Shown on the Fonts row so the current default is visible without opening it.
   const noteFontLabel = $derived(matchOption(fontOptions(customFonts.map((f) => f.name)), noteFont.value)?.label ?? "Default");
 
@@ -107,6 +119,13 @@
       </div>
       <span class="row-value">{noteFontLabel}</span>
     </button>
+    <button class="settings-row settings-row-button" onclick={handleOpenReadAloudSheet} aria-label="Open read aloud settings">
+      <div class="row-text">
+        <span class="row-label">Read aloud</span>
+        <span class="row-desc">Voice, speed and pitch for having notes read to you.</span>
+      </div>
+      <span class="row-value">{readAloudValue}</span>
+    </button>
     <div class="settings-row">
       <div class="row-text">
         <span class="row-label">App password</span>
@@ -158,6 +177,7 @@
 </Sheet>
 
 <FontsSheet bind:open={fontsSheetOpen} />
+<ReadAloudSheet bind:open={readAloudSheetOpen} />
 
 <!-- No icon/onIconChange passed — the landing page has no icon slot,
      see entry.ts's `icon` comment. ThemeSectionsSheet hides that row

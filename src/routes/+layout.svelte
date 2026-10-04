@@ -13,6 +13,7 @@
   import { goto } from "$app/navigation";
   import { installReminderTapHandler } from "$lib/utils/reminders";
   import { initCustomFonts } from "$lib/stores/customFonts.svelte";
+  import ReadAloudBar from "$lib/components/shared/ReadAloudBar/ReadAloudBar.svelte";
   import type { Snippet } from "svelte";
 
   let { children }: { children: Snippet } = $props();
@@ -71,6 +72,7 @@
 {:else}
   {@render children()}
 {/if}
+<ReadAloudBar />
 <Toast />
 <LockPrompt />
 <LoadingOverlay />

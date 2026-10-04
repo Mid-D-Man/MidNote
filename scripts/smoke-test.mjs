@@ -536,6 +536,108 @@ const SCENARIOS = [
   },
   // A todo with no steps must not claim to be complete (zero of zero is not "all done").
   { name: "todo — empty category is not all-done", path: "/todo/new", seed: SEED_ENTRIES, steps: [{ expectSelector: ".tab-pill" }, { expectNoSelector: ".tab-pill.all-done" }] },
+  // Round 37: read aloud. The fake speech engine records what it is asked to say.
+  // The whole session plays out: Read aloud -> engine is asked to speak the
+  // note (title first, FLUSH mode) -> the Stop bar is on screen -> the engine
+  // reports it has gone quiet -> the bar goes away by itself.
+  {
+    name: "note — read aloud, runs to the end",
+    path: `/note/${NOTE_ID}`,
+    seed: SEED_ENTRIES,
+    tts: true,
+    steps: [
+      { click: "More" },
+      { click: "Read aloud" },
+      { wait: 300 },
+      { expectGlobalIncludes: { name: "__ttsCalls", substring: "speak:flush:default:1:Smoke test note." } },
+      { expectSelector: '[aria-label="Stop reading"]' },
+      { wait: 2600 },
+      { expectNoSelector: '[aria-label="Stop reading"]' },
+    ],
+  },
+  // Stop: the engine is told to stop and the bar is gone straight away.
+  {
+    name: "note — read aloud, stop",
+    path: `/note/${NOTE_ID}`,
+    seed: SEED_ENTRIES,
+    tts: true,
+    steps: [
+      { click: "More" },
+      { click: "Read aloud" },
+      { wait: 300 },
+      { expectSelector: '[aria-label="Stop reading"]' },
+      { click: "Stop reading" },
+      { wait: 100 },
+      { expectGlobalIncludes: { name: "__ttsCalls", substring: "stop" } },
+      { expectNoSelector: '[aria-label="Stop reading"]' },
+    ],
+  },
+  // Leaving the editor stops the reading — it must not keep talking from a page
+  // you are no longer on.
+  {
+    name: "note — read aloud stops when you leave the page",
+    path: `/note/${NOTE_ID}`,
+    seed: SEED_ENTRIES,
+    tts: true,
+    steps: [
+      { click: "More" },
+      { click: "Read aloud" },
+      { wait: 300 },
+      { expectSelector: '[aria-label="Stop reading"]' },
+      { click: "Back" },
+      { wait: 400 },
+      { expectGlobalIncludes: { name: "__ttsCalls", substring: "stop" } },
+      { expectNoSelector: '[aria-label="Stop reading"]' },
+    ],
+  },
+  // A todo is read as categories and numbered steps, with ticked ones marked.
+  {
+    name: "todo — read aloud",
+    path: `/todo/${TODO_ID}`,
+    seed: TODO_TWO_STEPS,
+    tts: true,
+    steps: [
+      { click: "Mark step 1 done" },
+      { click: "More" },
+      { click: "Read aloud" },
+      { wait: 300 },
+      { expectGlobalIncludes: { name: "__ttsCalls", substring: "Category: Steps." } },
+      { expectGlobalIncludes: { name: "__ttsCalls", substring: "Step 1, done: AAA." } },
+      { expectGlobalIncludes: { name: "__ttsCalls", substring: "Step 2: BBB." } },
+    ],
+  },
+  // Settings -> Read aloud: pick a voice, change the speed, play the sample — the
+  // sample is spoken with exactly the chosen voice and speed, and both are saved.
+  {
+    name: "settings — read aloud voice, speed, sample",
+    path: "/",
+    seed: SEED_ENTRIES,
+    tts: true,
+    steps: [
+      { click: "Open menu" },
+      { click: "Open settings" },
+      { click: "Open read aloud settings" },
+      { wait: 300 },
+      { expectSelector: '[aria-label="Voices"]' },
+      // Opens on the phone's own language (jsdom reports en-US): English voices
+      // are listed, French ones are one language-filter change away.
+      { expectSelector: '[aria-label="Voice English (United States) · aaa · Local"]' },
+      { expectNoSelector: '[aria-label="Voice French (France) · ccc · Local"]' },
+      { type: { label: "Voice language", value: "fr" } },
+      { expectNoSelector: '[aria-label="Voice English (United States) · aaa · Local"]' },
+      { click: "Voice French (France) · ccc · Local" },
+      { expectStored: "fr-fr-x-ccc-local" },
+      { type: { label: "Speech speed", value: "1.5" } },
+      { expectStored: '"rate":1.5' },
+      { click: "Play sample" },
+      { wait: 200 },
+      { expectGlobalIncludes: { name: "__ttsCalls", substring: "speak:flush:fr-fr-x-ccc-local:1.5:This is how your notes will sound" } },
+      { click: "Voice Default" },
+      { expectNotStored: "fr-fr-x-ccc-local" },
+    ],
+  },
+  // Without the Android engine (a browser tab, desktop) Read aloud says so instead of failing silently.
+  { name: "note — read aloud without the engine", path: `/note/${NOTE_ID}`, seed: SEED_ENTRIES, steps: [{ click: "More" }, { click: "Read aloud" }, { wait: 200 }, { expectText: "Read aloud works in the Android app" }, { expectNoSelector: '[aria-label="Stop reading"]' }] },
   { name: "board — pin", path: `/board/${BOARD_ID}`, seed: SEED_ENTRIES, steps: [{ click: "More" }, { click: "Pin board" }, { expectText: "Pinned" }] },
   // Round 33: the toolbar's font picker through the real editor. The note
   // has no selection, so choosing a font sets a STORED MARK at the caret;
@@ -636,6 +738,7 @@ function runScenario(scenario) {
         TZ: "UTC",
         ...(scenario.reminderBackend ? { SMOKE_REMINDER_BACKEND: "fake" } : {}),
         ...(scenario.share ? { SMOKE_SHARE: scenario.share } : {}),
+        ...(scenario.tts ? { SMOKE_TTS: "fake" } : {}),
         SMOKE_BUILD_DIR: BUILD_DIR,
         SMOKE_ROUTE_PATH: scenario.path,
         SMOKE_SEED_ENTRIES: JSON.stringify(scenario.seed),

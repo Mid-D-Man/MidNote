@@ -34,6 +34,16 @@ tauri-plugin-sharekit = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
+# Round 37: read aloud. tauri-plugin-tts drives Android's own TextToSpeech engine
+# (the WebView has no Web Speech API). Source read at 0.2.1: Kotlin TtsPlugin +
+# Rust commands/models. MOBILE ONLY on purpose: on desktop the crate pulls in the
+# `tts` crate, which on Linux needs speech-dispatcher system libraries and
+# libclang to build — the desktop `cargo check` in ci-baby.yml doesn't install
+# those, so the dependency isn't even compiled there. Registered in lib.rs under
+# #[cfg(mobile)]; permitted by capabilities/android-tts.json (platform: android).
+[target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
+tauri-plugin-tts = "0.2"
+
 # Real DixScript-Rust encryption for the Lock feature (src-tauri/src/data/crypto.rs)
 # — published on crates.io as "dixscript" (confirmed via the crates.io API; same
 # crate as https://github.com/Mid-D-Man/DixScript-Rust's `dixscript/` directory).

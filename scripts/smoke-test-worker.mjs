@@ -196,6 +196,36 @@ if (process.env.SMOKE_SHARE === "fake" || process.env.SMOKE_SHARE === "cancel") 
   };
 }
 
+// Round 37: a recording stand-in for the phone's speech engine (the real one is
+// tauri-plugin-tts, Android only). SMOKE_TTS=fake -> every call is pushed onto
+// globalThis.__ttsCalls as a string: "speak:<queue>:<voiceId|default>:<rate>:<text>",
+// "stop". Voices: two English, one French. isSpeaking answers "yes" for the
+// first two polls after a speak, then "no", so a whole read-aloud session
+// (start -> reading -> finished) can play out in a scenario.
+if (process.env.SMOKE_TTS === "fake") {
+  const calls = (globalThis.__ttsCalls = []);
+  let speakingPolls = 0;
+  globalThis.__midnoteTtsBackend = {
+    supported: () => true,
+    getVoices: async () => ({
+      ready: true,
+      voices: [
+        { id: "en-us-x-aaa-local", name: "English (United States) · aaa · Local", language: "en-US" },
+        { id: "en-gb-x-bbb-local", name: "English (United Kingdom) · bbb · Local", language: "en-GB" },
+        { id: "fr-fr-x-ccc-local", name: "French (France) · ccc · Local", language: "fr-FR" },
+      ],
+    }),
+    speak: async (text, o) => {
+      calls.push(`speak:${o.queue}:${o.voiceId ?? "default"}:${o.rate}:${text}`);
+      speakingPolls = 0;
+    },
+    stop: async () => {
+      calls.push("stop");
+    },
+    isSpeaking: async () => speakingPolls++ < 2,
+  };
+}
+
 // Bare-identifier browser globals the SvelteKit client runtime and app
 // code touch directly (the way real browser globals work — `window`
 // properties are implicitly global). Extend this list if a new scenario

@@ -1,0 +1,14 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "android-tts",
+  "description": "Read-aloud (text-to-speech) permissions. Android only: the plugin is a mobile-only dependency, so a desktop build has no \"tts\" permissions to validate against, and tauri-build skips a capability whose platforms don't include the build target.",
+  "windows": [
+    "main"
+  ],
+  "platforms": [
+    "android"
+  ],
+  "permissions": [
+    "tts:default"
+  ]
+}
