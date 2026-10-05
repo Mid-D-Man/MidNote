@@ -23,6 +23,7 @@ import { isTauri } from "@tauri-apps/api/core";
 import { createNote, createTodo, generateId } from "$lib/storage";
 import { htmlToPlainText } from "$lib/utils/richText";
 import { sortByTime } from "$lib/utils/comments";
+import { describeEdge } from "$lib/utils/boardEdits";
 import type { Entry, Note, Todo } from "$lib/types/entry";
 
 export function entryToPlainText(entry: Entry): string {
@@ -64,7 +65,7 @@ export function entryToPlainText(entry: Entry): string {
     if (entry.edges.length > 0) {
       out.push("", "--- Connections ---");
       for (const e of entry.edges) {
-        out.push(`${nameOf.get(e.source) ?? "?"} -> ${nameOf.get(e.target) ?? "?"}`);
+        out.push(describeEdge(nameOf.get(e.source) ?? "?", nameOf.get(e.target) ?? "?", e.label, e.directed, "text"));
       }
     }
     return out.join("\n").trim();

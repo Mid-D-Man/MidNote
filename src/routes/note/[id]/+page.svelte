@@ -22,6 +22,7 @@
   import FindReplaceBar from "$lib/components/notes/FindReplaceBar/FindReplaceBar.svelte";
   import { escapeRegExp } from "$lib/utils/findReplaceCore";
   import { getKeyboardInset } from "$lib/utils/keyboardInset.svelte";
+  import { readBarLift } from "$lib/stores/readAloud.svelte";
   import { saveEntry } from "$lib/stores/entries.svelte";
   import { noteTags, sync as syncTags } from "$lib/stores/tags.svelte";
   import { fontSize } from "$lib/stores/settings.svelte";
@@ -65,6 +66,15 @@
   // the bar is open it takes FormattingToolbar's bottom slot.
   let findOpen = $state(false);
   let findBarHeight = $state(0);
+  // Round 38: height of the formatting toolbar (with any open popup). Together
+  // with the find bar's height it tells the "Reading…" bar how far up to ride.
+  let toolbarHeight = $state(0);
+  $effect(() => {
+    readBarLift.px = (findOpen ? findBarHeight : toolbarHeight) + 8;
+    return () => {
+      readBarLift.px = 0;
+    };
+  });
   let findOpts = $state({ find: "", replace: "", regex: false, caseSensitive: false, wholeWord: false });
 
   // Selecting a word first and then opening find prefills it (single line
@@ -426,7 +436,7 @@
       {#if findOpen}
         <FindReplaceBar {editor} {tick} bind:opts={findOpts} bind:height={findBarHeight} onClose={closeFind} />
       {:else}
-        <FormattingToolbar {editor} {tick} {hasSelection} />
+        <FormattingToolbar {editor} {tick} {hasSelection} entryId={note.id} bind:height={toolbarHeight} />
       {/if}
     {/if}
   {/if}

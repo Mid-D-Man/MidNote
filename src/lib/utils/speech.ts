@@ -3,6 +3,7 @@
 // pieces the engine accepts, which settings are legal) is testable directly.
 import type { Entry } from "$lib/types/entry";
 import { htmlToPlainText } from "$lib/utils/richText";
+import { describeEdge } from "$lib/utils/boardEdits";
 
 // ------------------------------------------------------------------ limits
 // The plugin rejects any single request over 10,000 UTF-8 BYTES, and Android's
@@ -163,7 +164,7 @@ export function entryToSpeechText(entry: Entry): string {
   } else {
     const nameOf = new Map(entry.nodes.map((n) => [n.id, n.label || "Untitled"]));
     for (const n of entry.nodes) parts.push(n.body ? `${n.label || "Untitled"}: ${n.body}` : n.label || "Untitled");
-    for (const e of entry.edges) parts.push(`${nameOf.get(e.source) ?? "Something"} connects to ${nameOf.get(e.target) ?? "something"}`);
+    for (const e of entry.edges) parts.push(describeEdge(nameOf.get(e.source) ?? "Something", nameOf.get(e.target) ?? "something", e.label, e.directed, "speech"));
   }
   return speechClean(parts.join("\n"));
 }

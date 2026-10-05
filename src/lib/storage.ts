@@ -95,6 +95,12 @@ function normalizeEntry(e: unknown): Entry | null {
   if (entry.type === "board") {
     if (!Array.isArray(entry.nodes)) entry.nodes = [];
     if (!Array.isArray(entry.edges)) entry.edges = [];
+    // Round 38: every connection carries a caption (or null) and an arrow flag.
+    entry.edges = (entry.edges as Array<Record<string, unknown>>).map((e) => ({
+      ...e,
+      label: typeof e?.label === "string" && e.label.trim() ? e.label : null,
+      directed: e?.directed === true,
+    }));
     const viewport = entry.viewport as { zoom?: unknown } | null | undefined;
     if (!viewport || typeof viewport.zoom !== "number") entry.viewport = null;
   }

@@ -17,17 +17,30 @@
   import { pushToast } from "$lib/stores/toast.svelte";
   import { breadcrumb } from "$lib/debug/log.svelte";
   import type { BoardNode } from "$lib/types/entry";
+  import type { Connection } from "$lib/utils/boardEdits";
+  import BoardConnectionRow from "./BoardConnectionRow.svelte";
 
   let {
     open = $bindable(false),
     node,
     onSave,
     onDelete,
+    onDuplicate,
+    connections = [],
+    onEdgeLabel,
+    onEdgeDirected,
+    onEdgeRemove,
   }: {
     open?: boolean;
     node: BoardNode | null;
     onSave: (patch: { label: string; body: string | null; customIconId: string | null }) => void;
     onDelete: () => void;
+    // Round 38: copy this node, and edit/remove the lines attached to it right here.
+    onDuplicate?: () => void;
+    connections?: Connection[];
+    onEdgeLabel?: (id: string, label: string) => void;
+    onEdgeDirected?: (id: string, directed: boolean) => void;
+    onEdgeRemove?: (id: string) => void;
   } = $props();
 
   let label = $state("");
@@ -132,13 +145,45 @@
         </div>
       {/if}
 
+      {#if connections.length > 0}
+        <div class="field">
+          <span class="field-label">Connections</span>
+          <div class="connections">
+            {#each connections as c (c.id)}
+              <BoardConnectionRow
+                id={c.id}
+                summary={c.outgoing ? `${c.otherLabel} →` : `← ${c.otherLabel}`}
+                label={c.label}
+                directed={c.directed}
+                onLabel={(id, l) => onEdgeLabel?.(id, l)}
+                onDirected={(id, d) => onEdgeDirected?.(id, d)}
+                onRemove={(id) => onEdgeRemove?.(id)}
+              />
+            {/each}
+          </div>
+        </div>
+      {/if}
+
       <div class="button-row">
+        {#if onDuplicate}
+          <button
+            class="dup-btn"
+            aria-label="Duplicate node"
+            onclick={() => {
+              breadcrumb("board node edit: Duplicate tapped");
+              onDuplicate?.();
+              open = false;
+            }}
+          >
+            Duplicate
+          </button>
+        {/if}
         <!-- No confirmation dialog: unlike deleting a whole entry
              (ConfirmDialog everywhere else in the app), a single node is
              a much smaller, more disposable unit — closer to deleting a
              todo step than deleting a note. Styled distinctly (red) so
              it still reads as a real, deliberate action. -->
-        <button class="delete-btn" onclick={handleDelete}>Delete node</button>
+        <button class="delete-btn" aria-label="Delete node" onclick={handleDelete}>Delete node</button>
         <button class="save-btn" onclick={commit}>Done</button>
       </div>
     </div>
@@ -146,6 +191,21 @@
 </Sheet>
 
 <style>
+  .connections {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+  .dup-btn {
+    min-height: 44px;
+    padding: 0 var(--space-4);
+    background: transparent;
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-sm);
+    color: var(--text-hi);
+    font-size: 14px;
+    cursor: pointer;
+  }
   .edit-form {
     display: flex;
     flex-direction: column;

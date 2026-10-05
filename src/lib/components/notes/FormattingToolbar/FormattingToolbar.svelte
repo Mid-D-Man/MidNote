@@ -29,6 +29,8 @@
   import { fontOptions, matchOption } from "$lib/utils/fonts";
   import { breadcrumb } from "$lib/debug/log.svelte";
   import { getKeyboardInset } from "$lib/utils/keyboardInset.svelte";
+  import { readSelectionAloud } from "$lib/stores/readAloud.svelte";
+  import { selectedText } from "$lib/utils/selectionText";
 
   const TEXT_COLORS: { label: string; value: string | null }[] = [
     { label: "Default", value: null },
@@ -55,6 +57,8 @@
     editor,
     tick = 0,
     hasSelection = false,
+    entryId = "",
+    height = $bindable(0),
   }: {
     editor: Editor | null;
     // Bumped by NoteContent on every Tiptap transaction — read (not
@@ -64,6 +68,10 @@
     // state does.
     tick?: number;
     hasSelection?: boolean;
+    // Round 38: the entry being edited (names the read-aloud session), and the
+    // panel's rendered height, published so the "Reading…" bar can ride above it.
+    entryId?: string;
+    height?: number;
   } = $props();
 
   // Re-derive on every tick. Cheap: isActive/getAttributes just read
@@ -131,6 +139,16 @@
     run();
   }
 
+  // Round 38: read only the selected text. Reads the selection straight from
+  // the document and does NOT refocus the editor, so the selection (and the
+  // keyboard state) stay exactly as they were.
+  function readSelection() {
+    if (!editor) return;
+    const text = selectedText(editor.state);
+    breadcrumb(`toolbar: read selection tapped (${text ? text.length : 0} chars)`);
+    if (text) void readSelectionAloud(entryId, text);
+  }
+
   function toggleRomanList() {
     if (!editor) return;
     if (editor.isActive("orderedList", { type: "i" })) {
@@ -152,7 +170,7 @@
   }
 </script>
 
-<div class="toolbar-wrap" style="bottom: calc(max(var(--space-4), env(safe-area-inset-bottom)) + {getKeyboardInset()}px)">
+<div class="toolbar-wrap" bind:clientHeight={height} style="bottom: calc(max(var(--space-4), env(safe-area-inset-bottom)) + {getKeyboardInset()}px)">
   {#if openPopup === "format"}
     <div class="popup format-popup" role="toolbar" aria-label="Bold, italic, underline, strikethrough" tabindex="-1">
       <button type="button" class:active={active.bold} onclick={() => tap("bold", () => editor?.chain().focus().toggleBold().run())} aria-label="Bold"><strong>B</strong></button>
@@ -223,6 +241,15 @@
         <path d="M3 21h18" style={active.backgroundColor ? `stroke:${active.backgroundColor}; stroke-width:4` : undefined} />
       </svg>
     </button>
+
+    {#if hasSelection}
+      <div class="sep"></div>
+      <button type="button" class="icon-btn" onclick={readSelection} aria-label="Read selection aloud" title="Read selection aloud">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><path d="M15.5 8.5a5 5 0 0 1 0 7" /><path d="M19 5a10 10 0 0 1 0 14" />
+        </svg>
+      </button>
+    {/if}
 
     {#if !hasSelection}
       <div class="sep"></div>

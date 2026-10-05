@@ -287,7 +287,7 @@
 
 <header class="todo-header" style={headerStyle}>
   <div class="row">
-    <Button variant="ghost" size="icon" onclick={handleBack}>
+    <Button variant="ghost" size="icon" aria-label="Back" onclick={handleBack}>
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
         <line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" />
       </svg>

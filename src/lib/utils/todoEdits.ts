@@ -116,6 +116,16 @@ export function setStepDone(steps: readonly Step[], id: string, done: boolean): 
   return steps.map((s, k) => (k === i ? { ...s, done } : s));
 }
 
+/** The wording for a todo card's second line: how far along it is, or just the count when nothing is ticked. */
+export function progressLabel(steps: readonly Step[]): string {
+  const total = steps.length;
+  if (total === 0) return "0 steps";
+  const done = countDone(steps);
+  if (done === total) return `✓ All ${total} step${total === 1 ? "" : "s"} done`;
+  if (done === 0) return `${total} step${total === 1 ? "" : "s"}`;
+  return `${done}/${total} steps done`;
+}
+
 export type CategoryProgress = { done: number; total: number; allDone: boolean };
 
 export function countDone(steps: readonly Step[]): number {

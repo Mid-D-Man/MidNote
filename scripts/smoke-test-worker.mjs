@@ -440,6 +440,19 @@ if (STEPS.length > 0 && errors.length === 0) {
         break;
       }
       el.click();
+    } else if (step.press) {
+      // Round 38: a keyboard shortcut on an element — e.g. Ctrl+A inside the editor
+      // to make a real selection (ProseMirror handles it through its own keymap).
+      const el = target.querySelector(step.press.selector);
+      if (!el) {
+        errors.push(new Error(`${where}: nothing matched ${step.press.selector} to press a key on.`));
+        break;
+      }
+      el.focus?.();
+      for (const type of ["keydown", "keyup"]) {
+        el.dispatchEvent(new w.KeyboardEvent(type, { key: step.press.key, ctrlKey: !!step.press.ctrl, bubbles: true, cancelable: true }));
+      }
+      await new Promise((r) => setTimeout(r, step.press.settleMs ?? 150));
     } else if (step.expectNoSelector) {
       // Round 36: the inverse of expectSelector — something must NOT be on the page.
       if (target.querySelector(step.expectNoSelector)) {

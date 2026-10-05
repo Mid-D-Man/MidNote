@@ -255,6 +255,11 @@ export interface BoardEdge {
   id: string;
   source: string;
   target: string;
+  // Round 38: an optional caption on the line ("mother of", "blocks"), and
+  // whether it points from source to target (an arrowhead) or just joins them.
+  // Boards saved before this have neither; storage.ts fills in null / false.
+  label: string | null;
+  directed: boolean;
 }
 
 // Persisted so reopening a board returns you to the part of it you were

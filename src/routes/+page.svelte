@@ -18,6 +18,7 @@
   import { stripHtml, plainTextToHtml } from "$lib/utils/richText";
   import { createLongPressHandlers } from "$lib/utils/longPress";
   import { createSwipeHandlers } from "$lib/utils/swipe";
+  import { progressLabel, countDone } from "$lib/utils/todoEdits";
   import { mergeNotes, mergeTodos, buildExportFiles, buildEncryptedBackupFile, downloadFiles, type ExportFormat } from "$lib/utils/selectionActions";
   import { shareText, shareOutcomeToast, entriesToShareText } from "$lib/utils/share";
   import { pushToast } from "$lib/stores/toast.svelte";
@@ -791,8 +792,14 @@
                        locked todo show MORE than an unlocked one. -->
                   {#if !item.encrypted}
                     <span class="meta">
-                      {item.steps.length} step{item.steps.length === 1 ? "" : "s"} · {new Date(item.lastModified).toLocaleDateString()}
+                      {progressLabel(item.steps)} · {new Date(item.lastModified).toLocaleDateString()}
                     </span>
+                    <!-- Round 38: a thin progress bar under the line, once anything is ticked. -->
+                    {#if item.steps.length > 0 && countDone(item.steps) > 0}
+                      <div class="todo-progress" class:complete={countDone(item.steps) === item.steps.length} role="img" aria-label={`${countDone(item.steps)} of ${item.steps.length} steps done`}>
+                        <div class="todo-progress-fill" style="width: {Math.round((countDone(item.steps) / item.steps.length) * 100)}%"></div>
+                      </div>
+                    {/if}
                   {/if}
                   {#if item.tags.length > 0}
                     <div class="tags">
@@ -1104,6 +1111,21 @@
     line-clamp: 2;
     -webkit-box-orient: vertical;
     font-size: 14px;
+  }
+  .todo-progress {
+    height: 4px;
+    margin-top: var(--space-2);
+    background: var(--hairline);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+  .todo-progress-fill {
+    height: 100%;
+    background: var(--accent-dim, var(--accent));
+    border-radius: 999px;
+  }
+  .todo-progress.complete .todo-progress-fill {
+    background: var(--accent);
   }
   .todo-item.compact .meta {
     font-size: 11px;

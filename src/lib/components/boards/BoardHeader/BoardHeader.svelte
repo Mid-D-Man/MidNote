@@ -149,6 +149,8 @@
       id: crypto.randomUUID(),
       source: idMap.get(e.source)!,
       target: idMap.get(e.target)!,
+      label: e.label, // round 38: captions and arrows used to be dropped
+      directed: e.directed,
     }));
     copy.viewport = board.viewport ? { ...board.viewport } : null;
     copyAppearance(board, copy); // round 34: themes + icon used to be dropped

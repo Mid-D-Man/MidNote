@@ -168,8 +168,8 @@
            header is the hardest place on the screen to reach one-handed,
            and these are the two most-used controls on this page. -->
       <div class="add-bar">
-        <button onclick={() => canvas?.addNode("text")}>+ Text</button>
-        <button onclick={() => canvas?.addNode("image")}>+ Image</button>
+        <button aria-label="Add text node" onclick={() => canvas?.addNode("text")}>+ Text</button>
+        <button aria-label="Add image node" onclick={() => canvas?.addNode("image")}>+ Image</button>
       </div>
     {/if}
   {/if}

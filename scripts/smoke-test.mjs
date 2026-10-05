@@ -590,6 +590,28 @@ const SCENARIOS = [
       { expectNoSelector: '[aria-label="Stop reading"]' },
     ],
   },
+  // Round 38: read ONLY the selected text. Ctrl+A selects the body; the toolbar
+  // then offers "Read selection aloud", and what the engine is asked to say is
+  // the body — NOT the title that a whole-note read starts with.
+  {
+    name: "note — read selection aloud",
+    path: `/note/${NOTE_ID}`,
+    seed: SEED_ENTRIES,
+    tts: true,
+    steps: [
+      { expectNoSelector: '[aria-label="Read selection aloud"]' },
+      { press: { selector: ".ProseMirror", key: "a", ctrl: true } },
+      { expectSelector: '[aria-label="Read selection aloud"]' },
+      { click: "Read selection aloud" },
+      { wait: 300 },
+      { expectGlobalIncludes: { name: "__ttsCalls", substring: "speak:flush:default:1:smoke test content." } },
+      { expectSelector: '[aria-label="Stop reading"]' },
+    ],
+  },
+  // The bar rides above the editor's bottom panel (the lift is published by the
+  // note page) and sits in the plain bottom slot on a page with no panel.
+  { name: "note — reading bar rides above the panel", path: `/note/${NOTE_ID}`, seed: SEED_ENTRIES, tts: true, steps: [{ click: "More" }, { click: "Read aloud" }, { wait: 300 }, { expectSelector: '[aria-label="Stop reading"]' }, { expectSelector: '.bar[data-lift="8"]' }] },
+  { name: "todo — reading bar sits in the plain bottom slot", path: `/todo/${TODO_ID}`, seed: SEED_ENTRIES, tts: true, steps: [{ click: "More" }, { click: "Read aloud" }, { wait: 300 }, { expectSelector: '.bar[data-lift="0"]' }] },
   // A todo is read as categories and numbered steps, with ticked ones marked.
   {
     name: "todo — read aloud",
@@ -638,6 +660,122 @@ const SCENARIOS = [
   },
   // Without the Android engine (a browser tab, desktop) Read aloud says so instead of failing silently.
   { name: "note — read aloud without the engine", path: `/note/${NOTE_ID}`, seed: SEED_ENTRIES, steps: [{ click: "More" }, { click: "Read aloud" }, { wait: 200 }, { expectText: "Read aloud works in the Android app" }, { expectNoSelector: '[aria-label="Stop reading"]' }] },
+  // Round 38: the todo CARD on the landing page shows progress. Ticking steps in
+  // the editor changes the card's line and bar; ticking them all marks it complete.
+  {
+    name: "todo — card shows progress",
+    path: `/todo/${TODO_ID}`,
+    seed: TODO_TWO_STEPS,
+    steps: [
+      { click: "Mark step 1 done" },
+      { click: "Back" },
+      { wait: 400 },
+      { clickSelector: ".view-tabs button:nth-child(2)" },
+      { expectText: "1/2 steps done" },
+      { expectSelector: '.todo-progress[aria-label="1 of 2 steps done"]' },
+      { expectNoSelector: ".todo-progress.complete" },
+    ],
+  },
+  {
+    name: "todo — card marks a finished todo",
+    path: `/todo/${TODO_ID}`,
+    seed: TODO_TWO_STEPS,
+    steps: [
+      { click: "Mark step 1 done" },
+      { click: "Mark step 2 done" },
+      { click: "Back" },
+      { wait: 400 },
+      { clickSelector: ".view-tabs button:nth-child(2)" },
+      { expectText: "All 2 steps done" },
+      { expectSelector: ".todo-progress.complete" },
+    ],
+  },
+  { name: "todo — card with nothing ticked shows the plain count", path: "/", seed: TODO_TWO_STEPS, steps: [{ clickSelector: ".view-tabs button:nth-child(2)" }, { expectText: "2 steps" }, { expectNoSelector: ".todo-progress" }] },
+  // Round 38: boards. Tapping a node opens its sheet, which now lists the lines
+  // attached to it. This first scenario only proves the plumbing: the node tap
+  // reaches the sheet and the seeded line shows up as a connection to "Node two".
+  {
+    name: "board — node sheet lists its connections",
+    path: `/board/${BOARD_ID}`,
+    seed: SEED_ENTRIES,
+    steps: [
+      { clickSelector: '.svelte-flow__node[data-id="bn1"]' },
+      { expectText: "Connections" },
+      { expectSelector: '[aria-label="Caption for Node two →"]' },
+      { expectSelector: '[aria-label="Arrow on Node two →"]' },
+    ],
+  },
+  // Round 38: connection captions and arrows, through the real node sheet. The
+  // seeded line has neither (the shape saved before this round) — so this also
+  // proves old boards load as "plain line, no caption" and that both edits reach
+  // storage as real values.
+  {
+    name: "board — connection caption and arrow",
+    path: `/board/${BOARD_ID}`,
+    seed: SEED_ENTRIES,
+    steps: [
+      { expectNotStored: '"directed":true' },
+      { clickSelector: '.svelte-flow__node[data-id="bn1"]' },
+      { type: { label: "Caption for Node two →", value: "mother of" } },
+      { press: { selector: '[aria-label="Caption for Node two →"]', key: "Enter" } },
+      { expectStored: '"label":"mother of"' },
+      { click: "Arrow on Node two →" },
+      { expectStored: '"directed":true' },
+      { click: "Arrow on Node two →" },
+      { expectNotStored: '"directed":true' },
+    ],
+  },
+  // Removing a connection is undoable, and the undo brings back the SAME line
+  // (id, and the caption it had).
+  {
+    name: "board — remove connection, undo",
+    path: `/board/${BOARD_ID}`,
+    seed: SEED_ENTRIES,
+    steps: [
+      { clickSelector: '.svelte-flow__node[data-id="bn1"]' },
+      { type: { label: "Caption for Node two →", value: "keeps this" } },
+      { press: { selector: '[aria-label="Caption for Node two →"]', key: "Enter" } },
+      { click: "Remove connection Node two →" },
+      { expectText: "Connection removed" },
+      { expectNotStored: '"id":"be1"' },
+      { click: "Undo" },
+      { expectStored: '"id":"be1"' },
+      { expectStored: '"label":"keeps this"' },
+    ],
+  },
+  // Deleting a node takes its lines with it; Undo returns both.
+  {
+    name: "board — delete node with its connection, undo",
+    path: `/board/${BOARD_ID}`,
+    seed: SEED_ENTRIES,
+    steps: [
+      { clickSelector: '.svelte-flow__node[data-id="bn1"]' },
+      { click: "Delete node" },
+      { expectText: "Node deleted with 1 connection" },
+      { expectNotStored: '"id":"bn1"' },
+      { expectNotStored: '"id":"be1"' },
+      { click: "Undo" },
+      { expectStored: '"id":"bn1"' },
+      { expectStored: '"id":"be1"' },
+    ],
+  },
+  // Duplicate makes a second node (new id), leaving the first and its line alone.
+  {
+    name: "board — duplicate node",
+    path: `/board/${BOARD_ID}`,
+    seed: SEED_ENTRIES,
+    steps: [
+      { expectNoSelector: ".svelte-flow__nodes > .svelte-flow__node:nth-child(3)" },
+      { clickSelector: '.svelte-flow__node[data-id="bn1"]' },
+      { click: "Duplicate node" },
+      { wait: 200 },
+      { expectSelector: ".svelte-flow__nodes > .svelte-flow__node:nth-child(3)" },
+      { expectStored: '"id":"bn1"' },
+      { expectStored: '"id":"be1"' },
+    ],
+  },
+  // Adding nodes still works, and two in a row are two nodes (placement is covered by logic tests).
+  { name: "board — add two nodes", path: `/board/${BOARD_ID}`, seed: SEED_ENTRIES, steps: [{ click: "Add text node" }, { click: "Add text node" }, { wait: 200 }, { expectSelector: ".svelte-flow__nodes > .svelte-flow__node:nth-child(4)" }, { expectNoSelector: ".svelte-flow__nodes > .svelte-flow__node:nth-child(5)" }] },
   { name: "board — pin", path: `/board/${BOARD_ID}`, seed: SEED_ENTRIES, steps: [{ click: "More" }, { click: "Pin board" }, { expectText: "Pinned" }] },
   // Round 33: the toolbar's font picker through the real editor. The note
   // has no selection, so choosing a font sets a STORED MARK at the caret;

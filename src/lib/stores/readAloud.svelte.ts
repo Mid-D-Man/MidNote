@@ -4,7 +4,7 @@ import { breadcrumb } from "$lib/debug/log.svelte";
 import { pushToast } from "$lib/stores/toast.svelte";
 import type { Entry } from "$lib/types/entry";
 import { ReadAloudController, type ReadState } from "$lib/utils/readAloudController";
-import { DEFAULT_SPEECH, entryToSpeechText, sanitizeSpeechSettings, type SpeechSettings } from "$lib/utils/speech";
+import { DEFAULT_SPEECH, entryToSpeechText, sanitizeSpeechSettings, speechClean, type SpeechSettings } from "$lib/utils/speech";
 import { realTtsBackend, type TtsVoice } from "$lib/utils/ttsBackend";
 
 const SETTINGS_KEY = "midnote:tts";
@@ -20,6 +20,12 @@ function loadSettings(): SpeechSettings {
 
 export const ttsSettings = $state<SpeechSettings>(loadSettings());
 export const readAloud = $state<ReadState>({ status: "idle", id: null, chunkCount: 0 });
+
+// Round 38: how far (px) the "Reading aloud" bar sits above the screen's bottom
+// slot. The note editor publishes the height of its bottom panel here (the
+// formatting toolbar with any open popup, or the find bar) so the bar rides
+// ABOVE that panel instead of on top of it. 0 on pages with no such panel.
+export const readBarLift = $state<{ px: number }>({ px: 0 });
 
 /** Change voice / speed / pitch. Everything is re-validated, then saved. */
 export function updateTtsSettings(patch: Partial<SpeechSettings>) {
@@ -72,6 +78,27 @@ export async function toggleReadAloud(entry: Entry): Promise<void> {
   const text = entryToSpeechText(entry);
   breadcrumb(`read aloud: start (${entry.type} ${entry.id}, ${text.length} chars)`);
   const result = await ctl().start(entry.id, text);
+  if (!result.ok && !result.cancelled) pushToast({ title: "Couldn't read aloud", description: result.message, variant: "destructive" });
+}
+
+/**
+ * Read only the text the user selected in an editor. It takes over from
+ * whatever is being read (the engine's first piece flushes the queue). The
+ * session is filed under the entry's id, so the Actions row and the Stop bar
+ * behave exactly as they do for a whole-entry read.
+ */
+export async function readSelectionAloud(entryId: string, rawSelection: string): Promise<void> {
+  if (!readAloudSupported()) {
+    pushToast({ title: "Read aloud works in the Android app", description: "It uses your phone's text-to-speech voices.", variant: "destructive" });
+    return;
+  }
+  const text = speechClean(rawSelection);
+  if (!text) {
+    pushToast({ title: "Nothing to read", description: "Select some text first.", variant: "destructive" });
+    return;
+  }
+  breadcrumb(`read aloud: selection (${entryId}, ${text.length} chars)`);
+  const result = await ctl().start(entryId, text);
   if (!result.ok && !result.cancelled) pushToast({ title: "Couldn't read aloud", description: result.message, variant: "destructive" });
 }
 
