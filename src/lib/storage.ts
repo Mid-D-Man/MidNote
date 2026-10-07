@@ -17,12 +17,12 @@
 // that decision only affects what happens the first time this ships to
 // a real device; it doesn't touch the fallback path, which exists purely
 // so this file still works somewhere with no Tauri runtime under it.
-import type { Board, CustomIcon, CustomTheme, Entry, Note, Todo } from "$lib/types/entry";
+import type { Board, CustomIcon, CustomTheme, Entry, EntryComment, Note, Todo } from "$lib/types/entry";
 import { NO_THEME } from "$lib/types/entry";
 import { getColorSync } from "colorthief";
 import * as dix from "$lib/dixscript/client";
 import { breadcrumb } from "$lib/debug/log.svelte";
-import { sanitizeComments } from "$lib/utils/comments";
+import { sanitizeComments, reconcileCommentPages } from "$lib/utils/comments";
 
 const ENTRIES_KEY = "midnote:entries";
 const TAGS_KEY = "midnote:known-tags";
@@ -126,6 +126,9 @@ function normalizeEntry(e: unknown): Entry | null {
   // Round 30: comments. Older entries have no field; sanitize also drops junk.
   entry.comments = sanitizeComments(entry.comments, generateId);
   if (entry.type === "regular" && !Array.isArray(entry.pages)) entry.pages = [];
+  // Round 39: a note's comments belong to a page; any that point at a page that
+  // is gone (a hand-edited file, an interrupted page delete) move to page 1.
+  if (entry.type === "regular") entry.comments = reconcileCommentPages(entry.comments as EntryComment[], (entry.pages as Array<{ id: string }>).map((p) => p.id));
   if (entry.type === "regular") {
     if (typeof entry.page1Name !== "string") entry.page1Name = null;
     for (const p of entry.pages ?? []) {

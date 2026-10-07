@@ -272,8 +272,6 @@ const SCENARIOS = [
       { expectStored: "second remark zq2" },
     ],
   },
-  { name: "todo — comments", path: `/todo/${TODO_ID}`, seed: SEED_ENTRIES, steps: [{ click: "More" }, { click: "Comments" }, { type: { label: "Add a comment", value: "todo remark zq3" } }, { wait: 200 }, { click: "Post comment" }, { expectText: "todo remark zq3" }, { expectStored: "todo remark zq3" }] },
-  { name: "board — comments", path: `/board/${BOARD_ID}`, seed: SEED_ENTRIES, steps: [{ click: "More" }, { click: "Comments" }, { type: { label: "Add a comment", value: "board remark zq4" } }, { wait: 200 }, { click: "Post comment" }, { expectText: "board remark zq4" }, { expectStored: "board remark zq4" }] },
   // Round 31: Reminder, against a recording fake of the Android notification
   // plugin (the real one can't run in jsdom). Checks the whole chain a user
   // triggers: the sheet -> the backend calls (exact time, once) -> the saved
@@ -551,9 +549,73 @@ const SCENARIOS = [
       { wait: 300 },
       { expectGlobalIncludes: { name: "__ttsCalls", substring: "speak:flush:default:1:Smoke test note." } },
       { expectSelector: '[aria-label="Stop reading"]' },
+      { expectSelector: '[aria-label="Pause reading"]' },
       { wait: 2600 },
+      // Finished by itself: the bar stays, offering Replay, until it is closed.
       { expectNoSelector: '[aria-label="Stop reading"]' },
+      { expectText: "Finished" },
+      { expectSelector: '[aria-label="Replay reading"]' },
+      { click: "Close reading bar" },
+      { expectNoSelector: ".bar" },
     ],
+  },
+  // Round 40: Pause stops the engine and shows Paused; Resume speaks again (a SECOND
+  // speak call, flush mode) and goes back to Reading; Replay speaks it from the start.
+  {
+    name: "note — read aloud pause, resume, replay",
+    path: `/note/${NOTE_ID}`,
+    seed: SEED_ENTRIES,
+    tts: true,
+    steps: [
+      { click: "More" },
+      { click: "Read aloud" },
+      { wait: 300 },
+      { expectGlobalCount: { name: "__ttsCalls", substring: "speak:flush:default:1:Smoke test note.", count: 1 } },
+      { click: "Pause reading" },
+      { wait: 100 },
+      { expectGlobalCount: { name: "__ttsCalls", substring: "stop", count: 1 } },
+      { expectText: "Paused" },
+      { expectSelector: '[aria-label="Resume reading"]' },
+      { expectNoSelector: '[aria-label="Pause reading"]' },
+      // still paused a couple of poll cycles later — the watcher must not "finish" it
+      { wait: 1800 },
+      { expectText: "Paused" },
+      { click: "Resume reading" },
+      { wait: 300 },
+      { expectGlobalCount: { name: "__ttsCalls", substring: "speak:flush:default:1:Smoke test note.", count: 2 } },
+      { expectSelector: '[aria-label="Pause reading"]' },
+      { expectText: "Reading…" },
+      { click: "Replay reading" },
+      { wait: 300 },
+      { expectGlobalCount: { name: "__ttsCalls", substring: "speak:flush:default:1:Smoke test note.", count: 3 } },
+      { expectSelector: '[aria-label="Pause reading"]' },
+    ],
+  },
+  // Replay after it has finished reads it again from the start.
+  {
+    name: "note — read aloud replay after it finished",
+    path: `/note/${NOTE_ID}`,
+    seed: SEED_ENTRIES,
+    tts: true,
+    steps: [
+      { click: "More" },
+      { click: "Read aloud" },
+      { wait: 2800 },
+      { expectText: "Finished" },
+      { click: "Replay reading" },
+      { wait: 300 },
+      { expectGlobalCount: { name: "__ttsCalls", substring: "speak:flush:default:1:Smoke test note.", count: 2 } },
+      { expectText: "Reading…" },
+      { expectSelector: '[aria-label="Stop reading"]' },
+    ],
+  },
+  // From the finished state the Actions row offers "Read aloud" again, not "Stop reading".
+  {
+    name: "note — actions row after it finished",
+    path: `/note/${NOTE_ID}`,
+    seed: SEED_ENTRIES,
+    tts: true,
+    steps: [{ click: "More" }, { click: "Read aloud" }, { wait: 2800 }, { expectText: "Finished" }, { click: "More" }, { expectSelector: '[aria-label="Read aloud"]' }, { expectNoSelector: '[aria-label="Stop reading"]' }],
   },
   // Stop: the engine is told to stop and the bar is gone straight away.
   {
@@ -776,6 +838,52 @@ const SCENARIOS = [
   },
   // Adding nodes still works, and two in a row are two nodes (placement is covered by logic tests).
   { name: "board — add two nodes", path: `/board/${BOARD_ID}`, seed: SEED_ENTRIES, steps: [{ click: "Add text node" }, { click: "Add text node" }, { wait: 200 }, { expectSelector: ".svelte-flow__nodes > .svelte-flow__node:nth-child(4)" }, { expectNoSelector: ".svelte-flow__nodes > .svelte-flow__node:nth-child(5)" }] },
+  // Round 39: comments are a NOTE feature, one list per page. Todos and boards no longer offer them.
+  { name: "todo — no Comments row", path: `/todo/${TODO_ID}`, seed: SEED_ENTRIES, steps: [{ click: "More" }, { expectSelector: '[aria-label="Export as"]' }, { expectNoSelector: '[aria-label="Comments"]' }] },
+  { name: "board — no Comments row", path: `/board/${BOARD_ID}`, seed: SEED_ENTRIES, steps: [{ click: "More" }, { expectSelector: '[aria-label="Export as"]' }, { expectNoSelector: '[aria-label="Comments"]' }] },
+  // A comment written on page 1 is NOT shown on page 2, and page 2 has its own. The
+  // Actions row counts only the page you are on, and the sheet's title names the page.
+  {
+    name: "note — comments are per page",
+    path: `/note/${NOTE_ID}`,
+    seed: SEED_ENTRIES,
+    steps: [
+      { click: "More" },
+      { click: "Comments" },
+      { type: { label: "Add a comment", value: "only on page one" } },
+      { click: "Post comment" },
+      { expectText: "only on page one" },
+      { expectStored: '"pageId":"page-1"' },
+      { clickSelector: ".scrim" },
+      { wait: 400 },
+      { click: "More" },
+      { expectText: "Comments (1)" },
+      { click: "Pages" },
+      { click: "Add page" },
+      { wait: 300 },
+      { click: "More" },
+      { expectNoText: "Comments (1)" },
+      { click: "Comments" },
+      { expectText: "Comments · Page 2" },
+      { expectNoText: "only on page one" },
+      { expectText: "No comments on this page yet" },
+      { type: { label: "Add a comment", value: "only on page two" } },
+      { click: "Post comment" },
+      { expectText: "only on page two" },
+      { clickSelector: ".scrim" },
+      { wait: 400 },
+      { click: "More" },
+      { click: "Pages" },
+      { click: "Go to Page 1" },
+      { wait: 300 },
+      { click: "More" },
+      { expectText: "Comments (1)" },
+      { click: "Comments" },
+      { expectText: "only on page one" },
+      { expectNoText: "only on page two" },
+      { expectStored: "only on page two" },
+    ],
+  },
   { name: "board — pin", path: `/board/${BOARD_ID}`, seed: SEED_ENTRIES, steps: [{ click: "More" }, { click: "Pin board" }, { expectText: "Pinned" }] },
   // Round 33: the toolbar's font picker through the real editor. The note
   // has no selection, so choosing a font sets a STORED MARK at the caret;

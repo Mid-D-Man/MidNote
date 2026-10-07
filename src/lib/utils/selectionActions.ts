@@ -22,7 +22,7 @@ import { save } from "@tauri-apps/plugin-dialog";
 import { isTauri } from "@tauri-apps/api/core";
 import { createNote, createTodo, generateId } from "$lib/storage";
 import { htmlToPlainText } from "$lib/utils/richText";
-import { sortByTime } from "$lib/utils/comments";
+import { sortByTime, FIRST_PAGE } from "$lib/utils/comments";
 import { describeEdge } from "$lib/utils/boardEdits";
 import type { Entry, Note, Todo } from "$lib/types/entry";
 
@@ -157,13 +157,26 @@ export function mergeNotes(selected: Note[]): Note {
     seenPageNames.set(name, count + 1);
     return count === 0 ? name : `${name} (${count})`;
   };
-  merged.pages = selected.flatMap((n) =>
-    n.pages.map((p) => ({ id: generateId(), content: p.content, name: dedupedPageName(p.name) })),
+  // Round 39: a comment belongs to a page, and merged pages get fresh ids, so
+  // remember old -> new per source note (two sources may reuse a page id).
+  const pageIdMap = new Map<string, string>();
+  merged.pages = selected.flatMap((n, ni) =>
+    n.pages.map((p) => {
+      const id = generateId();
+      pageIdMap.set(`${ni}:${p.id}`, id);
+      return { id, content: p.content, name: dedupedPageName(p.name) };
+    }),
   );
 
   merged.tags = dedupeStrings(selected.flatMap((n) => n.tags));
   merged.isBookmarked = selected.some((n) => n.isBookmarked);
-  merged.comments = sortByTime(selected.flatMap((n) => n.comments)).map((c) => ({ ...c, id: generateId() }));
+  // A comment on a source's first page lands on the merged first page (which holds
+  // every source's first page); one on a later page follows that page to its new id.
+  merged.comments = sortByTime(
+    selected.flatMap((n, ni) =>
+      n.comments.map((c) => ({ ...c, pageId: c.pageId === FIRST_PAGE ? FIRST_PAGE : (pageIdMap.get(`${ni}:${c.pageId}`) ?? FIRST_PAGE) })),
+    ),
+  ).map((c) => ({ ...c, id: generateId() }));
   return merged;
 }
 

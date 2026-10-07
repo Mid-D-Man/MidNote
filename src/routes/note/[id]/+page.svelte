@@ -31,6 +31,7 @@
   import { stripHtml } from "$lib/utils/richText";
   import { unlockForSession, relockSilently } from "$lib/utils/lockFlow";
   import { resolveTheme, hexToRgba, getImageTextColorVars } from "$lib/utils/themePalette";
+  import { commentsAfterPageDelete } from "$lib/utils/comments";
   import { customThemes } from "$lib/stores/customThemes.svelte";
   import Spinner from "$lib/components/ui/Spinner/Spinner.svelte";
   import type { LockKeyMode, Note } from "$lib/types/entry";
@@ -238,6 +239,8 @@
   // moves as-is, nothing is regenerated or lost.
   function deletePage(index: number) {
     if (index === currentPageIndex) return; // can't delete the page you're currently on
+    // Round 39: the page's comments go with it (and a promoted page keeps its own).
+    note.comments = commentsAfterPageDelete(note.comments, note.pages, index);
     if (index === 0) {
       const [promoted, ...rest] = note.pages;
       note.content = promoted.content;

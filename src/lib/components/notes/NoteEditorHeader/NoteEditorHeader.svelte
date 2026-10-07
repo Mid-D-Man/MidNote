@@ -13,8 +13,9 @@
   import { removeEntry, saveEntry } from "$lib/stores/entries.svelte";
   import { createNote, generateId } from "$lib/storage";
   import { copyAppearance, copyNotePages } from "$lib/utils/duplicate";
+  import { pageKeyAt, pageLabelAt, commentsForPage } from "$lib/utils/comments";
   import { breadcrumb } from "$lib/debug/log.svelte";
-  import { toggleReadAloud, readAloud, stopReadingFor } from "$lib/stores/readAloud.svelte";
+  import { toggleReadAloud, readAloud, stopReadingFor, isReadingStatus } from "$lib/stores/readAloud.svelte";
   import { onDestroy } from "svelte";
   import { shareText, shareOutcomeToast } from "$lib/utils/share";
   import { entryToPlainText, buildExportFiles, buildEncryptedBackupFile, downloadFiles } from "$lib/utils/selectionActions";
@@ -287,7 +288,7 @@
   // Round 37: read this entry aloud through the phone's speech engine, or stop it
   // if it is the one being read. The reading must not outlive the editor that
   // started it, so it stops when this page goes away.
-  const isReading = $derived(readAloud.status !== "idle" && readAloud.id === note.id);
+  const isReading = $derived(isReadingStatus(readAloud.status) && readAloud.id === note.id);
   async function handleReadAloud() {
     moreOpen = false;
     await toggleReadAloud(note);
@@ -364,6 +365,12 @@
   // and same close-then-open (never nested) Sheet pattern as Theme/Pin: a
   // locked entry's content and comments are cleared on the visible record,
   // so there is nothing to show or export until it's unlocked.
+  // Round 39: comments are per PAGE. The row's count and the sheet both follow the
+  // page being edited (currentPageIndex comes from the route).
+  const pageKey = $derived(pageKeyAt(note.pages, currentPageIndex));
+  const pageName = $derived(pageLabelAt(note.page1Name, note.pages, currentPageIndex));
+  const pageCommentCount = $derived(commentsForPage(note.comments, pageKey).length);
+
   function handleOpenComments() {
     breadcrumb(`note header: Comments tapped (encrypted=${note.encrypted})`);
     moreOpen = false;
@@ -448,7 +455,7 @@
   />
 </header>
 
-<CommentsSheet bind:open={commentsOpen} entry={note} />
+<CommentsSheet bind:open={commentsOpen} entry={note} pageId={pageKey} pageLabel={note.pages.length > 0 ? pageName : ""} />
 <ExportAsSheet bind:open={exportAsOpen} entry={note} />
 <ReminderSheet bind:open={reminderOpen} entry={note} />
 
@@ -464,7 +471,7 @@
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z" />
       </svg>
-      <span>Comments{note.comments.length > 0 ? ` (${note.comments.length})` : ""}</span>
+      <span>Comments{pageCommentCount > 0 ? ` (${pageCommentCount})` : ""}</span>
     </button>
     <button class="action-row" onclick={handleOpenExportAs} aria-label="Export as">
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
@@ -523,7 +530,7 @@
       </svg>
       <span>Theme</span>
     </button>
-    <button class="action-row" onclick={handleOpenPages}>
+    <button class="action-row" onclick={handleOpenPages} aria-label="Pages">
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" />
       </svg>

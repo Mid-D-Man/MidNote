@@ -17,6 +17,71 @@ import type { EntryComment } from "$lib/types/entry";
 
 export const MAX_COMMENT_LENGTH = 2000;
 
+// Round 39 — comments belong to a PAGE of a note, not to the whole note. A note's
+// first page is not a NotePage object (it lives in note.content — see entry.ts),
+// so it has no id of its own; this constant stands in for it. Every other page is
+// keyed by its NotePage.id.
+export const FIRST_PAGE = "page-1";
+
+/** The page key for position `index` in the note's page strip (0 = the first page). */
+export function pageKeyAt(pages: readonly { id: string }[], index: number): string {
+  if (index <= 0) return FIRST_PAGE;
+  return pages[index - 1]?.id ?? FIRST_PAGE;
+}
+
+/** What the page is called in the UI: its own name, else its position ("Page 2"). */
+export function pageLabelAt(page1Name: string | null, pages: readonly { name: string | null }[], index: number): string {
+  const name = index <= 0 ? page1Name : pages[index - 1]?.name;
+  return name && name.trim() ? name.trim() : `Page ${Math.max(0, index) + 1}`;
+}
+
+/** The comments written on one page, in stored order. */
+export function commentsForPage(comments: readonly EntryComment[], pageId: string): EntryComment[] {
+  return comments.filter((c) => c.pageId === pageId);
+}
+
+/** All comments except those on `pageId` — what remains when that page is deleted. */
+export function dropPageComments(comments: readonly EntryComment[], pageId: string): EntryComment[] {
+  return comments.filter((c) => c.pageId !== pageId);
+}
+
+/** Move every comment on page `from` over to page `to` (a promoted page taking over as page 1). */
+export function remapPageComments(comments: readonly EntryComment[], from: string, to: string): EntryComment[] {
+  return comments.map((c) => (c.pageId === from ? { ...c, pageId: to } : c));
+}
+
+/**
+ * The comment list after the page at strip position `index` is deleted. That
+ * page's comments go with it. Deleting the FIRST page promotes the next page into
+ * its place (note.ts: page 1 is not an object, so the promoted page's content
+ * moves into note.content and its id disappears) — the promoted page's comments
+ * therefore follow it and become page-1 comments.
+ */
+export function commentsAfterPageDelete(
+  comments: readonly EntryComment[],
+  pages: readonly { id: string }[],
+  index: number,
+): EntryComment[] {
+  if (index <= 0) {
+    const promoted = pages[0];
+    const rest = dropPageComments(comments, FIRST_PAGE);
+    return promoted ? remapPageComments(rest, promoted.id, FIRST_PAGE) : rest;
+  }
+  const page = pages[index - 1];
+  return page ? dropPageComments(comments, page.id) : [...comments];
+}
+
+/**
+ * Comments that point at a page that no longer exists (a hand-edited file, an
+ * interrupted page delete) would be invisible forever. They are filed under the
+ * first page instead, so nothing the user wrote is lost.
+ */
+export function reconcileCommentPages(comments: readonly EntryComment[], validPageIds: Iterable<string>): EntryComment[] {
+  const ok = new Set(validPageIds);
+  ok.add(FIRST_PAGE);
+  return comments.map((c) => (ok.has(c.pageId) ? c : { ...c, pageId: FIRST_PAGE }));
+}
+
 /**
  * Coerce whatever was stored into a clean list. Drops anything that isn't
  * a comment with real text, repairs a missing/duplicate id, and keeps
@@ -38,16 +103,18 @@ export function sanitizeComments(raw: unknown, makeId: () => string): EntryComme
       id,
       text: rec.text,
       createdAt: typeof rec.createdAt === "string" ? rec.createdAt : "",
+      // Round 39: older comments have no page; they were written on the whole note, so page 1.
+      pageId: typeof rec.pageId === "string" && rec.pageId && rec.pageId.length <= 100 ? rec.pageId : FIRST_PAGE,
     });
   }
   return out;
 }
 
 /** A new comment from typed text, or null when there's nothing to post. */
-export function makeComment(text: string, id: string, now: Date = new Date()): EntryComment | null {
+export function makeComment(text: string, id: string, pageId: string = FIRST_PAGE, now: Date = new Date()): EntryComment | null {
   const trimmed = text.replace(/\s+$/g, "").replace(/^\s*\n/, "");
   if (!trimmed.trim()) return null;
-  return { id, text: trimmed.slice(0, MAX_COMMENT_LENGTH), createdAt: now.toISOString() };
+  return { id, text: trimmed.slice(0, MAX_COMMENT_LENGTH), createdAt: now.toISOString(), pageId };
 }
 
 /**

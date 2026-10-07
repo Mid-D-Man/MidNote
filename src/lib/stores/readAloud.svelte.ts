@@ -60,9 +60,37 @@ export function readAloudSupported(): boolean {
   return realTtsBackend().supported();
 }
 
+/** True while something is being read or is paused — NOT once it has finished (then only Replay is on offer). */
+export function isReadingStatus(status: ReadState["status"]): boolean {
+  return status === "starting" || status === "reading" || status === "paused";
+}
+
+/** Pause (Android's engine can't, so this stops and remembers the sentence), resume it, or read it all again. */
+export async function pauseReading(): Promise<void> {
+  breadcrumb("read aloud: pause tapped");
+  await ctl().pause();
+}
+
+export async function resumeReading(): Promise<void> {
+  breadcrumb("read aloud: resume tapped");
+  const r = await ctl().resume();
+  if (r && !r.ok && !r.cancelled) pushToast({ title: "Couldn't resume", description: r.message, variant: "destructive" });
+}
+
+export async function replayReading(): Promise<void> {
+  breadcrumb("read aloud: replay tapped");
+  const r = await ctl().replay();
+  if (r && !r.ok && !r.cancelled) pushToast({ title: "Couldn't replay", description: r.message, variant: "destructive" });
+}
+
+/** Close the bar (also what Stop does). */
+export async function closeReading(): Promise<void> {
+  await ctl().stop();
+}
+
 /** Start reading `entry`, or stop if it is the one being read. Shows its own toasts. */
 export async function toggleReadAloud(entry: Entry): Promise<void> {
-  if (readAloud.status !== "idle" && readAloud.id === entry.id) {
+  if (isReadingStatus(readAloud.status) && readAloud.id === entry.id) {
     breadcrumb(`read aloud: stop tapped (${entry.type} ${entry.id})`);
     await ctl().stop();
     return;

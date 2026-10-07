@@ -205,7 +205,18 @@ if (process.env.SMOKE_SHARE === "fake" || process.env.SMOKE_SHARE === "cancel") 
 if (process.env.SMOKE_TTS === "fake") {
   const calls = (globalThis.__ttsCalls = []);
   let speakingPolls = 0;
+  let nextId = 0;
+  let handler = null;
   globalThis.__midnoteTtsBackend = {
+    // Round 40: the plugin reports each piece's start with the id speak() returned.
+    // The fake announces a start for the first piece of every "flush" run, which is
+    // what a real engine does the moment it begins speaking.
+    onEvent: async (h) => {
+      handler = h;
+      return () => {
+        handler = null;
+      };
+    },
     supported: () => true,
     getVoices: async () => ({
       ready: true,
@@ -218,6 +229,9 @@ if (process.env.SMOKE_TTS === "fake") {
     speak: async (text, o) => {
       calls.push(`speak:${o.queue}:${o.voiceId ?? "default"}:${o.rate}:${text}`);
       speakingPolls = 0;
+      const utteranceId = `u${++nextId}`;
+      if (o.queue === "flush") setTimeout(() => handler?.({ type: "start", id: utteranceId }), 0);
+      return { utteranceId };
     },
     stop: async () => {
       calls.push("stop");

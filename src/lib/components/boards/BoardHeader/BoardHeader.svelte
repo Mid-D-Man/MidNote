@@ -7,7 +7,6 @@
   concept; nodes/edges are its content instead.
 -->
 <script lang="ts">
-  import CommentsSheet from "$lib/components/shared/CommentsSheet/CommentsSheet.svelte";
   import ExportAsSheet from "$lib/components/shared/ExportAsSheet/ExportAsSheet.svelte";
   import ReminderSheet from "$lib/components/shared/ReminderSheet/ReminderSheet.svelte";
   import { isActiveReminder, formatReminderWhen } from "$lib/utils/reminders";
@@ -22,7 +21,7 @@
   import { removeEntry, saveEntry } from "$lib/stores/entries.svelte";
   import { createBoard } from "$lib/storage";
   import { breadcrumb } from "$lib/debug/log.svelte";
-  import { toggleReadAloud, readAloud, stopReadingFor } from "$lib/stores/readAloud.svelte";
+  import { toggleReadAloud, readAloud, stopReadingFor, isReadingStatus } from "$lib/stores/readAloud.svelte";
   import { onDestroy } from "svelte";
   import { copyAppearance } from "$lib/utils/duplicate";
   import { shareText, shareOutcomeToast } from "$lib/utils/share";
@@ -53,7 +52,6 @@
   let isSaving = $state(false);
   let showDeleteConfirm = $state(false);
   let moreOpen = $state(false);
-  let commentsOpen = $state(false);
   let exportAsOpen = $state(false);
   let reminderOpen = $state(false);
   let themeSheetOpen = $state(false);
@@ -178,7 +176,7 @@
   // Round 37: read this entry aloud through the phone's speech engine, or stop it
   // if it is the one being read. The reading must not outlive the editor that
   // started it, so it stops when this page goes away.
-  const isReading = $derived(readAloud.status !== "idle" && readAloud.id === board.id);
+  const isReading = $derived(isReadingStatus(readAloud.status) && readAloud.id === board.id);
   async function handleReadAloud() {
     moreOpen = false;
     await toggleReadAloud(board);
@@ -245,16 +243,6 @@
   // and same close-then-open (never nested) Sheet pattern as Theme/Pin: a
   // locked entry's content and comments are cleared on the visible record,
   // so there is nothing to show or export until it's unlocked.
-  function handleOpenComments() {
-    breadcrumb(`board header: Comments tapped (encrypted=${board.encrypted})`);
-    moreOpen = false;
-    if (board.encrypted) {
-      pushToast({ title: "Unlock first", description: "Unlock this board before opening its comments.", variant: "destructive" });
-      return;
-    }
-    commentsOpen = true;
-  }
-
   function handleOpenExportAs() {
     breadcrumb(`board header: Export as tapped (encrypted=${board.encrypted})`);
     moreOpen = false;
@@ -346,7 +334,6 @@
   />
 </header>
 
-<CommentsSheet bind:open={commentsOpen} entry={board} />
 <ExportAsSheet bind:open={exportAsOpen} entry={board} />
 <ReminderSheet bind:open={reminderOpen} entry={board} />
 
@@ -358,12 +345,8 @@
       </svg>
       <span>{board.isPinned ? "Unpin" : "Pin to top"}</span>
     </button>
-    <button class="action-row" onclick={handleOpenComments} aria-label="Comments">
-      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z" />
-      </svg>
-      <span>Comments{board.comments.length > 0 ? ` (${board.comments.length})` : ""}</span>
-    </button>
+    <!-- Round 39: no Comments row here. Comments are a note feature (one list per page);
+         a board has no pages. Existing comments in saved boards stay in storage, hidden. -->
     <button class="action-row" onclick={handleOpenExportAs} aria-label="Export as">
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><polyline points="14 3 14 8 19 8" /><line x1="9" y1="14" x2="15" y2="14" /><line x1="9" y1="17.5" x2="13" y2="17.5" />

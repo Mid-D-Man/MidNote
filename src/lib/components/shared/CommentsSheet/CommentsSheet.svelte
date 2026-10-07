@@ -23,10 +23,13 @@
   import { generateId } from "$lib/storage";
   import { pushToast } from "$lib/stores/toast.svelte";
   import { breadcrumb } from "$lib/debug/log.svelte";
-  import { makeComment, editComment, formatCommentTime, sortByTime, MAX_COMMENT_LENGTH } from "$lib/utils/comments";
-  import type { Entry } from "$lib/types/entry";
+  import { makeComment, editComment, formatCommentTime, sortByTime, commentsForPage, MAX_COMMENT_LENGTH } from "$lib/utils/comments";
+  import type { Note } from "$lib/types/entry";
 
-  let { open = $bindable(false), entry }: { open?: boolean; entry: Entry } = $props();
+  // Round 39: comments belong to a PAGE of a note. `pageId` says which one this sheet
+  // is showing and writing to (comments.ts FIRST_PAGE or a NotePage id); `pageLabel`
+  // is its name in the title. Only notes have comments now — todos and boards don't.
+  let { open = $bindable(false), entry, pageId, pageLabel = "" }: { open?: boolean; entry: Note; pageId: string; pageLabel?: string } = $props();
 
   let draft = $state("");
   // Round 34: editing reuses the composer. `editingId` is the comment being
@@ -38,7 +41,7 @@
   let logEl = $state<HTMLDivElement | null>(null);
   let inputEl = $state<HTMLTextAreaElement | null>(null);
 
-  const ordered = $derived(sortByTime(entry.comments));
+  const ordered = $derived(sortByTime(commentsForPage(entry.comments, pageId)));
 
   // Newest comment in view whenever the sheet opens or one is added.
   $effect(() => {
@@ -94,7 +97,7 @@
       cancelEdit();
       return;
     }
-    const c = makeComment(draft, generateId());
+    const c = makeComment(draft, generateId(), pageId);
     if (!c) return;
     breadcrumb(`comments: added (${c.text.length} chars) to ${entry.type} ${entry.id}`);
     entry.comments = [...entry.comments, c];
@@ -132,11 +135,11 @@
   }
 </script>
 
-<Sheet bind:open side="bottom" title="Comments">
+<Sheet bind:open side="bottom" title={pageLabel ? `Comments · ${pageLabel}` : "Comments"}>
   <div class="comments">
     <div class="log" bind:this={logEl}>
       {#if ordered.length === 0}
-        <p class="empty">No comments yet. Add a private remark about this {entry.type === "regular" ? "note" : entry.type}.</p>
+        <p class="empty">No comments on {pageLabel ? "this page" : "this note"} yet. Add a private remark.</p>
       {:else}
         {#each ordered as c (c.id)}
           <div class="item">

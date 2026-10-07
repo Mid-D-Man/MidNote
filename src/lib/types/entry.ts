@@ -76,6 +76,10 @@ export interface EntryComment {
   id: string;
   text: string;
   createdAt: string; // ISO 8601
+  // Round 39: which PAGE of a note the comment belongs to. "page-1" (the
+  // note's first page, which is not a NotePage object) or a NotePage.id.
+  // Comments saved before this have none and load as page 1.
+  pageId: string;
 }
 
 export interface CustomIcon {
