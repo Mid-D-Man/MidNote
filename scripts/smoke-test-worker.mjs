@@ -196,21 +196,47 @@ if (process.env.SMOKE_SHARE === "fake" || process.env.SMOKE_SHARE === "cancel") 
   };
 }
 
-// Round 37: a recording stand-in for the phone's speech engine (the real one is
+// Round 37/41: a recording stand-in for the phone's speech engine (the real one is
 // tauri-plugin-tts, Android only). SMOKE_TTS=fake -> every call is pushed onto
 // globalThis.__ttsCalls as a string: "speak:<queue>:<voiceId|default>:<rate>:<text>",
-// "stop". Voices: two English, one French. isSpeaking answers "yes" for the
-// first two polls after a speak, then "no", so a whole read-aloud session
-// (start -> reading -> finished) can play out in a scenario.
-if (process.env.SMOKE_TTS === "fake") {
+// "stop". Voices: two English, one French.
+// It behaves like the real engine: a "flush" speak cuts off whatever is playing, an
+// "add" speak waits its turn, each piece takes PIECE_MS to say, and start / finish /
+// cancel events are announced with the id speak() returned. SMOKE_TTS=fake-noevents
+// is the same engine whose events never reach the app (what the phone turned out to
+// do) — reading must carry on, and Resume must still know where it was, by polling.
+if (process.env.SMOKE_TTS === "fake" || process.env.SMOKE_TTS === "fake-noevents") {
   const calls = (globalThis.__ttsCalls = []);
-  let speakingPolls = 0;
+  const emitEvents = process.env.SMOKE_TTS === "fake";
+  const PIECE_MS = 1500;
   let nextId = 0;
   let handler = null;
+  let queue = [];
+  let playing = null;
+  const emit = (type, id) => {
+    if (emitEvents) setTimeout(() => handler?.({ type, id }), 0);
+  };
+  const playNext = () => {
+    if (playing || queue.length === 0) return;
+    const item = (playing = queue.shift());
+    emit("start", item.id);
+    item.timer = setTimeout(() => {
+      if (playing !== item) return;
+      playing = null;
+      emit("finish", item.id);
+      playNext();
+    }, PIECE_MS);
+  };
+  const cancelAll = () => {
+    if (playing) {
+      clearTimeout(playing.timer);
+      emit("cancel", playing.id);
+      playing = null;
+    }
+    for (const q of queue) emit("cancel", q.id);
+    queue = [];
+  };
   globalThis.__midnoteTtsBackend = {
-    // Round 40: the plugin reports each piece's start with the id speak() returned.
-    // The fake announces a start for the first piece of every "flush" run, which is
-    // what a real engine does the moment it begins speaking.
     onEvent: async (h) => {
       handler = h;
       return () => {
@@ -228,15 +254,17 @@ if (process.env.SMOKE_TTS === "fake") {
     }),
     speak: async (text, o) => {
       calls.push(`speak:${o.queue}:${o.voiceId ?? "default"}:${o.rate}:${text}`);
-      speakingPolls = 0;
-      const utteranceId = `u${++nextId}`;
-      if (o.queue === "flush") setTimeout(() => handler?.({ type: "start", id: utteranceId }), 0);
-      return { utteranceId };
+      const id = `u${++nextId}`;
+      if (o.queue === "flush") cancelAll();
+      queue.push({ id });
+      playNext();
+      return { utteranceId: id };
     },
     stop: async () => {
       calls.push("stop");
+      cancelAll();
     },
-    isSpeaking: async () => speakingPolls++ < 2,
+    isSpeaking: async () => playing !== null,
   };
 }
 

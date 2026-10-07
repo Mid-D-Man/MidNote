@@ -50,6 +50,7 @@ function ctl(): ReadAloudController {
           description: "The voice may not be installed. Check Settings → Read aloud, or your phone's Text-to-speech settings.",
           variant: "destructive",
         }),
+      onFailure: (message) => pushToast({ title: "Reading stopped", description: message, variant: "destructive" }),
       log: breadcrumb,
     });
   }
@@ -65,7 +66,7 @@ export function isReadingStatus(status: ReadState["status"]): boolean {
   return status === "starting" || status === "reading" || status === "paused";
 }
 
-/** Pause (Android's engine can't, so this stops and remembers the sentence), resume it, or read it all again. */
+/** Pause (Android's engine can't, so this stops and remembers which sentence it was on), resume it, or read it all again. */
 export async function pauseReading(): Promise<void> {
   breadcrumb("read aloud: pause tapped");
   await ctl().pause();

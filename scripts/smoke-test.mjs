@@ -36,6 +36,7 @@ const now = new Date().toISOString();
 const NOTE_ID = "smoke-test-note-0001";
 const TODO_ID = "smoke-test-todo-0001";
 const BOARD_ID = "smoke-test-board-0001";
+const LONG_NOTE_ID = "smoke-test-long-note-0001";
 
 const SEED_ENTRIES = [
   {
@@ -82,6 +83,21 @@ const SEED_ENTRIES = [
     viewport: { x: 0, y: 0, zoom: 1 },
   },
 ];
+
+// Round 41: a note that is read in several pieces — a title piece, then one piece per
+// paragraph (each paragraph is ~235 characters, so no two share a piece). Used to
+// prove Resume carries on from the piece you paused on rather than from the top.
+const para = (tag) => (tag + " " + "lorem ipsum dolor sit amet consectetur ".repeat(10)).slice(0, 234).trimEnd() + ".";
+const LONG_NOTE = {
+  id: LONG_NOTE_ID,
+  type: "regular",
+  title: "Long note",
+  content: `<p>${para("ALPHA")}</p><p>${para("BRAVO")}</p><p>${para("CHARLIE")}</p><p>${para("DELTA")}</p>`,
+  tags: [],
+  lastModified: now,
+  isBookmarked: false,
+  encrypted: false,
+};
 
 // Every scenario that mounts a route component and runs its effects.
 // "existing note/todo" is the one that actually caught the real bug —
@@ -591,6 +607,62 @@ const SCENARIOS = [
       { expectSelector: '[aria-label="Pause reading"]' },
     ],
   },
+  // Round 41: Resume carries on from the piece that was being spoken. The note is read
+  // as: "Long note." -> ALPHA -> BRAVO -> CHARLIE -> DELTA. Paused during BRAVO, Resume
+  // must say BRAVO again (flush) — never the title, never ALPHA.
+  {
+    name: "note — read aloud, Resume carries on from where you paused",
+    path: `/note/${LONG_NOTE_ID}`,
+    seed: [...SEED_ENTRIES, LONG_NOTE],
+    tts: true,
+    steps: [
+      { click: "More" },
+      { click: "Read aloud" },
+      { wait: 3600 },
+      { expectGlobalIncludes: { name: "__ttsCalls", substring: "speak:add:default:1:BRAVO" } },
+      { expectGlobalCount: { name: "__ttsCalls", substring: "CHARLIE", count: 0 } },
+      { click: "Pause reading" },
+      { wait: 150 },
+      { expectText: "Paused" },
+      { wait: 1600 },
+      { expectText: "Paused" },
+      { click: "Resume reading" },
+      { wait: 300 },
+      { expectGlobalCount: { name: "__ttsCalls", substring: "speak:flush:default:1:BRAVO", count: 1 } },
+      { expectGlobalCount: { name: "__ttsCalls", substring: "speak:flush:default:1:Long note.", count: 1 } },
+      { expectGlobalCount: { name: "__ttsCalls", substring: "speak:flush:default:1:ALPHA", count: 0 } },
+      { expectText: "Reading…" },
+      // and it keeps going to the end from there
+      { wait: 4600 },
+      { expectGlobalIncludes: { name: "__ttsCalls", substring: "speak:add:default:1:DELTA" } },
+    ],
+  },
+  // The same, with an engine whose events never reach the app (what the phone did): the
+  // position still can't be lost, because it no longer comes from the events. Without
+  // events the end of a piece is found by polling, with a floor tied to how long the
+  // text should take to say (a real voice takes that long; this fake is much faster),
+  // so ALPHA is still "being spoken" at 4 s. Paused there, Resume says ALPHA again.
+  {
+    name: "note — read aloud, Resume carries on from where you paused (no engine events)",
+    path: `/note/${LONG_NOTE_ID}`,
+    seed: [...SEED_ENTRIES, LONG_NOTE],
+    tts: "noevents",
+    steps: [
+      { click: "More" },
+      { click: "Read aloud" },
+      { wait: 4000 },
+      { expectGlobalIncludes: { name: "__ttsCalls", substring: "speak:add:default:1:ALPHA" } },
+      { expectGlobalCount: { name: "__ttsCalls", substring: "BRAVO", count: 0 } },
+      { click: "Pause reading" },
+      { wait: 150 },
+      { expectText: "Paused" },
+      { click: "Resume reading" },
+      { wait: 300 },
+      { expectGlobalCount: { name: "__ttsCalls", substring: "speak:flush:default:1:ALPHA", count: 1 } },
+      { expectGlobalCount: { name: "__ttsCalls", substring: "speak:flush:default:1:Long note.", count: 1 } },
+      { expectText: "Reading…" },
+    ],
+  },
   // Replay after it has finished reads it again from the start.
   {
     name: "note — read aloud replay after it finished",
@@ -984,7 +1056,7 @@ function runScenario(scenario) {
         TZ: "UTC",
         ...(scenario.reminderBackend ? { SMOKE_REMINDER_BACKEND: "fake" } : {}),
         ...(scenario.share ? { SMOKE_SHARE: scenario.share } : {}),
-        ...(scenario.tts ? { SMOKE_TTS: "fake" } : {}),
+        ...(scenario.tts ? { SMOKE_TTS: scenario.tts === "noevents" ? "fake-noevents" : "fake" } : {}),
         SMOKE_BUILD_DIR: BUILD_DIR,
         SMOKE_ROUTE_PATH: scenario.path,
         SMOKE_SEED_ENTRIES: JSON.stringify(scenario.seed),
