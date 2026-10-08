@@ -13,6 +13,8 @@
   import { goto } from "$app/navigation";
   import { installReminderTapHandler } from "$lib/utils/reminders";
   import { initCustomFonts } from "$lib/stores/customFonts.svelte";
+  import { initCustomThemes } from "$lib/stores/customThemes.svelte";
+  import { initCustomIcons } from "$lib/stores/customIcons.svelte";
   import ReadAloudBar from "$lib/components/shared/ReadAloudBar/ReadAloudBar.svelte";
   import type { Snippet } from "svelte";
 
@@ -58,6 +60,10 @@
       // own seeding check before returning) — not relying on
       // module-evaluation order between the two stores.
       syncTags();
+      // Round 43: uploaded themes/icons live in IndexedDB now. Load them (moving
+      // any still in the old localStorage list) BEFORE anything renders, so a
+      // themed note never paints without its background. Neither init throws.
+      await Promise.all([initCustomThemes(), initCustomIcons()]);
       storageReady = true;
       // Round 31: tapping a reminder notification opens its note/todo/board.
       // No-op outside the Android app. The returned unsubscribe isn't kept:

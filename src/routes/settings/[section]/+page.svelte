@@ -5,6 +5,7 @@
   //   /settings/appearance   theme, fonts (sub-page), note lines
   //   /settings/fonts        default note font + imported fonts   (Back -> Appearance)
   //   /settings/read-aloud   voice, speed, pitch, sample
+  //   /settings/trash        what's in Trash, and how long it stays
   //   /settings/privacy      app password
   //   /settings/developer    debug panel
   import { page } from "$app/stores";
@@ -17,6 +18,8 @@
   import FontsPanel from "$lib/components/settings/FontsPanel.svelte";
   import ReadAloudPanel from "$lib/components/settings/ReadAloudPanel.svelte";
   import { findSection } from "$lib/components/settings/settingsSections";
+  import TrashSheet from "$lib/components/layout/TrashSheet/TrashSheet.svelte";
+  import { getTrashed } from "$lib/stores/entries.svelte";
   import Switch from "$lib/components/ui/Switch/Switch.svelte";
   import { debugPanelVisible, setDebugPanelVisible, noteLinesEnabled, setNoteLinesEnabled, noteFont } from "$lib/stores/settings.svelte";
   import { customFonts } from "$lib/stores/customFonts.svelte";
@@ -26,6 +29,8 @@
   const section = $derived(findSection($page.params.section ?? ""));
 
   let themeSheetOpen = $state(false);
+  let trashOpen = $state(false);
+  const trashedCount = $derived(getTrashed().length);
   // Shown on the Fonts row so the current default is visible without opening it.
   const noteFontLabel = $derived(matchOption(fontOptions(customFonts.map((f) => f.name)), noteFont.value)?.label ?? "Default");
 </script>
@@ -71,6 +76,20 @@
       <FontsPanel />
     {:else if section.slug === "read-aloud"}
       <ReadAloudPanel />
+    {:else if section.slug === "trash"}
+      <SettingsRow
+        label="Trash"
+        desc="Restore something you deleted, or delete it for good."
+        value={trashedCount === 0 ? "Empty" : trashedCount === 1 ? "1 item" : `${trashedCount} items`}
+        chevron
+        aria-label="Open trash"
+        onclick={() => {
+          breadcrumb("settings: trash row tapped");
+          trashOpen = true;
+        }}
+      />
+      <p class="note">Deleted items stay in Trash for 30 days, then are deleted automatically.</p>
+      <TrashSheet bind:open={trashOpen} onBack={() => (trashOpen = false)} />
     {:else if section.slug === "privacy"}
       <AppPasswordRow />
     {:else if section.slug === "developer"}
@@ -93,5 +112,10 @@
     margin: 0;
     font-size: 14px;
     color: var(--text-lo);
+  }
+  .note {
+    margin: 0;
+    font-size: 12px;
+    color: var(--text-faint);
   }
 </style>

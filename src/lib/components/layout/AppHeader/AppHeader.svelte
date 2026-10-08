@@ -86,7 +86,8 @@
 <AuthDialog bind:open={authOpen} />
 <!-- Back returns to the Menu this was opened from. -->
 <SettingsSheet bind:open={settingsOpen} onBack={() => { settingsOpen = false; menuOpen = true; }} />
-<TrashSheet bind:open={trashOpen} />
+<!-- Back returns to the Menu this was opened from. -->
+<TrashSheet bind:open={trashOpen} onBack={() => { trashOpen = false; menuOpen = true; }} />
 
 <style>
   .app-header {

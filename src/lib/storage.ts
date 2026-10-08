@@ -468,13 +468,13 @@ export function removeKnownTag(kind: TagScope, tag: string) {
 // id (ThemeRef.customThemeId) rather than duplicated onto every entry
 // that uses it.
 //
-// NOT wired to the real Tauri backend yet, deliberately scoped out of
-// round 22 (entries/index/tags only) — these stay pure localStorage for
-// now. Unlike an entry's own fields, these hold full base64 image blobs
-// (up to ~720px JPEG / 128px PNG), which is its own separate sizing/
-// perf question worth a dedicated pass rather than folding into the
-// same round as entries.rs/index.rs. See this project's data-layer notes
-// for this as a named, deliberate gap, not an oversight.
+// Round 43: these no longer LIVE in localStorage. They hold full base64 image
+// blobs (up to ~720px JPEG / 128px PNG) and localStorage's ~5 MB budget is
+// shared with every note, so a few themes could make note saves fail. They are
+// kept in IndexedDB now (utils/mediaDb.ts, utils/mediaCollection.ts,
+// stores/customThemes.svelte.ts). What remains here is only the OLD
+// localStorage list: read once to migrate it, and used as the fallback when
+// IndexedDB isn't available.
 export function loadCustomThemes(): CustomTheme[] {
   if (typeof localStorage === "undefined") return [];
   try {
@@ -488,25 +488,31 @@ export function loadCustomThemes(): CustomTheme[] {
   }
 }
 
-function saveCustomThemes(themes: CustomTheme[]) {
+export function saveCustomThemes(themes: CustomTheme[]) {
   if (typeof localStorage === "undefined") return;
   localStorage.setItem(CUSTOM_THEMES_KEY, JSON.stringify(themes));
 }
 
-export function deleteCustomTheme(id: string) {
-  saveCustomThemes(loadCustomThemes().filter((t) => t.id !== id));
+/** Forget the old localStorage list — only after it has been verifiably moved to IndexedDB. */
+export function clearLegacyCustomThemes() {
+  if (typeof localStorage === "undefined") return;
+  localStorage.removeItem(CUSTOM_THEMES_KEY);
 }
 
 // Longest edge a stored theme image is allowed to be. This is a card/
 // editor background, never viewed full-screen at native resolution, so
 // there's no reason to keep a multi-megabyte original around — every
-// uploaded photo gets downscaled to this before it ever touches
-// localStorage. Real number, not the schema file's 1080x1920 placeholder
+// uploaded photo gets downscaled to this before it is ever
+// stored. Real number, not the schema file's 1080x1920 placeholder
 // (that was explicitly "not a recommendation" — this is the actual
 // application decision it said still needed making).
 const MAX_THEME_EDGE_PX = 720;
 const THEME_JPEG_QUALITY = 0.82;
 
+// Round 43: this only DECODES, downscales and analyses the photo — it no longer
+// saves it. The caller (stores/customThemes.svelte.ts -> MediaCollection.add)
+// stores the returned theme, so a failed save can be reported properly.
+//
 // Browser-only (Image/canvas) — never called during app boot or in the
 // smoke test, only from a user-triggered file-input change in
 // ThemePicker.svelte, so it's fine for this to have no jsdom-compatible
@@ -562,9 +568,6 @@ export function storeCustomThemeImage(file: File): Promise<CustomTheme> {
           createdAt: new Date().toISOString(),
           textColor,
         };
-        const themes = loadCustomThemes();
-        themes.push(theme);
-        saveCustomThemes(themes);
         resolve(theme);
       };
       img.src = reader.result as string;
@@ -577,8 +580,8 @@ export function storeCustomThemeImage(file: File): Promise<CustomTheme> {
 // referenced by id" shape as loadCustomThemes above, for the same
 // reason: one upload can be used as more than one note/todo's icon
 // badge, so it's stored once (IconRef.customIconId) rather than
-// duplicated onto every entry that uses it. Same NOT-wired-yet scope
-// note as loadCustomThemes above applies here too.
+// duplicated onto every entry that uses it. Same round-43 move to
+// IndexedDB as loadCustomThemes above (this is only the old list).
 export function loadCustomIcons(): CustomIcon[] {
   if (typeof localStorage === "undefined") return [];
   try {
@@ -592,13 +595,15 @@ export function loadCustomIcons(): CustomIcon[] {
   }
 }
 
-function saveCustomIcons(icons: CustomIcon[]) {
+export function saveCustomIcons(icons: CustomIcon[]) {
   if (typeof localStorage === "undefined") return;
   localStorage.setItem(CUSTOM_ICONS_KEY, JSON.stringify(icons));
 }
 
-export function deleteCustomIcon(id: string) {
-  saveCustomIcons(loadCustomIcons().filter((i) => i.id !== id));
+/** Forget the old localStorage list — only after it has been verifiably moved to IndexedDB. */
+export function clearLegacyCustomIcons() {
+  if (typeof localStorage === "undefined") return;
+  localStorage.removeItem(CUSTOM_ICONS_KEY);
 }
 
 // Longest edge a stored icon image is allowed to be — this is a tiny
@@ -619,8 +624,9 @@ export function deleteCustomIcon(id: string) {
 const MAX_ICON_EDGE_PX = 128;
 const MAX_ICON_SOURCE_BYTES = 8 * 1024 * 1024;
 
-// Same browser-only/not-verified-against-a-real-decoded-image caveat as
-// storeCustomThemeImage above. Two real differences from that function,
+// Like storeCustomThemeImage above (round 43) this only builds the icon; the
+// caller stores it. Same browser-only/not-verified-against-a-real-decoded-image
+// caveat as storeCustomThemeImage above. Two real differences from that function,
 // both deliberate: output is PNG, not JPEG — an icon badge is small
 // enough that file size barely matters, and it may well have a
 // transparent background (a logo, a sticker) worth actually preserving.
@@ -659,9 +665,6 @@ export function storeCustomIconImage(file: File): Promise<CustomIcon> {
           data: canvas.toDataURL("image/png"),
           createdAt: new Date().toISOString(),
         };
-        const icons = loadCustomIcons();
-        icons.push(icon);
-        saveCustomIcons(icons);
         resolve(icon);
       };
       img.src = reader.result as string;

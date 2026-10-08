@@ -1027,6 +1027,7 @@ const SCENARIOS = [
       { expectText: "Advanced settings" },
       { expectSelector: '[aria-label="Open Appearance settings"]' },
       { expectSelector: '[aria-label="Open Read aloud settings"]' },
+      { expectSelector: '[aria-label="Open Trash settings"]' },
       { expectSelector: '[aria-label="Open Privacy & security settings"]' },
       { expectSelector: '[aria-label="Open Developer settings"]' },
       // the panel is closed behind the page
@@ -1089,6 +1090,44 @@ const SCENARIOS = [
       { expectNoSelector: '[aria-label="Open advanced settings"]' },
     ],
   },
+  // Round 43: Trash gets a Back arrow (to the menu) and its own page in Advanced settings.
+  {
+    name: "trash — Back returns to the menu",
+    path: "/",
+    seed: SEED_ENTRIES,
+    steps: [
+      { click: "Open menu" },
+      { clickSelector: ".menu-nav button:nth-child(1)" },
+      { wait: 300 },
+      { expectText: "Trash is empty." },
+      { click: "Back" },
+      { wait: 300 },
+      { expectNoText: "Trash is empty." },
+      { expectSelector: '[aria-label="Open settings"]' },
+    ],
+  },
+  {
+    name: "settings — Trash page",
+    path: "/settings/trash",
+    seed: SEED_ENTRIES,
+    steps: [
+      { wait: 200 },
+      { expectText: "30 days" },
+      { expectText: "Empty" },
+      { click: "Open trash" },
+      { wait: 300 },
+      { expectText: "Trash is empty." },
+      // the sheet's own Back (the page's Back is behind it)
+      { clickSelector: ".sheet-header .back" },
+      { wait: 300 },
+      { expectNoText: "Trash is empty." },
+      { expectSelector: '[aria-label="Open trash"]' },
+      // still on the Trash page: the page's Back goes up to Advanced settings
+      { click: "Back" },
+      { wait: 500 },
+      { expectSelector: '[aria-label="Open Trash settings"]' },
+    ],
+  },
   // Round 42: the seek slider. The long note is read as: title -> ALPHA -> BRAVO -> CHARLIE -> DELTA
   // (5 pieces; the slider's steps are 0..4). Dragging to 3 reads CHARLIE; while paused, moving the
   // slider makes no sound and Resume starts at the new place.
@@ -1103,8 +1142,12 @@ const SCENARIOS = [
       { wait: 600 },
       { expectSelector: '[aria-label="Seek reading"]' },
       { expectText: "Reading… 1/5" },
+      // Round 43: at the first piece the drawn slider is EMPTY (fraction 0), not already part-way along
+      { expectSelector: '.seek-wrap[data-frac="0"]' },
+      { expectSelector: ".seek-thumb" },
       { type: { label: "Seek reading", value: "3" } },
       { wait: 300 },
+      { expectSelector: '.seek-wrap[data-frac="0.75"]' },
       { expectGlobalCount: { name: "__ttsCalls", substring: "speak:flush:default:1:CHARLIE", count: 1 } },
       { expectText: "Reading… 4/5" },
       { click: "Pause reading" },

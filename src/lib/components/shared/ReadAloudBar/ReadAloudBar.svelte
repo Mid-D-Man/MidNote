@@ -12,6 +12,11 @@
   // off the editor — which closed the keyboard and made the whole screen jump.
   // Round 42: a fixed width, a seek slider on top, and "Reading… 3/12" so the
   // position (where Resume will pick up) is always visible.
+  // Round 43: the slider is DRAWN by us (track, fill, thumb) with the real <input
+  // type=range> laid invisibly on top for touch/keyboard/screen readers. The
+  // browser's own range drew a fat thumb whose blue "filled" part already ran from
+  // the left end to the thumb's centre — so even at piece 1 it looked like reading
+  // had begun well into the text. Ours is empty at piece 1.
   // Reading stops when the editor that started it closes, so this only ever shows
   // on an editor page. It sits in the same bottom slot as the editor's panels: the
   // keyboard inset moves it with the keyboard, readBarLift raises it above the panel.
@@ -24,6 +29,8 @@
   // While the thumb is being dragged it shows the finger's position, not the engine's.
   let dragValue = $state<number | null>(null);
   const shown = $derived(dragValue ?? readAloud.index);
+  // 0 at the first piece, 1 at the last
+  const frac = $derived(total > 1 ? Math.min(1, Math.max(0, shown / (total - 1))) : 0);
   const label = $derived.by(() => {
     if (status === "done") return "Finished";
     const base = status === "starting" ? "Starting…" : status === "paused" ? "Paused" : "Reading…";
@@ -63,18 +70,22 @@
     onpointerdown={keepEditorFocus}
   >
     {#if total > 1}
-      <input
-        class="seek"
-        type="range"
-        min="0"
-        max={total - 1}
-        step="1"
-        value={shown}
-        aria-label="Seek reading"
-        aria-valuetext={`Part ${shown + 1} of ${total}`}
-        oninput={onSeekInput}
-        onchange={onSeekCommit}
-      />
+      <div class="seek-wrap" data-frac={frac} style="--frac: {frac}">
+        <div class="seek-track"><div class="seek-fill"></div></div>
+        <div class="seek-thumb" aria-hidden="true"></div>
+        <input
+          class="seek"
+          type="range"
+          min="0"
+          max={total - 1}
+          step="1"
+          value={shown}
+          aria-label="Seek reading"
+          aria-valuetext={`Part ${shown + 1} of ${total}`}
+          oninput={onSeekInput}
+          onchange={onSeekCommit}
+        />
+      </div>
     {/if}
     <div class="controls">
     <span class="dot" class:still={status === "paused" || status === "done"} aria-hidden="true"></span>
@@ -139,12 +150,52 @@
     gap: var(--space-2);
     min-width: 0;
   }
+  /* The slider we draw. --thumb is the thumb's diameter; the fill ends at the
+     thumb's centre, so at --frac: 0 the fill is hidden under the thumb. */
+  .seek-wrap {
+    --thumb: 16px;
+    position: relative;
+    height: 32px;
+    margin-right: var(--space-3);
+  }
+  .seek-track {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 50%;
+    height: 4px;
+    margin-top: -2px;
+    border-radius: 2px;
+    background: var(--hairline);
+    overflow: hidden;
+  }
+  .seek-fill {
+    height: 100%;
+    width: calc(var(--thumb) / 2 + var(--frac) * (100% - var(--thumb)));
+    background: var(--accent);
+  }
+  .seek-thumb {
+    position: absolute;
+    top: 50%;
+    left: calc(var(--frac) * (100% - var(--thumb)));
+    width: var(--thumb);
+    height: var(--thumb);
+    margin-top: calc(var(--thumb) / -2);
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 2px var(--surface-raised, var(--surface));
+    pointer-events: none;
+  }
+  /* The real control: invisible, over the whole drawn slider, takes the touches. */
   .seek {
-    display: block;
-    width: calc(100% - var(--space-3));
-    height: 28px;
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
     margin: 0;
-    accent-color: var(--accent);
+    padding: 0;
+    opacity: 0;
+    cursor: pointer;
     touch-action: pan-y;
   }
   .label {

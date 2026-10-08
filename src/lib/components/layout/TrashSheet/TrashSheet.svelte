@@ -7,7 +7,8 @@
   import { breadcrumb } from "$lib/debug/log.svelte";
   import type { Entry } from "$lib/types/entry";
 
-  let { open = $bindable(false) }: { open?: boolean } = $props();
+  // Round 43: onBack shows a Back arrow in the header (the menu / settings page it was opened from).
+  let { open = $bindable(false), onBack }: { open?: boolean; onBack?: () => void } = $props();
 
   // Re-reads entries (a $state array) on every render Svelte gives this
   // component while `open` — cheap at this app's realistic trash size,
@@ -56,7 +57,7 @@
   }
 </script>
 
-<Sheet bind:open side="left" title="Trash">
+<Sheet bind:open side="left" title="Trash" {onBack}>
   <p class="hint">Items stay here for 30 days, then delete automatically.</p>
 
   {#if trashed.length === 0}

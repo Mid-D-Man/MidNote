@@ -1,31 +1,42 @@
 // Reactive custom-icon registry — same shape/reasoning as
-// customThemes.svelte.ts (Svelte 5 runes state backed by storage.ts),
+// customThemes.svelte.ts (Svelte 5 runes state in front of a MediaCollection),
 // kept as its own store rather than folded into that one: a different
-// collection (icons, not theme backgrounds) with its own registry key
-// and its own size/format rules (see storage.ts's storeCustomIconImage).
+// collection (icons, not theme backgrounds) with its own storage and its own
+// size/format rules (see storage.ts's storeCustomIconImage).
+// Round 43: IndexedDB, filled by initCustomIcons() at startup — see
+// customThemes.svelte.ts.
 import type { CustomIcon } from "$lib/types/entry";
 import * as storage from "$lib/storage";
-import { untrack } from "svelte";
+import { MediaCollection } from "$lib/utils/mediaCollection";
+import { openMediaBackend } from "$lib/utils/mediaDb";
+import { breadcrumb } from "$lib/debug/log.svelte";
 
-export const customIcons = $state<CustomIcon[]>(storage.loadCustomIcons());
+const collection = new MediaCollection<CustomIcon>({
+  open: () => openMediaBackend<CustomIcon>("icons"),
+  legacy: { load: storage.loadCustomIcons, save: storage.saveCustomIcons, clear: storage.clearLegacyCustomIcons },
+  log: (m) => breadcrumb(`icons: ${m}`),
+});
 
-export function refreshCustomIcons() {
-  // Same read-then-write-same-state shape as customThemes.svelte.ts's
-  // refreshCustomThemes() — untracked for the same reason: never called
-  // from inside an $effect today, but guarding against the
-  // effect_update_depth_exceeded class of bug preemptively costs nothing.
-  untrack(() => {
-    customIcons.splice(0, customIcons.length, ...storage.loadCustomIcons());
-  });
+export const customIcons = $state<CustomIcon[]>([]);
+
+function sync() {
+  customIcons.splice(0, customIcons.length, ...collection.items);
+}
+
+/** Load (and, the first time, migrate) the icons. Never throws. */
+export async function initCustomIcons(): Promise<void> {
+  await collection.init();
+  sync();
 }
 
 export async function addCustomIcon(file: File): Promise<CustomIcon> {
   const icon = await storage.storeCustomIconImage(file);
-  refreshCustomIcons();
+  await collection.add(icon); // throws a readable Error if it can't be kept
+  sync();
   return icon;
 }
 
 export function removeCustomIcon(id: string) {
-  storage.deleteCustomIcon(id);
-  refreshCustomIcons();
+  void collection.remove(id);
+  sync();
 }
