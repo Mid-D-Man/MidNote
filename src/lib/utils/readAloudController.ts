@@ -30,6 +30,9 @@
 //   finishing the previous piece, the next one waits behind it instead of
 //   cutting it off.
 //
+// SEEK. The bar's slider moves between pieces: seek(i) reads on from piece i (or, while
+// paused, just moves where Resume will start).
+//
 // PAUSE / RESUME / REPLAY. Android's speech engine cannot pause (the plugin
 // says so), so Pause stops the engine and keeps the index of the piece being
 // spoken. Resume speaks again from the START of that piece and carries on.
@@ -43,7 +46,8 @@ import { splitForSpeech, type SpeechSettings } from "$lib/utils/speech";
 import type { TtsBackend, TtsEvent } from "$lib/utils/ttsBackend";
 
 export type ReadStatus = "idle" | "starting" | "reading" | "paused" | "done";
-export type ReadState = { status: ReadStatus; id: string | null; chunkCount: number };
+/** `index` is the piece being spoken (while paused: the piece Resume starts with) — what the seek slider shows. */
+export type ReadState = { status: ReadStatus; id: string | null; chunkCount: number; index: number };
 export type StartResult = { ok: true } | { ok: false; cancelled: true } | { ok: false; cancelled?: false; message: string };
 
 /** Largest piece read aloud. Small on purpose: Resume can only restart on a piece boundary. */
@@ -71,7 +75,7 @@ const NO_START_MS = 6000;
 /** Rough speaking speed at rate 1.0 — used ONLY for sanity floors, never for position. */
 const EST_CPS = 15;
 
-const IDLE: ReadState = { status: "idle", id: null, chunkCount: 0 };
+const IDLE: ReadState = { status: "idle", id: null, chunkCount: 0, index: 0 };
 const CANCELLED: StartResult = { ok: false, cancelled: true };
 
 type PieceOutcome = "finished" | "interrupted" | "error" | "silent" | "gone";
@@ -191,12 +195,13 @@ export class ReadAloudController {
     this.at = from;
     // "starting" only the very first time; Resume/Replay go straight back to
     // "reading" so the bar doesn't flicker through a different layout.
-    this.set({ status: fresh ? "starting" : "reading", id: entry, chunkCount: pieces.length });
+    this.set({ status: fresh ? "starting" : "reading", id: entry, chunkCount: pieces.length, index: from });
 
     let spoke = false;
     for (let i = from; i < pieces.length; i++) {
       if (mine !== this.session) return;
       this.at = i;
+      if (i !== from) this.set({ ...this.state, index: i });
       const { voiceId, rate, pitch } = this.d.settings();
       let utteranceId: string | undefined;
       try {
@@ -222,7 +227,7 @@ export class ReadAloudController {
         return;
       }
       if (i === from) {
-        this.set({ status: "reading", id: entry, chunkCount: pieces.length });
+        this.set({ status: "reading", id: entry, chunkCount: pieces.length, index: i });
         settle({ ok: true });
       }
 
@@ -249,7 +254,7 @@ export class ReadAloudController {
         // this piece; Resume says it again.
         this.d.log?.(`read aloud: interrupted by the system at piece ${i + 1}/${pieces.length} — paused`);
         this.session++;
-        this.set({ status: "paused", id: entry, chunkCount: pieces.length });
+        this.set({ status: "paused", id: entry, chunkCount: pieces.length, index: i });
         await this.d.backend.stop().catch(() => {});
         return;
       }
@@ -264,7 +269,7 @@ export class ReadAloudController {
     if (mine !== this.session) return;
     this.d.log?.("read aloud: finished");
     // finished by itself: keep the pieces so Replay can read it again
-    this.set({ status: "done", id: entry, chunkCount: pieces.length });
+    this.set({ status: "done", id: entry, chunkCount: pieces.length, index: Math.max(0, pieces.length - 1) });
   }
 
   /** Waits until the engine has finished the piece it was just given. */
@@ -343,7 +348,7 @@ export class ReadAloudController {
     if (this.state.status !== "reading" && this.state.status !== "starting") return;
     this.session++; // silences the waiter and cancels a submission still in flight
     this.d.log?.(`read aloud: paused at piece ${this.at + 1}/${this.pieces.length} (engine events seen: ${this.eventsSeen})`);
-    this.set({ status: "paused", id: this.entryId, chunkCount: this.pieces.length });
+    this.set({ status: "paused", id: this.entryId, chunkCount: this.pieces.length, index: this.at });
     await this.d.backend.stop().catch((err) => this.d.log?.(`read aloud: pause/stop failed (${describe(err)})`));
   }
 
@@ -359,6 +364,24 @@ export class ReadAloudController {
   async replay(): Promise<StartResult | null> {
     if (this.pieces.length === 0 || this.state.status === "idle") return null;
     return this.run(0, ++this.session, false);
+  }
+
+  /**
+   * Jump to piece `index` (the seek slider). While reading it carries on reading
+   * from there; while paused it only moves the position (Resume starts there);
+   * after it finished it starts reading from there.
+   */
+  async seek(index: number): Promise<StartResult | null> {
+    const n = this.pieces.length;
+    if (n === 0 || this.state.status === "idle" || !Number.isFinite(index)) return null;
+    const to = Math.max(0, Math.min(n - 1, Math.floor(index)));
+    this.d.log?.(`read aloud: seek to piece ${to + 1}/${n} (was ${this.state.status})`);
+    if (this.state.status === "paused") {
+      this.at = to;
+      this.set({ ...this.state, index: to });
+      return { ok: true };
+    }
+    return this.run(to, ++this.session, false);
   }
 
   /** Say a short sample with the current voice settings (flushes anything being read). */

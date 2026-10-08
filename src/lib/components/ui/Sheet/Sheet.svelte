@@ -5,11 +5,16 @@
     open = $bindable(false),
     side = "left",
     title = "",
+    onBack,
     children,
   }: {
     open?: boolean;
     side?: "left" | "right" | "bottom";
     title?: string;
+    // Round 42: when given, the header shows a Back arrow that calls this (the
+    // caller decides where "back" goes — usually closing this sheet and
+    // reopening the one it was opened from).
+    onBack?: () => void;
     children: Snippet;
   } = $props();
 
@@ -41,6 +46,9 @@
 
   function onGrabPointerDown(e: PointerEvent) {
     if (!sheetEl) return;
+    // A press on the header's own buttons (Back) is a tap, not the start of a
+    // swipe: capturing the pointer would swallow its click.
+    if ((e.target as Element | null)?.closest("button")) return;
     dragging = true;
     dragPx = 0;
     grabStart = { x: e.clientX, y: e.clientY };
@@ -124,6 +132,13 @@
         onpointerup={onGrabPointerUp}
         onpointercancel={onGrabPointerUp}
       >
+        {#if onBack}
+          <button type="button" class="back" aria-label="Back" onclick={() => onBack?.()}>
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" />
+            </svg>
+          </button>
+        {/if}
         <h2>{title}</h2>
       </div>
     {/if}
@@ -228,6 +243,28 @@
     border-bottom: 1px solid var(--hairline);
     flex-shrink: 0;
     touch-action: none;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  .back {
+    flex-shrink: 0;
+    width: 36px;
+    height: 36px;
+    /* pull the arrow into the header's left padding so the title doesn't move much */
+    margin: calc(-1 * var(--space-2)) 0 calc(-1 * var(--space-2)) calc(-1 * var(--space-2));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    border-radius: 50%;
+    color: var(--text-hi);
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  .back:hover {
+    background: var(--surface-raised, var(--surface));
   }
   .sheet-header h2 {
     font-family: var(--font-display);

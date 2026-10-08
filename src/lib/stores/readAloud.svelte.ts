@@ -19,7 +19,7 @@ function loadSettings(): SpeechSettings {
 }
 
 export const ttsSettings = $state<SpeechSettings>(loadSettings());
-export const readAloud = $state<ReadState>({ status: "idle", id: null, chunkCount: 0 });
+export const readAloud = $state<ReadState>({ status: "idle", id: null, chunkCount: 0, index: 0 });
 
 // Round 38: how far (px) the "Reading aloud" bar sits above the screen's bottom
 // slot. The note editor publishes the height of its bottom panel here (the
@@ -76,6 +76,13 @@ export async function resumeReading(): Promise<void> {
   breadcrumb("read aloud: resume tapped");
   const r = await ctl().resume();
   if (r && !r.ok && !r.cancelled) pushToast({ title: "Couldn't resume", description: r.message, variant: "destructive" });
+}
+
+/** The bar's slider: jump to piece `index` (reads on from there; while paused only moves the position). */
+export async function seekReading(index: number): Promise<void> {
+  breadcrumb(`read aloud: slider -> piece ${index + 1}`);
+  const r = await ctl().seek(index);
+  if (r && !r.ok && !r.cancelled) pushToast({ title: "Couldn't jump there", description: r.message, variant: "destructive" });
 }
 
 export async function replayReading(): Promise<void> {

@@ -37,6 +37,7 @@
     bodyAllowCustom = true,
     headerDescription = "The card in the list, and the editor's top bar.",
     bodyDescription,
+    onBack,
   }: {
     open?: boolean;
     title?: string;
@@ -58,6 +59,8 @@
     // to guard against, not custom images for body themes in general,
     // which every context now supports the same way.
     bodyAllowCustom?: boolean;
+    // Round 42: shows a Back arrow in the sheet header (used when this was opened from Settings).
+    onBack?: () => void;
     // BUGFIX: both row descriptions used to be hardcoded for the
     // per-entry case only ("the card in the list, and the editor's top
     // bar") — accurate for NoteEditorHeader/TodoHeader, flatly wrong
@@ -97,7 +100,7 @@
   }
 </script>
 
-<Sheet bind:open side="bottom" {title}>
+<Sheet bind:open side="bottom" {title} {onBack}>
   <div class="sections">
     <button type="button" class="section-row" onclick={openHeaderPicker}>
       <div class="row-text">

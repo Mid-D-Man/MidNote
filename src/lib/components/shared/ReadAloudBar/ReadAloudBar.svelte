@@ -1,28 +1,50 @@
 <script lang="ts">
-  // Round 37/40/41 — the bar that is on screen while something is being read aloud, so
+  // Round 37/40/41/42 — the bar that is on screen while something is being read aloud, so
   // stopping, pausing and replaying never mean digging back into the Actions menu.
+  //   [ ──────────●────────── ]  seek slider (one step per sentence-sized piece)
   //   starting  "Starting…"  [Pause]  [Replay] [Stop]
   //   reading   "Reading…"   [Pause]  [Replay] [Stop]
   //   paused    "Paused"     [Resume] [Replay] [Stop]
   //   done      "Finished"            [Replay] [Close]
-  // Round 41: the bar no longer changes size or position between those states.
+  // Round 41: the bar does not change size or position between those states.
   // It used to shrink to "Starting… [Stop]" and grow back on every Resume/Replay,
   // re-centering each time (a transform-based centre), and tapping it moved focus
   // off the editor — which closed the keyboard and made the whole screen jump.
+  // Round 42: a fixed width, a seek slider on top, and "Reading… 3/12" so the
+  // position (where Resume will pick up) is always visible.
   // Reading stops when the editor that started it closes, so this only ever shows
   // on an editor page. It sits in the same bottom slot as the editor's panels: the
   // keyboard inset moves it with the keyboard, readBarLift raises it above the panel.
-  import { readAloud, readBarLift, stopReadingFor, pauseReading, resumeReading, replayReading, closeReading } from "$lib/stores/readAloud.svelte";
+  import { readAloud, readBarLift, stopReadingFor, pauseReading, resumeReading, replayReading, seekReading, closeReading } from "$lib/stores/readAloud.svelte";
   import { getKeyboardInset } from "$lib/utils/keyboardInset.svelte";
 
   const status = $derived(readAloud.status);
   const active = $derived(status !== "idle" && readAloud.id !== null);
-  const label = $derived(status === "starting" ? "Starting…" : status === "paused" ? "Paused" : status === "done" ? "Finished" : "Reading…");
+  const total = $derived(readAloud.chunkCount);
+  // While the thumb is being dragged it shows the finger's position, not the engine's.
+  let dragValue = $state<number | null>(null);
+  const shown = $derived(dragValue ?? readAloud.index);
+  const label = $derived.by(() => {
+    if (status === "done") return "Finished";
+    const base = status === "starting" ? "Starting…" : status === "paused" ? "Paused" : "Reading…";
+    return total > 1 ? `${base} ${shown + 1}/${total}` : base;
+  });
+
+  function onSeekInput(e: Event) {
+    dragValue = Number((e.currentTarget as HTMLInputElement).value);
+  }
+  function onSeekCommit(e: Event) {
+    const v = Number((e.currentTarget as HTMLInputElement).value);
+    dragValue = null;
+    void seekReading(v);
+  }
 
   // Pressing a button normally moves focus to it; with the editor focused that
   // hides the keyboard and re-lays-out the page. Stop the focus move — the click
   // still goes through.
   function keepEditorFocus(e: Event) {
+    // The slider needs the press itself (preventDefault would stop the thumb from dragging).
+    if ((e.target as Element | null)?.closest("input")) return;
     e.preventDefault();
   }
 </script>
@@ -35,11 +57,26 @@
     data-lift={readBarLift.px}
     data-status={status}
     role="status"
-    aria-live="polite"
+    aria-live="off"
     style="bottom: calc(max(var(--space-4), env(safe-area-inset-bottom)) + {getKeyboardInset()}px + {readBarLift.px}px)"
     onmousedown={keepEditorFocus}
     onpointerdown={keepEditorFocus}
   >
+    {#if total > 1}
+      <input
+        class="seek"
+        type="range"
+        min="0"
+        max={total - 1}
+        step="1"
+        value={shown}
+        aria-label="Seek reading"
+        aria-valuetext={`Part ${shown + 1} of ${total}`}
+        oninput={onSeekInput}
+        onchange={onSeekCommit}
+      />
+    {/if}
+    <div class="controls">
     <span class="dot" class:still={status === "paused" || status === "done"} aria-hidden="true"></span>
     <span class="label">{label}</span>
 
@@ -64,6 +101,7 @@
     {:else}
       <button type="button" class="stop" aria-label="Stop reading" onclick={() => readAloud.id && stopReadingFor(readAloud.id)}>Stop</button>
     {/if}
+    </div>
   </div>
 {/if}
 
@@ -74,16 +112,16 @@
     left: 0;
     right: 0;
     margin: 0 auto;
-    /* one line, sized to its content — it used to wrap ("Reading / aloud…", "St / op") */
-    width: max-content;
-    max-width: calc(100vw - var(--space-6));
+    /* a FIXED width: nothing resizes when the state or the label changes */
+    width: min(calc(100vw - var(--space-6)), 380px);
     display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    padding: var(--space-1) var(--space-1) var(--space-1) var(--space-4);
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-1);
+    padding: var(--space-2) var(--space-1) var(--space-1) var(--space-4);
     background: var(--surface-raised, var(--surface));
     border: 1px solid var(--accent);
-    border-radius: 999px;
+    border-radius: 24px;
     box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
     color: var(--text-hi);
     font-size: 14px;
@@ -95,13 +133,28 @@
     -webkit-user-select: none;
     animation: rise 140ms ease-out;
   }
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+  .seek {
+    display: block;
+    width: calc(100% - var(--space-3));
+    height: 28px;
+    margin: 0;
+    accent-color: var(--accent);
+    touch-action: pan-y;
+  }
   .label {
+    flex: 1;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    /* wide enough for the longest label ("Starting…") so Reading… / Paused don't resize the bar */
-    min-width: 9ch;
+    min-width: 0;
     margin-right: var(--space-1);
+    font-variant-numeric: tabular-nums;
   }
   .dot {
     flex-shrink: 0;

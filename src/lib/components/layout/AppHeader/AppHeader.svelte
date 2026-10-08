@@ -84,7 +84,8 @@
 </Sheet>
 
 <AuthDialog bind:open={authOpen} />
-<SettingsSheet bind:open={settingsOpen} />
+<!-- Back returns to the Menu this was opened from. -->
+<SettingsSheet bind:open={settingsOpen} onBack={() => { settingsOpen = false; menuOpen = true; }} />
 <TrashSheet bind:open={trashOpen} />
 
 <style>

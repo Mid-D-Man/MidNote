@@ -762,7 +762,7 @@ const SCENARIOS = [
       { expectGlobalIncludes: { name: "__ttsCalls", substring: "Step 2: BBB." } },
     ],
   },
-  // Settings -> Read aloud: pick a voice, change the speed, play the sample — the
+  // Settings -> Advanced settings -> Read aloud: pick a voice, change the speed, play the sample — the
   // sample is spoken with exactly the chosen voice and speed, and both are saved.
   {
     name: "settings — read aloud voice, speed, sample",
@@ -772,7 +772,9 @@ const SCENARIOS = [
     steps: [
       { click: "Open menu" },
       { click: "Open settings" },
-      { click: "Open read aloud settings" },
+      { click: "Open advanced settings" },
+      { wait: 300 },
+      { click: "Open Read aloud settings" },
       { wait: 300 },
       { expectSelector: '[aria-label="Voices"]' },
       // Opens on the phone's own language (jsdom reports en-US): English voices
@@ -980,7 +982,7 @@ const SCENARIOS = [
       { expectNoText: "Add your own fonts in Settings" },
     ],
   },
-  // Round 33: Settings -> Fonts. The sheet opens from the Settings list, the
+  // Round 33/42: Settings -> Advanced settings -> Appearance -> Fonts. The page opens, the
   // default note font can be chosen, and the choice reaches localStorage
   // (the note editor reads it from there on its next load).
   {
@@ -990,7 +992,12 @@ const SCENARIOS = [
     steps: [
       { click: "Open menu" },
       { click: "Open settings" },
+      { click: "Open advanced settings" },
+      { wait: 300 },
+      { click: "Open Appearance settings" },
+      { wait: 300 },
       { click: "Open fonts settings" },
+      { wait: 300 },
       { expectText: "Default note font" },
       { expectText: "No fonts imported yet" },
       { expectSelector: '[aria-label="Import font"]' },
@@ -999,6 +1006,117 @@ const SCENARIOS = [
       { expectStored: "ui-monospace, Consolas, monospace" },
       { click: "Default font Default" },
       { expectNotStored: "ui-monospace, Consolas, monospace" },
+    ],
+  },
+  // Round 42: the Settings PANEL holds only the basics; "Advanced settings" opens a page.
+  {
+    name: "settings — panel holds the basics, Advanced settings opens the page",
+    path: "/",
+    seed: SEED_ENTRIES,
+    steps: [
+      { click: "Open menu" },
+      { click: "Open settings" },
+      { expectSelector: '[aria-label="Open theme settings"]' },
+      { expectSelector: '[aria-label="Show note lines"]' },
+      { expectSelector: '[aria-label="Open advanced settings"]' },
+      { expectNoSelector: '[aria-label="Open fonts settings"]' },
+      { expectNoSelector: '[aria-label="Open read aloud settings"]' },
+      { expectNoSelector: '[aria-label="Show debug panel"]' },
+      { click: "Open advanced settings" },
+      { wait: 400 },
+      { expectText: "Advanced settings" },
+      { expectSelector: '[aria-label="Open Appearance settings"]' },
+      { expectSelector: '[aria-label="Open Read aloud settings"]' },
+      { expectSelector: '[aria-label="Open Privacy & security settings"]' },
+      { expectSelector: '[aria-label="Open Developer settings"]' },
+      // the panel is closed behind the page
+      { expectNoSelector: '[aria-label="Open advanced settings"]' },
+    ],
+  },
+  // Back buttons climb one level at a time: Fonts -> Appearance -> Advanced settings -> the notes list.
+  {
+    name: "settings — Back buttons climb one level at a time",
+    path: "/",
+    seed: SEED_ENTRIES,
+    steps: [
+      { click: "Open menu" },
+      { click: "Open settings" },
+      { click: "Open advanced settings" },
+      { wait: 400 },
+      { click: "Open Appearance settings" },
+      { wait: 400 },
+      { expectText: "Note lines" },
+      { click: "Open fonts settings" },
+      { wait: 400 },
+      { expectSelector: '[aria-label="Import font"]' },
+      { click: "Back" },
+      { wait: 500 },
+      { expectText: "Note lines" },
+      { expectNoSelector: '[aria-label="Import font"]' },
+      { click: "Back" },
+      { wait: 500 },
+      { expectSelector: '[aria-label="Open Privacy & security settings"]' },
+      { expectNoText: "Note lines" },
+      { click: "Back" },
+      { wait: 500 },
+      { expectText: "Smoke test note" },
+      { expectNoSelector: '[aria-label="Open Appearance settings"]' },
+    ],
+  },
+  // A settings page opened by address (no history behind it) still goes up one level.
+  { name: "settings — Back from a page opened directly", path: "/settings/fonts", seed: SEED_ENTRIES, steps: [{ wait: 200 }, { expectSelector: '[aria-label="Import font"]' }, { click: "Back" }, { wait: 500 }, { expectText: "Note lines" }, { expectNoSelector: '[aria-label="Import font"]' }] },
+  { name: "settings — unknown page", path: "/settings/nope", seed: SEED_ENTRIES, steps: [{ wait: 200 }, { expectText: "That settings page doesn't exist." }, { click: "Back" }, { wait: 500 }, { expectSelector: '[aria-label="Open Developer settings"]' }] },
+  { name: "settings — privacy and developer pages", path: "/settings/privacy", seed: SEED_ENTRIES, steps: [{ wait: 200 }, { expectText: "App password" }, { expectText: "Not set yet" }, { click: "Back" }, { wait: 500 }, { click: "Open Developer settings" }, { wait: 400 }, { expectText: "Debug panel" }, { expectSelector: '[aria-label="Show debug panel"]' }] },
+  // The Theme sheet's Back arrow returns to the Settings panel it was opened from; the panel's Back returns to the menu.
+  {
+    name: "settings — Back from the theme sheet and from the panel",
+    path: "/",
+    seed: SEED_ENTRIES,
+    steps: [
+      { click: "Open menu" },
+      { click: "Open settings" },
+      { click: "Open theme settings" },
+      { wait: 300 },
+      { expectText: "Landing page theme" },
+      { expectNoSelector: '[aria-label="Open advanced settings"]' },
+      { click: "Back" },
+      { wait: 300 },
+      { expectSelector: '[aria-label="Open advanced settings"]' },
+      { expectNoText: "Landing page theme" },
+      { click: "Back" },
+      { wait: 300 },
+      { expectSelector: '[aria-label="Open settings"]' },
+      { expectNoSelector: '[aria-label="Open advanced settings"]' },
+    ],
+  },
+  // Round 42: the seek slider. The long note is read as: title -> ALPHA -> BRAVO -> CHARLIE -> DELTA
+  // (5 pieces; the slider's steps are 0..4). Dragging to 3 reads CHARLIE; while paused, moving the
+  // slider makes no sound and Resume starts at the new place.
+  {
+    name: "note — read aloud seek slider",
+    path: `/note/${LONG_NOTE_ID}`,
+    seed: [...SEED_ENTRIES, LONG_NOTE],
+    tts: true,
+    steps: [
+      { click: "More" },
+      { click: "Read aloud" },
+      { wait: 600 },
+      { expectSelector: '[aria-label="Seek reading"]' },
+      { expectText: "Reading… 1/5" },
+      { type: { label: "Seek reading", value: "3" } },
+      { wait: 300 },
+      { expectGlobalCount: { name: "__ttsCalls", substring: "speak:flush:default:1:CHARLIE", count: 1 } },
+      { expectText: "Reading… 4/5" },
+      { click: "Pause reading" },
+      { wait: 150 },
+      { type: { label: "Seek reading", value: "1" } },
+      { wait: 200 },
+      { expectText: "Paused 2/5" },
+      { expectGlobalCount: { name: "__ttsCalls", substring: "speak:flush:default:1:ALPHA", count: 0 } },
+      { click: "Resume reading" },
+      { wait: 300 },
+      { expectGlobalCount: { name: "__ttsCalls", substring: "speak:flush:default:1:ALPHA", count: 1 } },
+      { expectText: "Reading… 2/5" },
     ],
   },
   // Round 33: landing-page list/grid. Default is list; Grid view switches
