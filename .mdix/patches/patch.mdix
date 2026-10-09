@@ -1,0 +1,28 @@
+// Brought to u by MidManStudio
+@CONFIG(
+  version    -> "1.0.0"
+  author     -> "Mid-D-Man"
+  features   -> "quickfuncs,data"
+  debug_mode -> "off"
+)
+
+@QUICKFUNCS(
+  ~delete_file<object>(_path) {
+    return { path = _path }
+  }
+)
+
+@DATA(
+  // Round 45 cleanup: files nothing imports any more.
+  delete_files::
+    // old helpers, superseded by the Tiptap editor (roman.ts was only used by textEditing.ts)
+    delete_file("src/lib/utils/textEditing.ts")
+    delete_file("src/lib/utils/roman.ts")
+    // old plain stores, superseded by the *.svelte.ts runes stores
+    delete_file("src/lib/stores/notes.ts")
+    delete_file("src/lib/stores/todos.ts")
+    delete_file("src/lib/stores/tags.ts")
+    // settings sheets that became pages in round 42 (FontsPanel / ReadAloudPanel)
+    delete_file("src/lib/components/shared/FontsSheet/FontsSheet.svelte")
+    delete_file("src/lib/components/shared/ReadAloudSheet/ReadAloudSheet.svelte")
+)
