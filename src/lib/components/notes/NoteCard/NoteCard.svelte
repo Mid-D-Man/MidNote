@@ -2,12 +2,14 @@
   import Card from "$lib/components/ui/Card/Card.svelte";
   import LockBadge from "$lib/components/shared/LockBadge/LockBadge.svelte";
   import ReminderBadge from "$lib/components/shared/ReminderBadge/ReminderBadge.svelte";
-  import { isActiveReminder } from "$lib/utils/reminders";
+  import { reminderDueAt } from "$lib/utils/reminderRepeat";
   import CardOverflowMenu from "$lib/components/shared/CardOverflowMenu/CardOverflowMenu.svelte";
   import TagsPopup from "$lib/components/shared/TagsPopup/TagsPopup.svelte";
   import { lockEntry, unlockEntry } from "$lib/utils/lockFlow";
   import { noteTags, registerTag, unregisterTag } from "$lib/stores/tags.svelte";
   import { saveEntry } from "$lib/stores/entries.svelte";
+  import { copyEntryContent } from "$lib/utils/copyText";
+  import { pushToast } from "$lib/stores/toast.svelte";
   import { stripHtml } from "$lib/utils/richText";
   import { createLongPressHandlers } from "$lib/utils/longPress";
   import { resolveTheme, hexToRgba, resolveIcon, getImageTextColorVars } from "$lib/utils/themePalette";
@@ -157,6 +159,12 @@
     note.tags = note.tags.filter((t) => t !== tag);
     saveEntry(note);
   }
+
+  // Round 44: "Copy content" in the ⋮ menu — the note's text on the clipboard. A
+  // locked note is refused with a toast (its content is cleared while locked).
+  async function handleCopyContent() {
+    pushToast(await copyEntryContent(note));
+  }
 </script>
 
 <Card class="note-card {selected ? 'selected' : ''} {compact ? 'compact' : ''} {resolved.kind === 'image' ? 'has-image-theme' : ''}" style={cardStyle} onclick={handleClick} {...pressHandlers}>
@@ -181,6 +189,7 @@
         busy={lockBusy || unlockingToOpen}
         onDelete={() => onDelete(note.id)}
         onDownload={() => onDownload(note.id)}
+        onCopy={handleCopyContent}
         onToggleStrikethrough={() => onToggleStrikethrough(note.id)}
         onTogglePin={() => onTogglePin(note.id)}
         onToggleLock={handleToggleLock}
@@ -222,8 +231,8 @@
     {#if note.encrypted}
       <LockBadge />
     {/if}
-    {#if isActiveReminder(note.reminderAt)}
-      <ReminderBadge at={note.reminderAt as string} />
+    {#if reminderDueAt(note)}
+      <ReminderBadge at={reminderDueAt(note) as string} repeating={!!note.reminderRepeat} />
     {/if}
     <h3 class="title" class:struck={note.struck}>{note.title || "Untitled"}</h3>
   </div>

@@ -17,6 +17,7 @@
 // that decision only affects what happens the first time this ships to
 // a real device; it doesn't touch the fallback path, which exists purely
 // so this file still works somewhere with no Tauri runtime under it.
+import { sanitizeRepeat } from "$lib/utils/reminderRepeat";
 import type { Board, CustomIcon, CustomTheme, Entry, EntryComment, Note, Todo } from "$lib/types/entry";
 import { NO_THEME } from "$lib/types/entry";
 import { getColorSync } from "colorthief";
@@ -123,6 +124,9 @@ function normalizeEntry(e: unknown): Entry | null {
   if (typeof entry.deletedAt !== "string") entry.deletedAt = null;
   // Round 31: reminder time. Anything that isn't a parseable date is dropped.
   if (typeof entry.reminderAt !== "string" || Number.isNaN(Date.parse(entry.reminderAt))) entry.reminderAt = null;
+  // Round 44: a repeat rule only makes sense with a reminder; anything malformed is dropped.
+  entry.reminderRepeat = sanitizeRepeat(entry.reminderRepeat);
+  if (!entry.reminderAt) entry.reminderRepeat = null;
   // Round 30: comments. Older entries have no field; sanitize also drops junk.
   entry.comments = sanitizeComments(entry.comments, generateId);
   if (entry.type === "regular" && !Array.isArray(entry.pages)) entry.pages = [];
@@ -250,8 +254,10 @@ export function getEntry(id: string): Entry | undefined {
   return loadEntries().find((e) => e.id === id);
 }
 
-export function upsertEntry(entry: Entry) {
-  entry.lastModified = new Date().toISOString();
+export function upsertEntry(entry: Entry, opts: { touch?: boolean } = {}) {
+  // `touch: false` keeps "last modified" as it was — for changes that aren't the
+  // user editing the note (a repeating reminder moving on to its next date).
+  if (opts.touch !== false) entry.lastModified = new Date().toISOString();
   const stored = clone(entry);
   const i = _entries.findIndex((e) => e.id === entry.id);
   if (i === -1) _entries.push(stored);
@@ -377,6 +383,7 @@ export function createNote(): Note {
     lockedKeyFile: null,
     deletedAt: null,
     reminderAt: null,
+    reminderRepeat: null,
     comments: [],
   };
 }
@@ -400,6 +407,7 @@ export function createTodo(): Todo {
     lockedKeyFile: null,
     deletedAt: null,
     reminderAt: null,
+    reminderRepeat: null,
     comments: [],
     categories: ["Steps"],
     steps: [],
@@ -426,6 +434,7 @@ export function createBoard(): Board {
     lockedKeyFile: null,
     deletedAt: null,
     reminderAt: null,
+    reminderRepeat: null,
     comments: [],
     nodes: [],
     edges: [],

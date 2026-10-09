@@ -387,6 +387,97 @@ const SCENARIOS = [
     seed: SEED_ENTRIES.map((e) => (e.id === NOTE_ID ? { ...e, reminderAt: "2099-01-01T12:00:00.000Z" } : e)),
     steps: [{ expectSelector: ".reminder-badge" }],
   },
+  // Round 44: "Copy content" in a card's ⋮ menu and on the multi-select bar.
+  {
+    name: "home — note card menu: Copy content",
+    path: "/",
+    seed: SEED_ENTRIES,
+    copy: true,
+    steps: [
+      { click: "More options" },
+      { click: "Copy content" },
+      { wait: 200 },
+      { expectGlobalCount: { name: "__copied", substring: "Smoke test note", count: 1 } },
+      { expectText: "Copied" },
+    ],
+  },
+  {
+    name: "home — locked note refuses Copy content",
+    path: "/",
+    seed: SEED_ENTRIES.map((e) => (e.id === NOTE_ID ? { ...e, encrypted: true, lockKeyMode: "app", lockedPayload: "x" } : e)),
+    copy: true,
+    steps: [{ click: "More options" }, { click: "Copy content" }, { wait: 200 }, { expectText: "Unlock first" }, { expectGlobalCount: { name: "__copied", substring: "", count: 0 } }],
+  },
+  {
+    name: "home — multi-select: Copy content joins the selected notes",
+    path: "/",
+    seed: [...SEED_ENTRIES, { ...SEED_ENTRIES.find((e) => e.id === NOTE_ID), id: "smoke-test-note-0002", title: "Second note", content: "second body" }],
+    copy: true,
+    steps: [
+      { longPress: ".note-card" },
+      { wait: 200 },
+      { expectText: "1 note selected" },
+      { clickSelector: ".note-card:not(.selected)" },
+      { wait: 200 },
+      { expectText: "2 notes selected" },
+      { click: "Copy content" },
+      { wait: 300 },
+      { expectGlobalCount: { name: "__copied", substring: "Smoke test note", count: 1 } },
+      { expectGlobalIncludes: { name: "__copied", substring: "Second note" } },
+      { expectGlobalIncludes: { name: "__copied", substring: "----------" } },
+      { expectText: "2 notes on your clipboard" },
+      // selection mode ends once something was copied
+      { expectNoSelector: '[aria-label="Cancel selection"]' },
+    ],
+  },
+  // Round 44: Repeat in the Reminder sheet. Times are UTC in the test (see TZ in runScenario).
+  {
+    name: "note — repeating reminder: daily",
+    path: `/note/${NOTE_ID}`,
+    seed: SEED_ENTRIES,
+    reminderBackend: true,
+    steps: [
+      { click: "More" },
+      { click: "Reminder" },
+      { type: { label: "Reminder time", value: "09:00" } },
+      { type: { label: "Reminder date", value: "2099-01-01" } },
+      { click: "Repeat daily" },
+      { wait: 100 },
+      { click: "Set reminder" },
+      { wait: 400 },
+      { expectText: "Reminder set" },
+      // 21 alarms, one per day, the first at the picked time and the last 20 days later
+      { expectGlobalCount: { name: "__reminderCalls", substring: "schedule:", count: 21 } },
+      { expectGlobalIncludes: { name: "__reminderCalls", substring: "2099-01-01T09:00:00.000Z:Smoke test note" } },
+      { expectGlobalIncludes: { name: "__reminderCalls", substring: "2099-01-21T09:00:00.000Z:Smoke test note" } },
+      { expectStored: '"reminderRepeat":{"rule":"daily","anchor":"2099-01-01T09:00"}' },
+      { expectStored: '"reminderAt":"2099-01-01T09:00:00.000Z"' },
+      // reopening shows the rule, and deleting clears the alarms and the rule in ONE cancel call
+      { click: "More" },
+      { click: "Reminder" },
+      { expectText: "Every day" },
+      { click: "Delete reminder" },
+      { wait: 300 },
+      { expectText: "Reminder deleted" },
+      { expectGlobalCount: { name: "__reminderCalls", substring: "cancel:", count: 2 } },
+      { expectNotStored: "reminderRepeat\":{\"rule" },
+    ],
+  },
+  // A repeating reminder whose saved date is STALE (the app wasn't opened since the
+  // last occurrence) still shows its bell, and the startup top-up moves the saved
+  // date on and re-registers the run — without touching "last modified".
+  {
+    name: "home — repeating reminder: startup top-up",
+    path: "/",
+    seed: SEED_ENTRIES.map((e) => (e.id === NOTE_ID ? { ...e, reminderAt: "2020-01-01T09:00:00.000Z", reminderRepeat: { rule: "daily", anchor: "2020-01-01T09:00" } } : e)),
+    reminderBackend: true,
+    steps: [
+      { wait: 600 },
+      { expectSelector: ".reminder-badge" },
+      { expectGlobalCount: { name: "__reminderCalls", substring: "schedule:", count: 21 } },
+      { expectNotStored: '"reminderAt":"2020-01-01T09:00:00.000Z"' },
+    ],
+  },
   { name: "todo — pin", path: `/todo/${TODO_ID}`, seed: SEED_ENTRIES, steps: [{ click: "More" }, { click: "Pin todo" }, { expectText: "Pinned" }] },
   // Round 34: rename a todo's sub-category through the real UI. Asserts the
   // new name is what got SAVED (the step's own `category` field moved with
@@ -1217,6 +1308,7 @@ function runScenario(scenario) {
         TZ: "UTC",
         ...(scenario.reminderBackend ? { SMOKE_REMINDER_BACKEND: "fake" } : {}),
         ...(scenario.share ? { SMOKE_SHARE: scenario.share } : {}),
+        ...(scenario.copy ? { SMOKE_COPY: "fake" } : {}),
         ...(scenario.tts ? { SMOKE_TTS: scenario.tts === "noevents" ? "fake-noevents" : "fake" } : {}),
         SMOKE_BUILD_DIR: BUILD_DIR,
         SMOKE_ROUTE_PATH: scenario.path,

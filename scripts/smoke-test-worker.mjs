@@ -164,11 +164,13 @@ if (process.env.SMOKE_REMINDER_BACKEND === "fake") {
     createChannel: async () => {
       calls.push("createChannel");
     },
-    schedule: async (p) => {
-      calls.push(`schedule:${p.id}:${p.schedule.at.date}:${p.title}`);
+    // Round 44: both take lists now (a repeating reminder is several alarms). One
+    // recorded line per payload for schedule, ONE line per cancel call.
+    schedule: async (payloads) => {
+      for (const p of payloads) calls.push(`schedule:${p.id}:${p.schedule.at.date}:${p.title}`);
     },
-    cancel: async (id) => {
-      calls.push(`cancel:${id}`);
+    cancel: async (ids) => {
+      calls.push(`cancel:${ids.join(",")}`);
     },
     // Round 34: the fake never has a saved copy, so a rename leaves it alone.
     pendingTitle: async () => null,
@@ -193,6 +195,18 @@ if (process.env.SMOKE_SHARE === "fake" || process.env.SMOKE_SHARE === "cancel") 
     clipboard: async (text) => {
       calls.push(`clipboard:${text}`);
     },
+  };
+}
+
+// Round 44: a recording stand-in for the clipboard. SMOKE_COPY=fake -> every text
+// "copied" is pushed onto globalThis.__copied.
+if (process.env.SMOKE_COPY === "fake") {
+  const copied = (globalThis.__copied = []);
+  globalThis.__midnoteCopyDeps = {
+    clipboard: async (text) => {
+      copied.push(text);
+    },
+    legacy: null,
   };
 }
 
@@ -482,6 +496,22 @@ if (STEPS.length > 0 && errors.length === 0) {
         break;
       }
       el.click();
+    } else if (step.longPress) {
+      // Round 44: press and hold (a card's long-press-to-select). Pointer events with
+      // isPrimary, held longer than the 500 ms the gesture needs, then released.
+      const el = target.querySelector(step.longPress);
+      if (!el) {
+        errors.push(new Error(`${where}: nothing matched ${step.longPress} to long-press.`));
+        break;
+      }
+      const make = (type) => {
+        const init = { bubbles: true, cancelable: true, clientX: 5, clientY: 5, isPrimary: true, pointerId: 1 };
+        if (typeof w.PointerEvent === "function") return new w.PointerEvent(type, init);
+        return Object.assign(new w.MouseEvent(type, init), { isPrimary: true });
+      };
+      el.dispatchEvent(make("pointerdown"));
+      await new Promise((r) => setTimeout(r, 700));
+      el.dispatchEvent(make("pointerup"));
     } else if (step.press) {
       // Round 38: a keyboard shortcut on an element — e.g. Ctrl+A inside the editor
       // to make a real selection (ProseMirror handles it through its own keymap).

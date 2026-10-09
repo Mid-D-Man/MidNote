@@ -1,7 +1,8 @@
 <script lang="ts">
   import ExportAsSheet from "$lib/components/shared/ExportAsSheet/ExportAsSheet.svelte";
   import ReminderSheet from "$lib/components/shared/ReminderSheet/ReminderSheet.svelte";
-  import { isActiveReminder, formatReminderWhen } from "$lib/utils/reminders";
+  import { formatReminderWhen } from "$lib/utils/reminders";
+  import { reminderDueAt } from "$lib/utils/reminderRepeat";
   import { goto } from "$app/navigation";
   import Button from "$lib/components/ui/Button/Button.svelte";
   import Spinner from "$lib/components/ui/Spinner/Spinner.svelte";
@@ -345,7 +346,7 @@
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.7 21a2 2 0 0 1-3.4 0" />
       </svg>
-      <span>{isActiveReminder(todo.reminderAt) ? `Reminder · ${formatReminderWhen(todo.reminderAt as string)}` : "Reminder"}</span>
+      <span>{reminderDueAt(todo) ? `Reminder · ${formatReminderWhen(reminderDueAt(todo) as string)}` : "Reminder"}</span>
     </button>
     <button class="action-row" onclick={handleReadAloud} aria-label={isReading ? "Stop reading" : "Read aloud"}>
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">

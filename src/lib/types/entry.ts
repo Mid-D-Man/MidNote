@@ -166,6 +166,18 @@ export interface EntryRef {
   // Lightweight metadata, so it lives here and flows into the list index.
   // See utils/reminders.ts.
   reminderAt: string | null;
+  // Round 44: makes the reminder repeat. `reminderAt` then always means "the next
+  // occurrence". null = a one-off reminder (or none). See utils/reminderRepeat.ts.
+  reminderRepeat: ReminderRepeat | null;
+}
+
+export type ReminderRepeatRule = "daily" | "weekdays" | "weekly" | "monthly" | "yearly";
+
+export interface ReminderRepeat {
+  rule: ReminderRepeatRule;
+  // The first occurrence the user picked, as LOCAL wall-clock text
+  // ("2026-10-09T09:00") — "every day at 9:00" follows the phone's clock.
+  anchor: string;
 }
 
 export interface NotePage {

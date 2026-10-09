@@ -57,6 +57,7 @@ function seedSamples() {
       deletedAt: null,
       comments: [],
       reminderAt: null,
+      reminderRepeat: null,
     },
     {
       id: storage.generateId(),
@@ -80,6 +81,7 @@ function seedSamples() {
       deletedAt: null,
       comments: [],
       reminderAt: null,
+      reminderRepeat: null,
     },
   ];
   sample.forEach((n) => {
@@ -126,6 +128,19 @@ export function saveEntry(entry: Entry) {
   // Round 34: a rename must reach the scheduled notification's title. No-op
   // (and no native call) unless the entry has a reminder whose title changed.
   if (entry.reminderAt) void refreshReminderTitle(entry).catch(() => {});
+}
+
+/**
+ * A repeating reminder moved on to its next occurrence (utils/reminders.ts
+ * topUpRepeatingReminders). Saved without touching "last modified": the note
+ * wasn't edited, so it must not jump to the top of a "last modified" list.
+ */
+export function setReminderAtQuietly(id: string, reminderAt: string) {
+  const entry = entries.find((e) => e.id === id);
+  if (!entry || entry.reminderAt === reminderAt) return;
+  entry.reminderAt = reminderAt;
+  storage.upsertEntry(entry, { touch: false });
+  refresh();
 }
 
 // Soft delete — every existing "Delete" affordance (CardOverflowMenu,

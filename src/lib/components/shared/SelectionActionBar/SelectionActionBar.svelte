@@ -13,6 +13,7 @@
     onCancel,
     onDelete,
     onSend,
+    onCopy,
     onMerge,
     onExport,
   }: {
@@ -29,6 +30,8 @@
     onCancel: () => void;
     onDelete: () => void;
     onSend: () => void;
+    // Round 44: put the selected items' text on the clipboard.
+    onCopy: () => void;
     onMerge: () => void;
     onExport: (format: ExportFormat) => void;
   } = $props();
@@ -71,6 +74,22 @@
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
         <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" />
         <line x1="8.6" y1="13.5" x2="15.4" y2="17.5" /><line x1="15.4" y1="6.5" x2="8.6" y2="10.5" />
+      </svg>
+    </Button>
+
+    <Button
+      variant="ghost"
+      size="icon"
+      onclick={() => {
+        breadcrumb("selection bar: Copy content tapped");
+        onCopy();
+      }}
+      aria-label="Copy content"
+      title="Copy content"
+      disabled={selectedCount === 0}
+    >
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
       </svg>
     </Button>
 

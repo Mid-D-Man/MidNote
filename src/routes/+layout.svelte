@@ -7,11 +7,11 @@
   import DebugPanel from "$lib/components/debug/DebugPanel.svelte";
   import { installGlobalCapture } from "$lib/debug/log.svelte";
   import { debugPanelVisible } from "$lib/stores/settings.svelte";
-  import { initFromBackend } from "$lib/stores/entries.svelte";
+  import { initFromBackend, entries, setReminderAtQuietly } from "$lib/stores/entries.svelte";
   import { sync as syncTags } from "$lib/stores/tags.svelte";
   import { onMount } from "svelte";
   import { goto } from "$app/navigation";
-  import { installReminderTapHandler } from "$lib/utils/reminders";
+  import { installReminderTapHandler, topUpRepeatingReminders } from "$lib/utils/reminders";
   import { initCustomFonts } from "$lib/stores/customFonts.svelte";
   import { initCustomThemes } from "$lib/stores/customThemes.svelte";
   import { initCustomIcons } from "$lib/stores/customIcons.svelte";
@@ -40,7 +40,23 @@
   let isLoading = $state(true);
   let storageReady = $state(false);
 
+  // Round 44: repeating reminders are kept going by the app — see utils/reminders.ts
+  // (RECURRING REMINDERS). Run when the app starts and again whenever it comes back
+  // to the foreground, at most once every 10 minutes. Never throws.
+  const TOP_UP_EVERY_MS = 10 * 60_000;
+  let lastTopUp = 0;
+  function topUpRepeating(force = false) {
+    const now = Date.now();
+    if (!force && now - lastTopUp < TOP_UP_EVERY_MS) return;
+    lastTopUp = now;
+    void topUpRepeatingReminders(entries, (id, patch) => setReminderAtQuietly(id, patch.reminderAt)).catch(() => {});
+  }
+  function onVisible() {
+    if (document.visibilityState === "visible") topUpRepeating();
+  }
+
   onMount(() => {
+    document.addEventListener("visibilitychange", onVisible);
     // Capture always runs regardless of the panel's own visibility
     // setting — see settings.svelte.ts's comment on debugPanelVisible.
     installGlobalCapture();
@@ -69,7 +85,10 @@
       // No-op outside the Android app. The returned unsubscribe isn't kept:
       // the root layout lives for the whole session.
       void installReminderTapHandler((path) => goto(path));
+      topUpRepeating(true);
     })();
+
+    return () => document.removeEventListener("visibilitychange", onVisible);
   });
 </script>
 

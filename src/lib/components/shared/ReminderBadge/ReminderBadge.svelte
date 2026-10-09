@@ -8,8 +8,8 @@
 <script lang="ts">
   import { formatReminderWhen } from "$lib/utils/reminders";
 
-  let { at, size = 14 }: { at: string; size?: number } = $props();
-  const label = $derived(`Reminder ${formatReminderWhen(at)}`);
+  let { at, size = 14, repeating = false }: { at: string; size?: number; repeating?: boolean } = $props();
+  const label = $derived(`Reminder ${formatReminderWhen(at)}${repeating ? " (repeats)" : ""}`);
 </script>
 
 <span class="reminder-badge" aria-label={label} title={label}>

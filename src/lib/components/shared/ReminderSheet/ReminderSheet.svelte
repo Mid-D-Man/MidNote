@@ -14,6 +14,11 @@
   // sheet shows can never claim a reminder that was not actually scheduled.
   // Saving follows the Actions-sheet rule: mutate THIS editor's own `entry`
   // copy, then saveEntry() it (see Pin / Comments).
+  //
+  // Round 44: "Repeat" (Never / Daily / Weekdays / Weekly / Monthly / Yearly). With
+  // a repeat, the date and time picked are the FIRST occurrence; `entry.reminderAt`
+  // always holds the NEXT one and `entry.reminderRepeat` the rule (the app keeps
+  // the alarms going — utils/reminders.ts, RECURRING REMINDERS).
   import Sheet from "$lib/components/ui/Sheet/Sheet.svelte";
   import { saveEntry } from "$lib/stores/entries.svelte";
   import { pushToast } from "$lib/stores/toast.svelte";
@@ -30,8 +35,9 @@
     validateReminderTime,
     formatReminderWhen,
     formatCountdown,
-    isActiveReminder,
   } from "$lib/utils/reminders";
+  import { REPEAT_RULES, describeRepeat, reminderDueAt } from "$lib/utils/reminderRepeat";
+  import type { ReminderRepeatRule } from "$lib/types/entry";
   import type { Entry } from "$lib/types/entry";
 
   let { open = $bindable(false), entry }: { open?: boolean; entry: Entry } = $props();
@@ -42,16 +48,21 @@
   let busy = $state<"set" | "delete" | null>(null);
 
   const supported = $derived(getBackend().supported());
-  const active = $derived(isActiveReminder(entry.reminderAt));
+  // When it next goes off — computed from the rule for a repeating reminder, so it
+  // is right even if the saved date is stale (the app hasn't been opened since).
+  const dueAt = $derived(reminderDueAt(entry));
+  const active = $derived(dueAt !== null);
+  let repeatValue = $state<ReminderRepeatRule | "">("");
   const presets = $derived(open ? reminderPresets() : []);
 
   // Each time the sheet opens, start from the current reminder if there is
   // one, otherwise from the next sensible hour.
   $effect(() => {
     if (!open) return;
-    const start = active && entry.reminderAt ? new Date(entry.reminderAt) : defaultReminderTime();
+    const start = dueAt ? new Date(dueAt) : defaultReminderTime();
     dateValue = toDateInputValue(start);
     timeValue = toTimeInputValue(start);
+    repeatValue = entry.reminderRepeat?.rule ?? "";
     error = "";
   });
 
@@ -72,7 +83,7 @@
     busy = "set";
     error = "";
     breadcrumb(`reminder: set requested for ${entry.type} ${entry.id} at ${at.toISOString()}`);
-    const result = await setReminder(entry, at);
+    const result = await setReminder(entry, at, undefined, undefined, repeatValue || null);
     busy = null;
     if (!result.ok) {
       breadcrumb(`reminder: set failed (${result.reason}): ${result.message}`);
@@ -81,8 +92,12 @@
     }
     if (result.route) breadcrumb(`reminder: scheduled via ${result.route}`);
     entry.reminderAt = result.at;
+    entry.reminderRepeat = result.repeat;
     saveEntry(entry);
-    pushToast({ title: "Reminder set", description: formatReminderWhen(result.at) });
+    pushToast({
+      title: "Reminder set",
+      description: `${formatReminderWhen(result.at)}${result.repeat ? ` · ${describeRepeat(result.repeat).toLowerCase()}` : ""}`,
+    });
     open = false;
   }
 
@@ -98,6 +113,7 @@
     }
     breadcrumb(`reminder: deleted for ${entry.type} ${entry.id}`);
     entry.reminderAt = null;
+    entry.reminderRepeat = null;
     saveEntry(entry);
     pushToast({ title: "Reminder deleted" });
     open = false;
@@ -109,14 +125,14 @@
     {#if !supported}
       <p class="info">Reminders are sent as Android notifications, so they only work in the installed Android app — not in this preview.</p>
     {:else}
-      {#if active && entry.reminderAt}
+      {#if dueAt}
         <div class="current" role="status">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.7 21a2 2 0 0 1-3.4 0" />
           </svg>
           <div class="current-text">
-            <span class="when">{formatReminderWhen(entry.reminderAt)}</span>
-            <span class="countdown">{formatCountdown(entry.reminderAt)}</span>
+            <span class="when">{formatReminderWhen(dueAt)}</span>
+            <span class="countdown">{formatCountdown(dueAt)}{entry.reminderRepeat ? ` · ${describeRepeat(entry.reminderRepeat)}` : ""}</span>
           </div>
         </div>
       {/if}
@@ -128,6 +144,16 @@
       <div class="field-row">
         <label for="reminder-date">Select date</label>
         <input id="reminder-date" type="date" bind:value={dateValue} aria-label="Reminder date" />
+      </div>
+
+      <div class="repeat" role="group" aria-label="Repeat">
+        <span class="repeat-label">Repeat</span>
+        <div class="repeat-options">
+          <button type="button" class="chip" class:on={repeatValue === ""} aria-pressed={repeatValue === ""} aria-label="Repeat never" onclick={() => (repeatValue = "")}>Never</button>
+          {#each REPEAT_RULES as r (r.rule)}
+            <button type="button" class="chip" class:on={repeatValue === r.rule} aria-pressed={repeatValue === r.rule} aria-label={`Repeat ${r.label.toLowerCase()}`} onclick={() => (repeatValue = r.rule)}>{r.label}</button>
+          {/each}
+        </div>
       </div>
 
       <div class="presets" aria-label="Quick picks">
@@ -150,7 +176,9 @@
         </button>
       {/if}
 
-      <p class="hint">You'll get a notification at that time. Tapping it opens this {entry.type === "regular" ? "note" : entry.type}.</p>
+      <p class="hint">
+        You'll get a notification at that time{repeatValue ? ", and again each time it repeats" : ""}. Tapping it opens this {entry.type === "regular" ? "note" : entry.type}.
+      </p>
     {/if}
   </div>
 </Sheet>
@@ -234,6 +262,27 @@
     font-family: var(--font-sans);
     font-size: 13px;
     cursor: pointer;
+  }
+  .repeat {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+  .repeat-label {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-hi);
+  }
+  .repeat-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+  .chip.on {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--bg);
+    font-weight: 600;
   }
   .error {
     margin: 0;

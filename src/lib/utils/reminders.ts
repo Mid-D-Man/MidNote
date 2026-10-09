@@ -37,6 +37,20 @@
 //     before this fix (via `notify`) carry none: tapping those only opens
 //     the app.
 //
+// RECURRING REMINDERS (round 44). The plugin's own repeat options were read and
+// rejected: `at` + `repeating` repeats at "the time until the first alarm";
+// `every` uses the inexact setRepeating starting from NOW; and the calendar
+// `interval` mode re-arms itself with a plain setExact (no allow-while-idle), so
+// Android may hold a later occurrence back while the phone dozes. Instead a
+// repeating reminder is simply SEVERAL ordinary one-off alarms — the next
+// `horizonFor(rule)` occurrences, each its own notification id (occurrence 0
+// keeps the entry's usual id). That is exactly the path a single reminder
+// already uses on the device, and it keeps firing for weeks with the app closed.
+// The app tops the list up whenever it starts or comes to the foreground
+// (topUpRepeatingReminders) and moves `reminderAt` on to the next occurrence.
+// Known limit: a phone that was OFF over several occurrences shows each missed
+// one at boot (the plugin's boot receiver shifts every past alarm to "now").
+//
 // WHY `invoke` AND NOT THE @tauri-apps/plugin-notification PACKAGE. The
 // package is a thin wrapper around these same invoke() calls (its source was
 // read too), and using invoke directly keeps package.json / package-lock.json
@@ -50,12 +64,13 @@
 // fake. The real backend at the bottom is the only part that touches Tauri.
 
 import { invoke, addPluginListener, isTauri } from "@tauri-apps/api/core";
-import type { Entry } from "$lib/types/entry";
+import type { Entry, ReminderRepeat, ReminderRepeatRule } from "$lib/types/entry";
+import { MAX_HORIZON, horizonFor, occurrencesAfter, toAnchor } from "$lib/utils/reminderRepeat";
 
 export type PermissionState = "granted" | "denied" | "prompt";
 
 /** The slice of an entry reminders care about (a Note, Todo or Board all have it). */
-export type ReminderSubject = Pick<Entry, "id" | "type" | "title" | "encrypted" | "reminderAt">;
+export type ReminderSubject = Pick<Entry, "id" | "type" | "title" | "encrypted" | "reminderAt" | "reminderRepeat">;
 
 export const REMINDER_CHANNEL_ID = "reminders";
 /** Nothing closer than this is accepted: the alarm must be comfortably in the future. */
@@ -70,13 +85,27 @@ export const MIN_LEAD_MS = 30_000;
  * to be stored or can drift out of sync.
  */
 export function reminderNotificationId(entryId: string): number {
+  return fnv31(entryId);
+}
+
+function fnv31(text: string): number {
   let h = 0x811c9dc5;
-  for (let i = 0; i < entryId.length; i++) {
-    h ^= entryId.charCodeAt(i);
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
     h = Math.imul(h, 0x01000193) >>> 0;
   }
   const id = h & 0x7fffffff;
   return id === 0 ? 1 : id;
+}
+
+/** Notification id of the k-th upcoming occurrence of a repeating reminder (k = 0 is the entry's usual id). */
+export function occurrenceNotificationId(entryId: string, k: number): number {
+  return k <= 0 ? reminderNotificationId(entryId) : fnv31(`${entryId}#${k}`);
+}
+
+/** Every id a reminder of this entry can occupy — what a cancel has to cover. */
+export function allReminderNotificationIds(entryId: string): number[] {
+  return Array.from({ length: MAX_HORIZON }, (_, k) => occurrenceNotificationId(entryId, k));
 }
 
 // ---- time ----------------------------------------------------------------
@@ -219,10 +248,10 @@ export interface ReminderPayload {
  * it's replaced with a generic line (and lockEntry() reschedules an existing
  * reminder so the stored text matches — see syncReminderSilently).
  */
-export function buildReminderPayload(entry: ReminderSubject, at: Date): ReminderPayload {
+export function buildReminderPayload(entry: ReminderSubject, at: Date, k = 0): ReminderPayload {
   const title = entry.encrypted ? "Locked note" : entry.title.trim() || "Untitled";
   return {
-    id: reminderNotificationId(entry.id),
+    id: occurrenceNotificationId(entry.id, k),
     channelId: REMINDER_CHANNEL_ID,
     title,
     body: "Reminder \u00b7 tap to open",
@@ -232,6 +261,16 @@ export function buildReminderPayload(entry: ReminderSubject, at: Date): Reminder
     schedule: { at: { date: at.toISOString(), repeating: false, allowWhileIdle: true } },
     extra: { entryId: entry.id, entryType: entry.type },
   };
+}
+
+/**
+ * Every time the OS should hold an alarm for this entry, soonest first: the next
+ * `horizonFor(rule)` occurrences of a repeating reminder, or the single time of a
+ * one-off that hasn't gone off yet.
+ */
+export function plannedTimes(entry: ReminderSubject, now: Date = new Date()): Date[] {
+  if (entry.reminderRepeat) return occurrencesAfter(entry.reminderRepeat, now, horizonFor(entry.reminderRepeat.rule));
+  return isActiveReminder(entry.reminderAt, now) ? [new Date(entry.reminderAt as string)] : [];
 }
 
 const ROUTE_FOR_TYPE: Record<string, string> = { regular: "note", todo: "todo", board: "board" };
@@ -252,9 +291,10 @@ export interface ReminderBackend {
   permissionState(): Promise<PermissionState>;
   requestPermission(): Promise<PermissionState>;
   createChannel(): Promise<void>;
-  /** Resolves with a short note on how it was scheduled (for the debug log), or nothing. */
-  schedule(payload: ReminderPayload): Promise<string | void>;
-  cancel(id: number): Promise<void>;
+  /** Schedules all of them in one go. Resolves with a short note on how (for the debug log), or nothing. */
+  schedule(payloads: ReminderPayload[]): Promise<string | void>;
+  /** Cancels these ids (ids nothing is scheduled under are harmless). */
+  cancel(ids: number[]): Promise<void>;
   /**
    * The title the OS currently holds for this reminder, or null when it can't
    * be told (not scheduled, or scheduled through the old `notify` route that
@@ -294,7 +334,7 @@ export function pendingTitleFrom(raw: unknown, id: number): string | null {
 // ---- operations ----------------------------------------------------------
 
 export type SetReminderResult =
-  | { ok: true; at: string; route?: string }
+  | { ok: true; at: string; repeat: ReminderRepeat | null; route?: string }
   | { ok: false; reason: "unsupported" | "past" | "permission" | "failed"; message: string };
 
 function describe(err: unknown): string {
@@ -312,7 +352,8 @@ export async function setReminder(
   entry: ReminderSubject,
   at: Date,
   backend: ReminderBackend = getBackend(),
-  now: Date = new Date()
+  now: Date = new Date(),
+  repeatRule: ReminderRepeatRule | null = null
 ): Promise<SetReminderResult> {
   if (!backend.supported()) {
     return { ok: false, reason: "unsupported", message: "Reminders work in the Android app, not in this preview." };
@@ -331,11 +372,17 @@ export async function setReminder(
       };
     }
     await backend.createChannel();
-    const payload = buildReminderPayload(entry, at);
-    await backend.cancel(payload.id);
-    const route = await backend.schedule(payload);
-    scheduledTitle.set(entry.id, payload.title);
-    return { ok: true, at: at.toISOString(), ...(route ? { route } : {}) };
+    // A repeating reminder is anchored on the picked date/time; its first
+    // occurrence is that moment (or the next weekday, for "weekdays").
+    const repeat: ReminderRepeat | null = repeatRule ? { rule: repeatRule, anchor: toAnchor(at) } : null;
+    const times = repeat ? occurrencesAfter(repeat, new Date(at.getTime() - 1), horizonFor(repeat.rule)) : [at];
+    if (times.length === 0) return { ok: false, reason: "failed", message: "Couldn't work out when that reminder repeats." };
+    const payloads = times.map((t, k) => buildReminderPayload(entry, t, k));
+    // Whatever this entry had before (a one-off or a whole run of occurrences) goes first.
+    await backend.cancel(allReminderNotificationIds(entry.id));
+    const route = await backend.schedule(payloads);
+    scheduledTitle.set(entry.id, payloads[0].title);
+    return { ok: true, at: times[0].toISOString(), repeat, ...(route ? { route } : {}) };
   } catch (err) {
     return { ok: false, reason: "failed", message: `Couldn't set the reminder: ${describe(err)}` };
   }
@@ -350,7 +397,7 @@ export async function clearReminder(
   // can still clear the saved time.
   if (!backend.supported()) return { ok: true };
   try {
-    await backend.cancel(reminderNotificationId(entryId));
+    await backend.cancel(allReminderNotificationIds(entryId));
     scheduledTitle.delete(entryId);
     return { ok: true };
   } catch (err) {
@@ -376,13 +423,15 @@ export async function syncReminderSilently(
   now: Date = new Date()
 ): Promise<void> {
   try {
-    if (!backend.supported() || !isActiveReminder(entry.reminderAt, now)) return;
+    if (!backend.supported()) return;
+    const times = plannedTimes(entry, now);
+    if (times.length === 0) return;
     if ((await backend.permissionState()) !== "granted") return;
     await backend.createChannel();
-    const payload = buildReminderPayload(entry, new Date(entry.reminderAt as string));
-    await backend.cancel(payload.id);
-    await backend.schedule(payload);
-    scheduledTitle.set(entry.id, payload.title);
+    const payloads = times.map((t, k) => buildReminderPayload(entry, t, k));
+    await backend.cancel(allReminderNotificationIds(entry.id));
+    await backend.schedule(payloads);
+    scheduledTitle.set(entry.id, payloads[0].title);
   } catch {
     /* best effort: the reminder set earlier is still scheduled as it was */
   }
@@ -406,8 +455,9 @@ export async function refreshReminderTitle(
   now: Date = new Date()
 ): Promise<boolean> {
   try {
-    if (!entry.reminderAt || !backend.supported() || !isActiveReminder(entry.reminderAt, now)) return false;
-    const at = new Date(entry.reminderAt);
+    if (!backend.supported()) return false;
+    const at = plannedTimes(entry, now)[0];
+    if (!at) return false;
     if (at.getTime() - now.getTime() < MIN_LEAD_MS) return false;
     const title = buildReminderPayload(entry, at).title;
     let known: string | null | undefined = scheduledTitle.get(entry.id);
@@ -422,6 +472,62 @@ export async function refreshReminderTitle(
   } catch {
     return false;
   }
+}
+
+export interface TopUpResult {
+  /** Entries whose saved `reminderAt` was moved on to the next occurrence. */
+  advanced: number;
+  /** Entries whose run of alarms was re-registered. */
+  rescheduled: number;
+}
+
+/**
+ * Keeps every repeating reminder going. Called when the app starts and when it
+ * comes back to the foreground: for each repeating entry it (1) moves the saved
+ * `reminderAt` on to the next occurrence — `persist` saves it WITHOUT touching
+ * the note's "last modified" — and (2) re-registers the next occurrences so the
+ * run never dries up while the app stays closed. It never asks for notification
+ * permission (if it isn't granted there is nothing to schedule), never throws,
+ * and leaves an entry alone whose next alarm is within MIN_LEAD_MS: cancelling
+ * and re-adding an alarm that close to its time could drop it.
+ */
+export async function topUpRepeatingReminders(
+  entries: ReadonlyArray<ReminderSubject & { deletedAt?: string | null }>,
+  persist: (id: string, patch: { reminderAt: string }) => void,
+  backend: ReminderBackend = getBackend(),
+  now: Date = new Date()
+): Promise<TopUpResult> {
+  const result: TopUpResult = { advanced: 0, rescheduled: 0 };
+  try {
+    if (!backend.supported()) return result;
+    let granted: boolean | null = null; // looked up once, and only if there's something to schedule
+    for (const entry of entries) {
+      if (!entry.reminderRepeat || entry.deletedAt) continue;
+      try {
+        const times = plannedTimes(entry, now);
+        if (times.length === 0) continue;
+        const nextIso = times[0].toISOString();
+        if (entry.reminderAt !== nextIso) {
+          persist(entry.id, { reminderAt: nextIso });
+          result.advanced++;
+        }
+        if (times[0].getTime() - now.getTime() < MIN_LEAD_MS) continue;
+        if (granted === null) granted = (await backend.permissionState()) === "granted";
+        if (!granted) continue;
+        await backend.createChannel();
+        // Same ids as before are REPLACED in place by the plugin (no cancel needed).
+        const payloads = times.map((t, k) => buildReminderPayload(entry, t, k));
+        await backend.schedule(payloads);
+        scheduledTitle.set(entry.id, payloads[0].title);
+        result.rescheduled++;
+      } catch {
+        /* one entry's failure must not stop the rest */
+      }
+    }
+  } catch {
+    /* best effort */
+  }
+  return result;
 }
 
 /**
@@ -478,22 +584,22 @@ const tauriBackend: ReminderBackend = {
       lights: true,
     });
   },
-  schedule: async (payload) => {
+  schedule: async (payloads) => {
     // `batch` saves the notification (boot restore, tap payload); `notify`
-    // does not — see the header. `sourceJson` is the notification's own JSON.
-    const sourceJson = JSON.stringify(payload);
+    // does not — see the header. `sourceJson` is each notification's own JSON.
+    const notifications = payloads.map((p) => ({ ...p, sourceJson: JSON.stringify(p) }));
     try {
-      await invoke("plugin:notification|batch", { notifications: [{ ...payload, sourceJson }] });
+      await invoke("plugin:notification|batch", { notifications });
       return "batch";
     } catch (err) {
       // Alarm only (no boot restore, tap can't open the note) beats no alarm.
-      await invoke("plugin:notification|notify", { options: payload });
+      for (const p of payloads) await invoke("plugin:notification|notify", { options: p });
       return `notify (batch failed: ${describe(err)})`;
     }
   },
   pendingTitle: async (id) => pendingTitleFrom(await invoke("plugin:notification|get_pending"), id),
-  cancel: async (id) => {
-    await invoke("plugin:notification|cancel", { notifications: [id] });
+  cancel: async (ids) => {
+    await invoke("plugin:notification|cancel", { notifications: ids });
   },
   onTap: async (handler) => {
     const listener = await addPluginListener<{ notification?: { extra?: unknown } }>("notification", "actionPerformed", (payload) =>

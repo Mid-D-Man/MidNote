@@ -9,7 +9,7 @@
   import CardOverflowMenu from "$lib/components/shared/CardOverflowMenu/CardOverflowMenu.svelte";
   import LockBadge from "$lib/components/shared/LockBadge/LockBadge.svelte";
   import ReminderBadge from "$lib/components/shared/ReminderBadge/ReminderBadge.svelte";
-  import { isActiveReminder } from "$lib/utils/reminders";
+  import { reminderDueAt } from "$lib/utils/reminderRepeat";
   import TagsPopup from "$lib/components/shared/TagsPopup/TagsPopup.svelte";
   import { entries, saveEntry, removeEntry, toggleBookmark, toggleStrikethrough, togglePinned } from "$lib/stores/entries.svelte";
   import type { Note, Todo, Board, Entry } from "$lib/types/entry";
@@ -21,6 +21,7 @@
   import { progressLabel, countDone } from "$lib/utils/todoEdits";
   import { mergeNotes, mergeTodos, buildExportFiles, buildEncryptedBackupFile, downloadFiles, type ExportFormat } from "$lib/utils/selectionActions";
   import { shareText, shareOutcomeToast, entriesToShareText } from "$lib/utils/share";
+  import { copyEntryContent, copyEntriesContent } from "$lib/utils/copyText";
   import { pushToast } from "$lib/stores/toast.svelte";
   import { breadcrumb } from "$lib/debug/log.svelte";
   import { resolveTheme, hexToRgba, resolveIcon, getImageTextColorVars } from "$lib/utils/themePalette";
@@ -388,6 +389,16 @@
     if (result !== "cancelled") exitSelectMode();
   }
 
+  // Round 44: "Copy content" on the multi-select bar — every selected item's text
+  // on the clipboard, one after another (locked items skipped, the toast says how
+  // many). Selection mode ends when something was copied.
+  async function handleCopySelected() {
+    const { toast, copied } = await copyEntriesContent(selectedEntries);
+    breadcrumb(`home: copy content of ${selectedEntries.length} selected -> ${copied} copied`);
+    pushToast(toast);
+    if (copied > 0) exitSelectMode();
+  }
+
   function handleMergeSelected() {
     if (selectionHasEncrypted) {
       pushToast({ title: "Can't merge a locked item", description: "Unlock it first, or deselect it to merge the rest.", variant: "destructive" });
@@ -637,6 +648,7 @@
                         busy={lockBusyIds.has(item.id)}
                         onDelete={() => handleDeleteSingle(item.id)}
                         onDownload={() => handleDownloadSingle(item.id)}
+                        onCopy={async () => pushToast(await copyEntryContent(item))}
                         onToggleStrikethrough={() => toggleStrikethrough(item.id)}
                         onTogglePin={() => togglePinned(item.id)}
                         onToggleLock={() => handleToggleLock(item)}
@@ -673,8 +685,8 @@
                     {#if item.encrypted}
                       <LockBadge />
                     {/if}
-                    {#if isActiveReminder(item.reminderAt)}
-                      <ReminderBadge at={item.reminderAt as string} />
+                    {#if reminderDueAt(item)}
+                      <ReminderBadge at={reminderDueAt(item) as string} repeating={!!item.reminderRepeat} />
                     {/if}
                     <strong class:struck={item.struck}>{item.title || "Untitled"}</strong>
                   </div>
@@ -738,6 +750,7 @@
                         busy={lockBusyIds.has(item.id)}
                         onDelete={() => handleDeleteSingle(item.id)}
                         onDownload={() => handleDownloadSingle(item.id)}
+                        onCopy={async () => pushToast(await copyEntryContent(item))}
                         onToggleStrikethrough={() => toggleStrikethrough(item.id)}
                         onTogglePin={() => togglePinned(item.id)}
                         onToggleLock={() => handleToggleLock(item)}
@@ -778,8 +791,8 @@
                     {#if item.encrypted}
                       <LockBadge />
                     {/if}
-                    {#if isActiveReminder(item.reminderAt)}
-                      <ReminderBadge at={item.reminderAt as string} />
+                    {#if reminderDueAt(item)}
+                      <ReminderBadge at={reminderDueAt(item) as string} repeating={!!item.reminderRepeat} />
                     {/if}
                     <strong class:struck={item.struck}>{item.title || "Untitled"}</strong>
                   </div>
@@ -827,6 +840,7 @@
       onCancel={exitSelectMode}
       onDelete={handleDeleteSelected}
       onSend={handleSendSelected}
+      onCopy={handleCopySelected}
       onMerge={handleMergeSelected}
       onExport={handleExportSelected}
     />
