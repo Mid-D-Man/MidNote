@@ -79,7 +79,7 @@ let _entriesInitialized = false;
 // it, since either can hand back an entry saved under an older shape (a
 // real .mdix file written by a future version of this same code, same as
 // an old localStorage record could be).
-function normalizeEntry(e: unknown): Entry | null {
+export function normalizeEntry(e: unknown): Entry | null {
   const entry = e as Record<string, unknown> & { pages?: Array<Record<string, unknown>> };
   if (!entry || typeof entry !== "object" || !entry.id || !entry.type) {
     console.error("storage: skipping malformed entry:", entry);
@@ -254,7 +254,7 @@ export function getEntry(id: string): Entry | undefined {
   return loadEntries().find((e) => e.id === id);
 }
 
-export function upsertEntry(entry: Entry, opts: { touch?: boolean } = {}) {
+export function upsertEntry(entry: Entry, opts: { touch?: boolean } = {}): Promise<void> {
   // `touch: false` keeps "last modified" as it was — for changes that aren't the
   // user editing the note (a repeating reminder moving on to its next date).
   if (opts.touch !== false) entry.lastModified = new Date().toISOString();
@@ -280,7 +280,9 @@ export function upsertEntry(entry: Entry, opts: { touch?: boolean } = {}) {
     // number instead of a guess.
     const payload = JSON.stringify(entry);
     const t0 = performance.now();
-    dix
+    // Round 45: the persist promise is returned (it never rejects) so a bulk caller —
+    // Restore — can wait for each entry; every older caller just ignores it.
+    return dix
       .saveEntry(entry.id, payload)
       .then(() => {
         const ms = performance.now() - t0;
@@ -293,6 +295,7 @@ export function upsertEntry(entry: Entry, opts: { touch?: boolean } = {}) {
       });
   } else {
     saveEntriesToLocalStorage(_entries);
+    return Promise.resolve();
   }
 }
 

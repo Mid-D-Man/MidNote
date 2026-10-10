@@ -218,6 +218,45 @@ export class FontLibrary {
     return { ok: true, font: meta };
   }
 
+  /** Every stored font WITH its bytes — what a backup saves. */
+  async exportAll(): Promise<StoredFont[]> {
+    try {
+      return await this.backend.all();
+    } catch (err) {
+      this.log(`fonts: couldn't read fonts for a backup (${describe(err)})`);
+      return [];
+    }
+  }
+
+  /**
+   * Put one font from a backup back (Restore). "kept" = a font with that id or
+   * name is already here; "failed" = the file isn't usable / over the limits /
+   * couldn't be saved. Like add(): the browser has to accept it before it is kept.
+   */
+  async restore(font: StoredFont, existing: readonly CustomFont[]): Promise<"added" | "kept" | "failed"> {
+    if (existing.some((f) => f.id === font.id || f.name.toLowerCase() === font.name.toLowerCase())) return "kept";
+    if (existing.length >= MAX_CUSTOM_FONTS || font.bytes.byteLength > MAX_FONT_BYTES || font.bytes.byteLength === 0) return "failed";
+    const kind = detectFontKind(new Uint8Array(font.bytes, 0, Math.min(4, font.bytes.byteLength)));
+    if (!kind) return "failed";
+    const stored: StoredFont = { ...font, kind, size: font.bytes.byteLength };
+    if (this.host) {
+      try {
+        this.handles.set(stored.id, await this.host.add(stored.name, stored.bytes));
+      } catch (err) {
+        this.log(`fonts: restored "${stored.name}" rejected by the browser (${describe(err)})`);
+        return "failed";
+      }
+    }
+    try {
+      await this.backend.put(stored);
+    } catch (err) {
+      this.unregister(stored.id);
+      this.log(`fonts: couldn't save restored "${stored.name}" (${describe(err)})`);
+      return "failed";
+    }
+    return "added";
+  }
+
   async remove(id: string): Promise<boolean> {
     try {
       await this.backend.remove(id);

@@ -10,7 +10,7 @@
 // swaps when the font registers; nothing else waits on it.
 import { untrack } from "svelte";
 import { breadcrumb } from "$lib/debug/log.svelte";
-import { FontLibrary, browserFaceHost, idbBackend, memoryBackend, type AddResult, type CustomFont } from "$lib/utils/fontLibrary";
+import { FontLibrary, browserFaceHost, idbBackend, memoryBackend, type AddResult, type CustomFont, type StoredFont } from "$lib/utils/fontLibrary";
 import { primaryFamily } from "$lib/utils/fonts";
 import { noteFont, setNoteFont } from "$lib/stores/settings.svelte";
 
@@ -68,6 +68,23 @@ export async function addCustomFont(file: File): Promise<AddResult> {
     setList([...customFonts, result.font].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" })));
   }
   return result;
+}
+
+/** Every imported font with its bytes (for a backup). */
+export async function exportCustomFonts() {
+  const lib = await getLibrary();
+  return lib.exportAll();
+}
+
+/** Put one font from a backup back. */
+export async function restoreCustomFont(font: StoredFont): Promise<"added" | "kept" | "failed"> {
+  const lib = await getLibrary();
+  const out = await lib.restore(font, customFonts);
+  if (out === "added") {
+    const { bytes: _b, ...meta } = font;
+    setList([...customFonts, { ...meta, kind: meta.kind, size: font.bytes.byteLength }].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" })));
+  }
+  return out;
 }
 
 export async function removeCustomFont(id: string): Promise<boolean> {

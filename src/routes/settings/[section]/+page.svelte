@@ -6,6 +6,7 @@
   //   /settings/fonts        default note font + imported fonts   (Back -> Appearance)
   //   /settings/read-aloud   voice, speed, pitch, sample
   //   /settings/trash        what's in Trash, and how long it stays
+  //   /settings/backup       back up everything to a file / restore from one
   //   /settings/privacy      app password
   //   /settings/developer    debug panel
   import { page } from "$app/stores";
@@ -17,6 +18,7 @@
   import AppPasswordRow from "$lib/components/settings/AppPasswordRow.svelte";
   import FontsPanel from "$lib/components/settings/FontsPanel.svelte";
   import ReadAloudPanel from "$lib/components/settings/ReadAloudPanel.svelte";
+  import BackupPanel from "$lib/components/settings/BackupPanel.svelte";
   import { findSection } from "$lib/components/settings/settingsSections";
   import TrashSheet from "$lib/components/layout/TrashSheet/TrashSheet.svelte";
   import { getTrashed } from "$lib/stores/entries.svelte";
@@ -90,6 +92,8 @@
       />
       <p class="note">Deleted items stay in Trash for 30 days, then are deleted automatically.</p>
       <TrashSheet bind:open={trashOpen} onBack={() => (trashOpen = false)} />
+    {:else if section.slug === "backup"}
+      <BackupPanel />
     {:else if section.slug === "privacy"}
       <AppPasswordRow />
     {:else if section.slug === "developer"}

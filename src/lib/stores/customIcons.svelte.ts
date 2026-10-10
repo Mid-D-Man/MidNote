@@ -36,6 +36,13 @@ export async function addCustomIcon(file: File): Promise<CustomIcon> {
   return icon;
 }
 
+/** Backup restore: add an icon from a backup unless its id is already here. Throws if it can't be kept. */
+export async function restoreCustomIcon(icon: CustomIcon): Promise<void> {
+  if (collection.items.some((i) => i.id === icon.id)) return;
+  await collection.add(icon);
+  sync();
+}
+
 export function removeCustomIcon(id: string) {
   void collection.remove(id);
   sync();

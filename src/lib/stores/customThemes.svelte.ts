@@ -39,6 +39,13 @@ export async function addCustomTheme(file: File): Promise<CustomTheme> {
   return theme;
 }
 
+/** Backup restore: add a theme from a backup unless its id is already here. Throws if it can't be kept. */
+export async function restoreCustomTheme(theme: CustomTheme): Promise<void> {
+  if (collection.items.some((t) => t.id === theme.id)) return;
+  await collection.add(theme);
+  sync();
+}
+
 export function removeCustomTheme(id: string) {
   void collection.remove(id); // leaves the list at once; the write follows
   sync();

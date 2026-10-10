@@ -434,6 +434,14 @@ if (STEPS.length > 0 && errors.length === 0) {
       // jsdom's FileReader rejects a Blob from another implementation.
       const buf = new Uint8Array(await d.blob.arrayBuffer());
       const head = String.fromCharCode(...buf.slice(0, want.magic.length));
+      if (want.contains) {
+        const body = new TextDecoder().decode(buf);
+        const missing = want.contains.filter((s) => !body.includes(s));
+        if (missing.length) {
+          errors.push(new Error(`${where}: "${d.name}" doesn't contain ${JSON.stringify(missing)}.`));
+          break;
+        }
+      }
       if (head !== want.magic || buf.length < (want.minBytes ?? 0)) {
         errors.push(new Error(`${where}: "${d.name}" starts with ${JSON.stringify(head)} and is ${buf.length} bytes; expected magic ${JSON.stringify(want.magic)} and >= ${want.minBytes ?? 0} bytes.`));
         break;
@@ -496,6 +504,18 @@ if (STEPS.length > 0 && errors.length === 0) {
         break;
       }
       el.click();
+    } else if (step.chooseFile) {
+      // Round 45: pick a file in an <input type="file">. The File is Node's own (it has
+      // .text(), like the Blob note above); jsdom can't be given real files, so the
+      // input's `files` is defined directly and a `change` event announced.
+      const { selector, name, text } = step.chooseFile;
+      const el = target.querySelector(selector);
+      if (!el) {
+        errors.push(new Error(`${where}: nothing matched ${selector} to choose a file in.`));
+        break;
+      }
+      Object.defineProperty(el, "files", { value: [new File([text], name)], configurable: true });
+      el.dispatchEvent(new w.Event("change", { bubbles: true }));
     } else if (step.longPress) {
       // Round 44: press and hold (a card's long-press-to-select). Pointer events with
       // isPrimary, held longer than the 500 ms the gesture needs, then released.

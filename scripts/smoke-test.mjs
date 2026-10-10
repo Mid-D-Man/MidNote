@@ -99,6 +99,26 @@ const LONG_NOTE = {
   encrypted: false,
 };
 
+// Round 45: the backup file the restore scenario picks. The note is the seeded one with an OLD
+// timestamp (the phone's copy is newer -> kept), the todo is the seeded one with a FAR-FUTURE
+// timestamp and a new title (the file's copy is newer -> updated), the second note is new (added).
+// A theme and a font (a 4-byte TrueType header is enough for the app's own font check) come along.
+const RESTORE_BACKUP_TEXT = JSON.stringify({
+  app: "midnote-backup",
+  format: 1,
+  createdAt: "2026-10-01T10:00:00.000Z",
+  entries: [
+    { ...SEED_ENTRIES.find((e) => e.id === NOTE_ID), lastModified: "2000-01-01T00:00:00.000Z" },
+    { ...SEED_ENTRIES.find((e) => e.id === TODO_ID), title: "Todo from the future", lastModified: "2999-01-01T00:00:00.000Z" },
+    { ...SEED_ENTRIES.find((e) => e.id === NOTE_ID), id: "smoke-test-note-restored", title: "Restored note from backup", content: "<p>back from the file</p>", lastModified: "2026-09-01T00:00:00.000Z" },
+  ],
+  tags: { notes: ["restored-tag"], todos: [], boards: [] },
+  themes: [{ id: "theme-restored", name: "Restored", data: "data:image/png;base64,AAAA", createdAt: "2026-09-01T00:00:00.000Z" }],
+  icons: [],
+  fonts: [{ id: "font-restored", name: "Restored Font", kind: "ttf", size: 8, addedAt: "2026-09-01T00:00:00.000Z", data: "AAEAAAAAAAA=" }],
+  settings: { "midnote:note-lines": "true" },
+});
+
 // Every scenario that mounts a route component and runs its effects.
 // "existing note/todo" is the one that actually caught the real bug —
 // "new note/todo" never hit it (see the incident doc for why the two
@@ -387,6 +407,72 @@ const SCENARIOS = [
     seed: SEED_ENTRIES.map((e) => (e.id === NOTE_ID ? { ...e, reminderAt: "2099-01-01T12:00:00.000Z" } : e)),
     steps: [{ expectSelector: ".reminder-badge" }],
   },
+  // Round 45: Backup & restore. The backup text below is what the app itself writes (format 1).
+  {
+    name: "settings — backup: Back up everything saves one file",
+    path: "/settings/backup",
+    seed: SEED_ENTRIES,
+    steps: [
+      { wait: 200 },
+      { expectText: "Last backup: never" },
+      { click: "Back up everything" },
+      { wait: 500 },
+      { expectDownload: { ext: ".json", magic: '{"app":"midnote-backup"', minBytes: 300, contains: ["Smoke test note", "Smoke test todo", "Smoke test board", '"format":1', '"counts":{"notes":1,"todos":1,"boards":1,"trashed":0'] } },
+      { expectText: "Backup saved" },
+      { expectNoText: "Last backup: never" },
+    ],
+  },
+  {
+    name: "settings — backup: restore merges, newer copy wins, nothing is deleted",
+    path: "/settings/backup",
+    seed: SEED_ENTRIES,
+    steps: [
+      { wait: 200 },
+      { chooseFile: { selector: 'input[type="file"]', name: "midnote-backup.json", text: RESTORE_BACKUP_TEXT } },
+      { wait: 400 },
+      { expectText: "Restore this backup?" },
+      // the note is already here and not older (kept), the todo in the file is NEWER (updated), the
+      // second note is new (added), plus a theme and a font to add
+      { expectText: "1 to add" },
+      { expectText: "1 to update" },
+      { expectText: "1 already here" },
+      { expectText: "2 theme/icon/fonts to add" },
+      // nothing is touched until Restore is pressed
+      { expectNotStored: "Restored note from backup" },
+      { click: "Restore backup" },
+      { wait: 800 },
+      { expectText: "Restore finished" },
+      { expectText: "1 added, 1 updated to the newer copy, 1 already here (kept)" },
+      { expectText: "Added 1 theme, 1 font" },
+      { expectText: "restart the app" },
+      { expectSelector: '[aria-label="Restart now"]' },
+      { expectStored: "Restored note from backup" },
+      { expectStored: "Todo from the future" },
+      { expectNotStored: '"title":"Smoke test todo"' },
+      { expectStored: "Smoke test note" },
+      { expectStored: "Smoke test board" },
+      { expectStored: "restored-tag" },
+      { expectStored: "data:image/png;base64,AAAA" },
+    ],
+  },
+  { name: "settings — backup: a file that isn't a backup", path: "/settings/backup", seed: SEED_ENTRIES, steps: [{ wait: 200 }, { chooseFile: { selector: 'input[type="file"]', name: "notes.txt", text: "hello world" } }, { wait: 300 }, { expectText: "isn't a MidNote backup" }, { expectNoText: "Restore this backup?" }] },
+  { name: "settings — backup: a backup from a newer app", path: "/settings/backup", seed: SEED_ENTRIES, steps: [{ wait: 200 }, { chooseFile: { selector: 'input[type="file"]', name: "future.json", text: JSON.stringify({ app: "midnote-backup", format: 99 }) } }, { wait: 300 }, { expectText: "newer version of MidNote" }] },
+  {
+    name: "settings — backup: everything already here",
+    path: "/settings/backup",
+    seed: SEED_ENTRIES,
+    steps: [
+      { wait: 200 },
+      { chooseFile: { selector: 'input[type="file"]', name: "same.json", text: JSON.stringify({ app: "midnote-backup", format: 1, createdAt: "2026-10-01T10:00:00.000Z", entries: [{ ...SEED_ENTRIES[0], lastModified: "2000-01-01T00:00:00.000Z" }] }) } },
+      { wait: 300 },
+      { expectText: "Nothing to restore" },
+      { expectNoSelector: '[aria-label="Restore backup"]' },
+      { click: "Cancel restore" },
+      { wait: 100 },
+      { expectNoText: "Nothing to restore" },
+    ],
+  },
+  { name: "settings — Backup & restore is on the Advanced settings page", path: "/settings", seed: SEED_ENTRIES, steps: [{ wait: 200 }, { expectSelector: '[aria-label="Open Backup & restore settings"]' }, { click: "Open Backup & restore settings" }, { wait: 300 }, { expectSelector: '[aria-label="Back up everything"]' }, { click: "Back" }, { wait: 400 }, { expectSelector: '[aria-label="Open Backup & restore settings"]' }] },
   // Round 44: "Copy content" in a card's ⋮ menu and on the multi-select bar.
   {
     name: "home — note card menu: Copy content",
