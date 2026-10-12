@@ -3,7 +3,7 @@
 // see that file's header for the async-hydration/sync-API split.
 import type { Entry, Note, Todo } from "$lib/types/entry";
 import * as storage from "$lib/storage";
-import { NO_THEME } from "$lib/types/entry";
+import { buildSampleEntries, decideSeeding, SAMPLES_DECIDED_KEY, SAMPLES_DECIDED_VALUE } from "$lib/utils/sampleEntries";
 import { untrack } from "svelte";
 import { cancelReminderSilently, syncReminderSilently, refreshReminderTitle } from "$lib/utils/reminders";
 
@@ -22,9 +22,11 @@ export const entries = $state<Entry[]>([]);
 // of whether real data existed).
 export async function initFromBackend(): Promise<void> {
   await storage.initStorage();
-  if (storage.loadEntries().length === 0) {
-    seedSamples();
-  }
+  // First-run examples (see utils/sampleEntries.ts). Decided once per install: the examples
+  // arrive only on a genuinely fresh install, and deleting them never brings them back.
+  const decision = decideSeeding(storage.loadEntries().length, samplesDecided());
+  if (decision === "seed") seedSamples();
+  if (decision !== "skip") markSamplesDecided();
   // Runs once per boot, after real data is in — anything already past
   // Trash's retention window gets removed for real before the list ever
   // renders, rather than waiting for the user to happen to open Trash.
@@ -32,62 +34,29 @@ export async function initFromBackend(): Promise<void> {
   refresh();
 }
 
+function samplesDecided(): boolean {
+  try {
+    return localStorage.getItem(SAMPLES_DECIDED_KEY) !== null;
+  } catch {
+    return false;
+  }
+}
+
+function markSamplesDecided() {
+  try {
+    localStorage.setItem(SAMPLES_DECIDED_KEY, SAMPLES_DECIDED_VALUE);
+  } catch {
+    // Storage unavailable: the worst case is the examples being offered again on an empty app.
+  }
+}
+
 function seedSamples() {
-  const now = new Date().toISOString();
-  const sample: Note[] = [
-    {
-      id: storage.generateId(),
-      type: "regular",
-      title: "Shopping List",
-      content: "Milk, eggs, bread, butter",
-      pages: [],
-      page1Name: null,
-      tags: ["Personal"],
-      lastModified: now,
-      isBookmarked: true,
-      encrypted: false,
-      struck: false,
-      isPinned: false,
-      headerTheme: { ...NO_THEME },
-      bodyTheme: { ...NO_THEME },
-      icon: null,
-      lockKeyMode: null,
-      lockedPayload: null,
-      lockedKeyFile: null,
-      deletedAt: null,
-      comments: [],
-      reminderAt: null,
-      reminderRepeat: null,
-    },
-    {
-      id: storage.generateId(),
-      type: "regular",
-      title: "Meeting Notes",
-      content: "Discussed project timeline and deliverables",
-      pages: [],
-      page1Name: null,
-      tags: ["Work"],
-      lastModified: now,
-      isBookmarked: false,
-      encrypted: false,
-      struck: false,
-      isPinned: false,
-      headerTheme: { ...NO_THEME },
-      bodyTheme: { ...NO_THEME },
-      icon: null,
-      lockKeyMode: null,
-      lockedPayload: null,
-      lockedKeyFile: null,
-      deletedAt: null,
-      comments: [],
-      reminderAt: null,
-      reminderRepeat: null,
-    },
-  ];
-  sample.forEach((n) => {
-    storage.upsertEntry(n);
-    storage.addKnownTag("notes", n.tags[0]);
-  });
+  const scope = { regular: "notes", todo: "todos", board: "boards" } as const;
+  for (const e of buildSampleEntries()) {
+    // touch:false keeps the examples' fixed last-modified time (see sampleEntries.ts).
+    storage.upsertEntry(e, { touch: false });
+    for (const tag of e.tags) storage.addKnownTag(scope[e.type], tag);
+  }
 }
 
 export function getNotes(): Note[] {

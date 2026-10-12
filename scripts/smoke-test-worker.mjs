@@ -17,6 +17,8 @@ import path from "node:path";
 const BUILD_DIR = process.env.SMOKE_BUILD_DIR;
 const ROUTE_PATH = process.env.SMOKE_ROUTE_PATH;
 const SEED_ENTRIES = JSON.parse(process.env.SMOKE_SEED_ENTRIES || "[]");
+// Round 46: extra localStorage values present before the app boots (scenario.storage).
+const SEED_STORAGE = JSON.parse(process.env.SMOKE_SEED_STORAGE || "{}");
 const SETTLE_MS = Number(process.env.SMOKE_SETTLE_MS || 1200);
 // Optional, per-scenario — see smoke-test.mjs's SCENARIOS comment on
 // `expectText` for why this exists alongside the crash-only check below:
@@ -49,6 +51,7 @@ const w = dom.window;
 if (SEED_ENTRIES.length > 0) {
   w.localStorage.setItem("midnote:entries", JSON.stringify(SEED_ENTRIES));
 }
+for (const [k, v] of Object.entries(SEED_STORAGE)) w.localStorage.setItem(k, String(v));
 
 // jsdom doesn't implement IntersectionObserver; SvelteKit's link-preload
 // wiring touches it during start(), so it needs at least a no-op stub.

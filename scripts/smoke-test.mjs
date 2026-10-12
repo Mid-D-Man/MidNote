@@ -1362,6 +1362,38 @@ const SCENARIOS = [
       { expectNotStored: "grid" },
     ],
   },
+  // Round 46: first-run examples. A fresh install (nothing stored, no earlier decision) gets two
+  // notes, a todo and a board; an app that already has entries (an update) gets none; an app whose
+  // examples were deleted does not get them back.
+  {
+    name: "first run — examples on every tab",
+    path: "/",
+    steps: [
+      { expectText: "Shopping List" },
+      { expectText: "Meeting Notes" },
+      { clickSelector: ".view-tabs button:nth-child(2)" },
+      { expectText: "Plan a weekend trip" },
+      { clickSelector: ".view-tabs button:nth-child(3)" },
+      { expectText: "Launch plan" },
+      { expectStored: "sample-todo-weekend-trip" },
+      { expectStored: "sample-board-launch-plan" },
+      { expectStored: "examples-decided" },
+    ],
+  },
+  { name: "first run — the example todo opens", path: "/todo/sample-todo-weekend-trip", steps: [{ expectText: "Before you go 1/3" }, { expectText: "Packing 0/3" }, { expectText: "Personal" }] },
+  { name: "first run — the example board opens", path: "/board/sample-board-launch-plan", steps: [{ expectText: "Research" }, { expectText: "Launch" }] },
+  {
+    name: "app update — existing entries get no examples",
+    path: "/",
+    seed: SEED_ENTRIES,
+    steps: [{ expectNotStored: "sample-todo-weekend-trip" }, { expectNotStored: "sample-note-shopping-list" }, { expectStored: "examples-decided" }],
+  },
+  {
+    name: "emptied app — the examples do not come back",
+    path: "/",
+    storage: { "midnote:samples-decided": "examples-decided" },
+    steps: [{ expectText: "No notes found." }, { expectNotStored: "sample-note-shopping-list" }, { expectNotStored: "sample-todo-weekend-trip" }],
+  },
 ];
 
 // steps (round 26): an ordered script of interactions, run after the
@@ -1399,6 +1431,7 @@ function runScenario(scenario) {
         SMOKE_BUILD_DIR: BUILD_DIR,
         SMOKE_ROUTE_PATH: scenario.path,
         SMOKE_SEED_ENTRIES: JSON.stringify(scenario.seed),
+        ...(scenario.storage ? { SMOKE_SEED_STORAGE: JSON.stringify(scenario.storage) } : {}),
         ...(scenario.expectText ? { SMOKE_EXPECT_TEXT: scenario.expectText } : {}),
         ...(scenario.clickAriaLabel ? { SMOKE_CLICK_ARIA_LABEL: scenario.clickAriaLabel } : {}),
         ...(scenario.steps ? { SMOKE_STEPS: JSON.stringify(scenario.steps) } : {}),
