@@ -8,6 +8,7 @@
 -->
 <script lang="ts">
   import { page } from "$app/stores";
+  import { parentFromUrl } from "$lib/stores/folders.svelte";
   import { goto, onNavigate } from "$app/navigation";
   import { onMount, untrack } from "svelte";
   import BoardCanvas from "$lib/components/boards/BoardCanvas/BoardCanvas.svelte";
@@ -61,7 +62,9 @@
     try {
       loadError = null;
       if (!id || id === "new") {
-        board = createBoard();
+        // Round 47: opened from inside a folder (?folder=...): file the new entry there. Untracked on
+        // purpose - this effect must not re-run (and reset the editor) every time an entry changes.
+        board = createBoard(untrack(() => parentFromUrl($page.url)));
         syncToken = untrack(() => syncToken) + 1;
         breadcrumb("board: created new");
         return;

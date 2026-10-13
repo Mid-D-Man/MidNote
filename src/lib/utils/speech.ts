@@ -161,7 +161,7 @@ export function entryToSpeechText(entry: Entry): string {
       parts.push("Notes");
       for (const a of entry.annotations) parts.push(a.content ? `${a.title}: ${a.content}` : a.title);
     }
-  } else {
+  } else if (entry.type === "board") {
     const nameOf = new Map(entry.nodes.map((n) => [n.id, n.label || "Untitled"]));
     for (const n of entry.nodes) parts.push(n.body ? `${n.label || "Untitled"}: ${n.body}` : n.label || "Untitled");
     for (const e of entry.edges) parts.push(describeEdge(nameOf.get(e.source) ?? "Something", nameOf.get(e.target) ?? "something", e.label, e.directed, "speech"));

@@ -18,7 +18,7 @@
 // a real device; it doesn't touch the fallback path, which exists purely
 // so this file still works somewhere with no Tauri runtime under it.
 import { sanitizeRepeat } from "$lib/utils/reminderRepeat";
-import type { Board, CustomIcon, CustomTheme, Entry, EntryComment, Note, Todo } from "$lib/types/entry";
+import type { Board, CustomIcon, CustomTheme, Entry, EntryComment, Folder, Note, Todo } from "$lib/types/entry";
 import { NO_THEME } from "$lib/types/entry";
 import { getColorSync } from "colorthief";
 import * as dix from "$lib/dixscript/client";
@@ -122,6 +122,9 @@ export function normalizeEntry(e: unknown): Entry | null {
   if (typeof entry.lockedPayload !== "string") entry.lockedPayload = null;
   if (typeof entry.lockedKeyFile !== "string") entry.lockedKeyFile = null;
   if (typeof entry.deletedAt !== "string") entry.deletedAt = null;
+  // Round 47: the folder an entry sits in. Anything that isn't a non-empty string is the
+  // top level; whether that folder really exists is decided at read time (utils/folders.ts).
+  if (typeof entry.parentId !== "string" || !entry.parentId) entry.parentId = null;
   // Round 31: reminder time. Anything that isn't a parseable date is dropped.
   if (typeof entry.reminderAt !== "string" || Number.isNaN(Date.parse(entry.reminderAt))) entry.reminderAt = null;
   // Round 44: a repeat rule only makes sense with a reminder; anything malformed is dropped.
@@ -133,6 +136,17 @@ export function normalizeEntry(e: unknown): Entry | null {
   // Round 39: a note's comments belong to a page; any that point at a page that
   // is gone (a hand-edited file, an interrupted page delete) move to page 1.
   if (entry.type === "regular") entry.comments = reconcileCommentPages(entry.comments as EntryComment[], (entry.pages as Array<{ id: string }>).map((p) => p.id));
+  // Round 47: a folder is never locked and never has a reminder, whatever a hand-edited
+  // file or an odd backup says.
+  if (entry.type === "folder") {
+    entry.encrypted = false;
+    entry.lockKeyMode = null;
+    entry.lockedPayload = null;
+    entry.lockedKeyFile = null;
+    entry.reminderAt = null;
+    entry.reminderRepeat = null;
+    if (typeof entry.title !== "string") entry.title = "";
+  }
   if (entry.type === "regular") {
     if (typeof entry.page1Name !== "string") entry.page1Name = null;
     for (const p of entry.pages ?? []) {
@@ -332,6 +346,15 @@ export function moveToTrash(id: string) {
   upsertEntry(entry);
 }
 
+// Round 47: file an entry into a folder (null = back to the top level). Whether the move is
+// allowed (depth, cycles) is utils/folders.ts's canMove; this only writes it.
+export function setParent(id: string, parentId: string | null) {
+  const entry = _entries.find((e) => e.id === id);
+  if (!entry || entry.parentId === parentId) return;
+  entry.parentId = parentId;
+  upsertEntry(entry);
+}
+
 export function restoreFromTrash(id: string) {
   const entry = _entries.find((e) => e.id === id);
   if (!entry) return;
@@ -358,7 +381,7 @@ export function purgeExpiredTrash() {
   for (const entry of expired) deleteEntry(entry.id);
 }
 
-export function createNote(): Note {
+export function createNote(parentId: string | null = null): Note {
   return {
     id: generateId(),
     type: "regular",
@@ -387,11 +410,12 @@ export function createNote(): Note {
     deletedAt: null,
     reminderAt: null,
     reminderRepeat: null,
+    parentId,
     comments: [],
   };
 }
 
-export function createTodo(): Todo {
+export function createTodo(parentId: string | null = null): Todo {
   return {
     id: generateId(),
     type: "todo",
@@ -411,6 +435,7 @@ export function createTodo(): Todo {
     deletedAt: null,
     reminderAt: null,
     reminderRepeat: null,
+    parentId,
     comments: [],
     categories: ["Steps"],
     steps: [],
@@ -418,7 +443,7 @@ export function createTodo(): Todo {
   };
 }
 
-export function createBoard(): Board {
+export function createBoard(parentId: string | null = null): Board {
   return {
     id: generateId(),
     type: "board",
@@ -438,10 +463,37 @@ export function createBoard(): Board {
     deletedAt: null,
     reminderAt: null,
     reminderRepeat: null,
+    parentId,
     comments: [],
     nodes: [],
     edges: [],
     viewport: null,
+  };
+}
+
+// Round 47: a folder. Same shared fields as every entry; it holds nothing else.
+export function createFolder(parentId: string | null = null, title = ""): Folder {
+  return {
+    id: generateId(),
+    type: "folder",
+    title,
+    tags: [],
+    lastModified: new Date().toISOString(),
+    isBookmarked: false,
+    encrypted: false,
+    struck: false,
+    isPinned: false,
+    headerTheme: { ...NO_THEME },
+    bodyTheme: { ...NO_THEME },
+    icon: null,
+    lockKeyMode: null,
+    lockedPayload: null,
+    lockedKeyFile: null,
+    deletedAt: null,
+    reminderAt: null,
+    reminderRepeat: null,
+    parentId,
+    comments: [],
   };
 }
 

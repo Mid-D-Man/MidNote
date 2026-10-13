@@ -16,6 +16,7 @@
     onCopy,
     onMerge,
     onExport,
+    onMove,
   }: {
     selectedCount: number;
     // "note" or "todo" — only used for copy ("3 notes selected").
@@ -34,6 +35,8 @@
     onCopy: () => void;
     onMerge: () => void;
     onExport: (format: ExportFormat) => void;
+    // Round 47: file the selected items into a folder. Optional; the button shows only when given.
+    onMove?: () => void;
   } = $props();
 
   let showDeleteConfirm = $state(false);
@@ -61,6 +64,13 @@
   <span class="count">{selectedCount} {itemLabel}{selectedCount === 1 ? "" : "s"} selected</span>
 
   <div class="actions">
+    {#if onMove}
+      <Button variant="ghost" size="icon" onclick={onMove} aria-label="Move to folder" title="Move to folder" disabled={selectedCount === 0}>
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+        </svg>
+      </Button>
+    {/if}
     <Button
       variant="ghost"
       size="icon"

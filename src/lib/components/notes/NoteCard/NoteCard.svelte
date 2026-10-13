@@ -31,6 +31,8 @@
     onTogglePin,
     unlockingToOpen = false,
     compact = false,
+    inheritedTags = [],
+    onMove,
   }: {
     note: Note;
     onToggleBookmark: (id: string) => void;
@@ -48,6 +50,9 @@
     onDownload: (id: string) => void;
     onToggleStrikethrough: (id: string) => void;
     onTogglePin: (id: string) => void;
+    // Round 47: tags this note carries only because of the folders above it, and "Move to folder".
+    inheritedTags?: string[];
+    onMove?: () => void;
     // True while the PARENT page's onClick (=handleClick in
     // +page.svelte) is mid-unlock for this exact note — that function,
     // not this component, owns the "don't navigate into a locked note
@@ -193,6 +198,7 @@
         onToggleStrikethrough={() => onToggleStrikethrough(note.id)}
         onTogglePin={() => onTogglePin(note.id)}
         onToggleLock={handleToggleLock}
+        {onMove}
         onOpenTags={() => (tagsOpen = true)}
       />
       {#if note.isPinned}
@@ -246,10 +252,13 @@
     <p class="date">{dateLabel}</p>
   {/if}
 
-  {#if note.tags.length > 0}
+  {#if note.tags.length > 0 || inheritedTags.length > 0}
     <div class="tags">
       {#each note.tags as tag (tag)}
         <span class="tag">{tag}</span>
+      {/each}
+      {#each inheritedTags as tag (tag)}
+        <span class="tag inherited" title="From a folder">{tag}</span>
       {/each}
     </div>
   {/if}
@@ -453,5 +462,8 @@
   :global(.note-card.has-image-theme) .tag {
     background: var(--theme-tag-bg);
     color: var(--theme-tag-text);
+  }
+  .tag.inherited {
+    opacity: 0.6;
   }
 </style>

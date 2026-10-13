@@ -79,6 +79,13 @@ fn array_key_for(entry_type: &str) -> &'static str {
 /// type currently on disk. entries.rs's save_entry/delete_entry both
 /// call this rather than trying to patch the existing index in place.
 pub fn rebuild_index(app: &AppHandle, entry_type: &str) -> Result<(), String> {
+    // Round 47: a folder holds only a title, its own tags and a parent pointer, and the app
+    // loads every entry (folders included) at startup, so there is no folders index file.
+    // Without this early return a saved folder would be written to disk and then fail here
+    // with "Unknown entry type for index".
+    if entry_type == "folder" {
+        return Ok(());
+    }
     let dir = paths::entries_dir(app)?;
     let mut rows = Vec::new();
     if let Ok(read_dir) = fs::read_dir(&dir) {

@@ -89,6 +89,8 @@ export function buildPlaintextPayload(entry: Entry): string {
   if (entry.type === "board") {
     return JSON.stringify({ nodes: entry.nodes, edges: entry.edges, viewport: entry.viewport, comments: entry.comments });
   }
+  // Round 47: a folder is never locked, so there is nothing to put in a payload.
+  if (entry.type === "folder") return "{}";
   return JSON.stringify({ steps: entry.steps, annotations: entry.annotations, comments: entry.comments });
 }
 
@@ -113,7 +115,7 @@ export function applyDecryptedPayload(entry: Entry, plaintextJson: string) {
     entry.nodes = Array.isArray(payload.nodes) ? payload.nodes : [];
     entry.edges = Array.isArray(payload.edges) ? payload.edges : [];
     entry.viewport = payload.viewport ?? null;
-  } else {
+  } else if (entry.type === "todo") {
     entry.steps = payload.steps;
     entry.annotations = payload.annotations;
   }
@@ -149,7 +151,7 @@ export function clearPlaintextFields(entry: Entry) {
     entry.nodes = [];
     entry.edges = [];
     entry.viewport = null;
-  } else {
+  } else if (entry.type === "todo") {
     entry.steps = [];
     entry.annotations = [];
   }

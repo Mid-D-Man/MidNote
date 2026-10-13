@@ -55,7 +55,8 @@ function seedSamples() {
   for (const e of buildSampleEntries()) {
     // touch:false keeps the examples' fixed last-modified time (see sampleEntries.ts).
     storage.upsertEntry(e, { touch: false });
-    for (const tag of e.tags) storage.addKnownTag(scope[e.type], tag);
+    // A folder's tags are inherited by what is inside it; they are not a per-tab tag to register.
+    if (e.type !== "folder") for (const tag of e.tags) storage.addKnownTag(scope[e.type], tag);
   }
 }
 

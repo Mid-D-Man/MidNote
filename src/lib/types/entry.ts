@@ -169,6 +169,10 @@ export interface EntryRef {
   // Round 44: makes the reminder repeat. `reminderAt` then always means "the next
   // occurrence". null = a one-off reminder (or none). See utils/reminderRepeat.ts.
   reminderRepeat: ReminderRepeat | null;
+  // Round 47: the folder this entry sits in, or null for the top level. Only the
+  // pointer is stored; everything else about folders (depth, inherited tags, who is
+  // "inside" whom) is worked out from it at read time. See utils/folders.ts.
+  parentId: string | null;
 }
 
 export type ReminderRepeatRule = "daily" | "weekdays" | "weekly" | "monthly" | "yearly";
@@ -295,5 +299,14 @@ export interface Board extends EntryRef {
   viewport: BoardViewport | null;
 }
 
-export type Entry = Note | Todo | Board;
+// Round 47: a folder groups notes, todos, boards and other folders. It is an entry
+// like the others (so backup, restore, trash and sync treat it the same) but has no
+// content of its own: its title, its OWN tags and its parentId are all it holds.
+// Never locked and never given a reminder.
+export interface Folder extends EntryRef {
+  comments: EntryComment[];
+  type: "folder";
+}
+
+export type Entry = Note | Todo | Board | Folder;
 

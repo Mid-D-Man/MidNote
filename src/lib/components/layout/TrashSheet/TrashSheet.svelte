@@ -23,7 +23,7 @@
   let pendingPurge: Entry | null = $state(null);
 
   function typeLabel(entry: Entry): string {
-    return entry.type === "regular" ? "Note" : entry.type === "todo" ? "Todo" : "Board";
+    return entry.type === "regular" ? "Note" : entry.type === "todo" ? "Todo" : entry.type === "folder" ? "Folder" : "Board";
   }
 
   // Deliberately coarse (days only, rounded down) — this is "how long

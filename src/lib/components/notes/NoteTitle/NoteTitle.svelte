@@ -2,7 +2,7 @@
   let { value = $bindable("") }: { value?: string } = $props();
 </script>
 
-<input type="text" bind:value placeholder="Note title..." class="note-title" />
+<input type="text" bind:value placeholder="Note title..." aria-label="Note title" class="note-title" />
 
 <style>
   .note-title {

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { page } from "$app/stores";
+  import { parentFromUrl } from "$lib/stores/folders.svelte";
   import { goto, onNavigate } from "$app/navigation";
   import { onMount, onDestroy, untrack } from "svelte";
   import TodoHeader from "$lib/components/todos/TodoHeader/TodoHeader.svelte";
@@ -59,7 +60,9 @@
     try {
       loadError = null;
       if (!id || id === "new") {
-        todo = createTodo();
+        // Round 47: opened from inside a folder (?folder=...): file the new entry there. Untracked on
+        // purpose - this effect must not re-run (and reset the editor) every time an entry changes.
+        todo = createTodo(untrack(() => parentFromUrl($page.url)));
         // untrack is load-bearing here, not cosmetic — this is the exact
         // bug that caused the hang. load() runs inside the $effect below,
         // which also WRITES `todo` (the reassignment above). Reading

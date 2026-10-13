@@ -145,7 +145,7 @@ export function setAppBodyTheme(theme: ThemeRef) {
 // this is the actual fix for "leaving a todo always comes back to Notes."
 const ACTIVE_VIEW_KEY = "midnote:active-view";
 
-export type ActiveView = "notes" | "todos" | "boards";
+export type ActiveView = "notes" | "todos" | "boards" | "folders";
 
 export function loadLastActiveView(): ActiveView {
   if (typeof localStorage === "undefined") return "notes";
@@ -154,7 +154,7 @@ export function loadLastActiveView(): ActiveView {
   // (including the value written by a build that predates a view being
   // renamed or removed) falls back to Notes instead of putting the list
   // route into a state with no matching tab.
-  return stored === "todos" || stored === "boards" ? stored : "notes";
+  return stored === "todos" || stored === "boards" || stored === "folders" ? stored : "notes";
 }
 
 export function setLastActiveView(view: ActiveView) {

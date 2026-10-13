@@ -50,6 +50,7 @@ export interface BackupCounts {
   notes: number;
   todos: number;
   boards: number;
+  folders: number;
   trashed: number;
   themes: number;
   icons: number;
@@ -156,13 +157,14 @@ export function backupFileName(now: Date = new Date()): string {
   return `midnote-backup-${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}.json`;
 }
 
-export function countEntries(entries: ReadonlyArray<{ type?: unknown; deletedAt?: unknown }>): Pick<BackupCounts, "notes" | "todos" | "boards" | "trashed"> {
-  const c = { notes: 0, todos: 0, boards: 0, trashed: 0 };
+export function countEntries(entries: ReadonlyArray<{ type?: unknown; deletedAt?: unknown }>): Pick<BackupCounts, "notes" | "todos" | "boards" | "folders" | "trashed"> {
+  const c = { notes: 0, todos: 0, boards: 0, folders: 0, trashed: 0 };
   for (const e of entries) {
     if (e.deletedAt) c.trashed++;
     else if (e.type === "regular") c.notes++;
     else if (e.type === "todo") c.todos++;
     else if (e.type === "board") c.boards++;
+    else if (e.type === "folder") c.folders++;
   }
   return c;
 }

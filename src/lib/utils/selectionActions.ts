@@ -70,6 +70,8 @@ export function entryToPlainText(entry: Entry): string {
     }
     return out.join("\n").trim();
   }
+  // Round 47: a folder has no content of its own - its name is all there is to export.
+  if (entry.type === "folder") return entry.title || "Untitled folder";
   const lines: string[] = [entry.title || "Untitled", ""];
   for (const step of entry.steps) {
     lines.push(`[${step.category}] ${step.done ? "[x]" : "[ ]"} ${step.title}`);

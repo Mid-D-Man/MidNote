@@ -12,6 +12,7 @@
   // calls editor.chain().focus()....run() directly; this file just
   // hands it the live editor instance.
   import { page } from "$app/stores";
+  import { parentFromUrl } from "$lib/stores/folders.svelte";
   import { goto, onNavigate } from "$app/navigation";
   import { onMount, untrack } from "svelte";
   import type { Editor } from "@tiptap/core";
@@ -167,7 +168,9 @@
       currentPageIndex = 0;
       findOpen = false; // a different note: never carry an open find bar (or its stale query) across
       if (!id || id === "new") {
-        note = createNote();
+        // Round 47: opened from inside a folder (?folder=...): file the new entry there. Untracked on
+        // purpose - this effect must not re-run (and reset the editor) every time an entry changes.
+        note = createNote(untrack(() => parentFromUrl($page.url)));
         syncToken = untrack(() => syncToken) + 1;
         return;
       }

@@ -15,7 +15,7 @@
 //
 // Pure TypeScript (types only, no store or storage imports) so it can run in Node tests.
 import { NO_THEME } from "../types/entry";
-import type { Board, Note, Todo } from "../types/entry";
+import type { Board, Folder, Note, Todo } from "../types/entry";
 
 /** The time every untouched example carries. Never "now" - see point 2 above. */
 export const SAMPLE_LAST_MODIFIED = "2026-10-01T00:00:00.000Z";
@@ -25,6 +25,7 @@ export const SAMPLES_DECIDED_KEY = "midnote:samples-decided";
 export const SAMPLES_DECIDED_VALUE = "examples-decided";
 
 export const SAMPLE_IDS = {
+  folderExamples: "sample-folder-examples",
   noteShopping: "sample-note-shopping-list",
   noteMeeting: "sample-note-meeting-notes",
   todoTrip: "sample-todo-weekend-trip",
@@ -58,14 +59,28 @@ const base = () => ({
   deletedAt: null,
   reminderAt: null,
   reminderRepeat: null,
+  parentId: null as string | null,
   comments: [],
 });
+
+// Round 47: the examples live in one folder, so a fresh install shows folders (and a tag the
+// notes, todo and board inherit from it) working from the first minute.
+function sampleFolder(): Folder {
+  return {
+    ...base(),
+    id: SAMPLE_IDS.folderExamples,
+    type: "folder",
+    title: "Examples",
+    tags: ["Example"],
+  };
+}
 
 function sampleNotes(): Note[] {
   return [
     {
       ...base(),
       id: SAMPLE_IDS.noteShopping,
+      parentId: SAMPLE_IDS.folderExamples,
       type: "regular",
       title: "Shopping List",
       content: "Milk, eggs, bread, butter",
@@ -77,6 +92,7 @@ function sampleNotes(): Note[] {
     {
       ...base(),
       id: SAMPLE_IDS.noteMeeting,
+      parentId: SAMPLE_IDS.folderExamples,
       type: "regular",
       title: "Meeting Notes",
       content: "Discussed project timeline and deliverables",
@@ -98,6 +114,7 @@ function sampleTodo(): Todo {
   return {
     ...base(),
     id: SAMPLE_IDS.todoTrip,
+    parentId: SAMPLE_IDS.folderExamples,
     type: "todo",
     title: "Plan a weekend trip",
     tags: ["Personal"],
@@ -134,6 +151,7 @@ function sampleBoard(): Board {
   return {
     ...base(),
     id: SAMPLE_IDS.boardLaunch,
+    parentId: SAMPLE_IDS.folderExamples,
     type: "board",
     title: "Launch plan",
     tags: ["Work"],
@@ -155,6 +173,6 @@ function sampleBoard(): Board {
 }
 
 /** A fresh copy of every example entry, in the order they are added. */
-export function buildSampleEntries(): Array<Note | Todo | Board> {
-  return [...sampleNotes(), sampleTodo(), sampleBoard()];
+export function buildSampleEntries(): Array<Folder | Note | Todo | Board> {
+  return [sampleFolder(), ...sampleNotes(), sampleTodo(), sampleBoard()];
 }

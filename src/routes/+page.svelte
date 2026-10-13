@@ -11,6 +11,10 @@
   import ReminderBadge from "$lib/components/shared/ReminderBadge/ReminderBadge.svelte";
   import { reminderDueAt } from "$lib/utils/reminderRepeat";
   import TagsPopup from "$lib/components/shared/TagsPopup/TagsPopup.svelte";
+  import FoldersView from "$lib/components/folders/FoldersView.svelte";
+  import FolderPickerHost from "$lib/components/folders/FolderPickerHost.svelte";
+  import { folderState, requestMove } from "$lib/stores/folders.svelte";
+  import { effectiveTags } from "$lib/utils/folders";
   import { entries, saveEntry, removeEntry, toggleBookmark, toggleStrikethrough, togglePinned } from "$lib/stores/entries.svelte";
   import type { Note, Todo, Board, Entry } from "$lib/types/entry";
   import { noteTags, todoTags, boardTags, registerTag, unregisterTag } from "$lib/stores/tags.svelte";
@@ -79,7 +83,8 @@
   const newRoute = $derived(activeView === "notes" ? "/note/new" : activeView === "todos" ? "/todo/new" : "/board/new");
 
   const filteredItems = $derived(
-    (selectedTag ? displayItems.filter((i) => i.tags.includes(selectedTag!)) : displayItems).filter((i) => {
+    // Round 47: a tag filter matches an entry's EFFECTIVE tags - its own plus those of the folders it sits in.
+    (selectedTag ? displayItems.filter((i) => effectiveTags(folderState.view, i.id).all.includes(selectedTag!)) : displayItems).filter((i) => {
       const q = searchQuery.toLowerCase();
       if (!q) return true;
       // note.content is HTML now (see NoteContent.svelte) — strip tags
@@ -89,6 +94,20 @@
       return haystack.toLowerCase().includes(q);
     })
   );
+
+  // Round 47: tags an entry carries only because of the folders above it (shown quieter on its card),
+  // and the ones among them the tag filter row doesn't already offer.
+  function inheritedOf(id: string): string[] {
+    return effectiveTags(folderState.view, id).inherited.map((t) => t.tag);
+  }
+  const inheritedChipTags = $derived.by(() => {
+    const known = new Set(tagList);
+    const out: string[] = [];
+    for (const i of displayItems) {
+      for (const tag of inheritedOf(i.id)) if (!known.has(tag) && !out.includes(tag)) out.push(tag);
+    }
+    return out;
+  });
 
   const sortedItems = $derived.by(() => {
     const base = [...filteredItems].sort((a, b) => {
@@ -189,7 +208,7 @@
   // convention as swiping through a photo gallery. Clamped at the ends
   // rather than wrapping Boards back around to Notes, which would be a
   // surprising jump with no visual cue it happened.
-  const VIEW_ORDER: ActiveView[] = ["notes", "todos", "boards"];
+  const VIEW_ORDER: ActiveView[] = ["notes", "todos", "boards", "folders"];
   function switchToRelativeView(direction: 1 | -1) {
     // Selection is per-tab (switchView above already clears it), so a
     // swipe mid-selection is allowed to go through — same as tapping a
@@ -230,11 +249,12 @@
 
   function handleAddTag() {
     const name = prompt("Enter tag name:");
-    if (name) registerTag(activeView, name);
+    // These controls only exist on the Notes/Todos/Boards tabs (the Folders tab has its own).
+    if (name && activeView !== "folders") registerTag(activeView, name);
   }
 
   function handleRemoveTag(tag: string) {
-    unregisterTag(activeView, tag);
+    if (activeView !== "folders") unregisterTag(activeView, tag);
     if (selectedTag === tag) selectedTag = null;
   }
 
@@ -493,10 +513,14 @@
       <button class:active={activeView === "notes"} onclick={() => switchView("notes")}>Notes</button>
       <button class:active={activeView === "todos"} onclick={() => switchView("todos")}>Todos</button>
       <button class:active={activeView === "boards"} onclick={() => switchView("boards")}>Boards</button>
+      <button class:active={activeView === "folders"} onclick={() => switchView("folders")}>Folders</button>
     </div>
 
     <div class="content" class:with-bar={selectMode}>
       <div class="inner">
+        {#if activeView === "folders"}
+          <FoldersView />
+        {:else}
         <div class="controls">
           <input
             class="search"
@@ -554,6 +578,11 @@
                 <button class="remove" onclick={() => handleRemoveTag(tag)} aria-label="Remove {tag}">×</button>
               </div>
             {/each}
+            {#each inheritedChipTags as tag (tag)}
+              <div class="chip inherited" class:selected={selectedTag === tag}>
+                <button onclick={() => (selectedTag = selectedTag === tag ? null : tag)} aria-label={`Filter by ${tag} (from a folder)`}>{tag}</button>
+              </div>
+            {/each}
           </div>
         </div>
 
@@ -596,6 +625,8 @@
                   onTogglePin={togglePinned}
                   unlockingToOpen={lockBusyIds.has(item.id)}
                   compact={isGrid}
+                  inheritedTags={inheritedOf(item.id)}
+                  onMove={() => requestMove([item.id])}
                 />
               {:else if item.type === "board"}
                 <!-- Brought to parity with the todo row above (kebab
@@ -652,6 +683,7 @@
                         onToggleStrikethrough={() => toggleStrikethrough(item.id)}
                         onTogglePin={() => togglePinned(item.id)}
                         onToggleLock={() => handleToggleLock(item)}
+                        onMove={() => requestMove([item.id])}
                         onOpenTags={() => {
                           tagsPopupFor = item;
                           tagsPopupOpen = true;
@@ -695,10 +727,13 @@
                       {item.nodes.length} node{item.nodes.length === 1 ? "" : "s"} · {new Date(item.lastModified).toLocaleDateString()}
                     </span>
                   {/if}
-                  {#if item.tags.length > 0}
+                  {#if item.tags.length > 0 || inheritedOf(item.id).length > 0}
                     <div class="tags">
                       {#each item.tags as tag (tag)}
                         <span class="tag">{tag}</span>
+                      {/each}
+                      {#each inheritedOf(item.id) as tag (tag)}
+                        <span class="tag inherited" title="From a folder">{tag}</span>
                       {/each}
                     </div>
                   {/if}
@@ -754,6 +789,7 @@
                         onToggleStrikethrough={() => toggleStrikethrough(item.id)}
                         onTogglePin={() => togglePinned(item.id)}
                         onToggleLock={() => handleToggleLock(item)}
+                        onMove={() => requestMove([item.id])}
                         onOpenTags={() => {
                           tagsPopupFor = item;
                           tagsPopupOpen = true;
@@ -814,10 +850,13 @@
                       </div>
                     {/if}
                   {/if}
-                  {#if item.tags.length > 0}
+                  {#if item.tags.length > 0 || inheritedOf(item.id).length > 0}
                     <div class="tags">
                       {#each item.tags as tag (tag)}
                         <span class="tag">{tag}</span>
+                      {/each}
+                      {#each inheritedOf(item.id) as tag (tag)}
+                        <span class="tag inherited" title="From a folder">{tag}</span>
                       {/each}
                     </div>
                   {/if}
@@ -827,6 +866,7 @@
           </div>
           {/if}
         </div>
+        {/if}
       </div>
     </div>
   </main>
@@ -843,8 +883,11 @@
       onCopy={handleCopySelected}
       onMerge={handleMergeSelected}
       onExport={handleExportSelected}
+      onMove={() => requestMove([...selectedIds], exitSelectMode)}
     />
   {/if}
+
+  <FolderPickerHost />
 
   <!-- BUGFIX (round 25): "removed" here is a soft delete (Trash) now —
        copy updated so this doesn't read as more final than it is. -->
@@ -1001,6 +1044,11 @@
   }
   .chip.selected {
     background: var(--accent);
+  }
+  /* a tag that comes from a folder: no remove button, a little quieter */
+  .chip.inherited {
+    padding-right: var(--space-3);
+    opacity: 0.8;
   }
   .chip.selected button {
     color: var(--bg);
@@ -1174,6 +1222,9 @@
     display: flex;
     flex-wrap: wrap;
     gap: var(--space-1);
+  }
+  .todo-item .tag.inherited {
+    opacity: 0.6;
   }
   .todo-item .tag {
     font-size: 11px;

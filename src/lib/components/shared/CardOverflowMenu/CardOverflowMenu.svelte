@@ -13,6 +13,7 @@
     onDelete,
     onDownload,
     onCopy,
+    onMove,
     onToggleStrikethrough,
     onTogglePin,
     onToggleLock,
@@ -30,6 +31,8 @@
     // shows where the caller supplies it. A locked entry is refused by the caller
     // (its content is cleared while locked).
     onCopy?: () => void;
+    // Round 47: file this entry into a folder (opens the folder picker). Optional.
+    onMove?: () => void;
     onToggleStrikethrough: () => void;
     onTogglePin: () => void;
     onToggleLock: () => void;
@@ -174,6 +177,14 @@
         {/if}
         <span>{encrypted ? "Unlock" : "Lock"}</span>
       </button>
+      {#if onMove}
+        <button class="menu-item" aria-label="Move to folder" onclick={() => pick(onMove, "move to folder")}>
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+          </svg>
+          <span>Move to folder</span>
+        </button>
+      {/if}
       {#if onCopy}
         <button class="menu-item" aria-label="Copy content" onclick={() => pick(onCopy, "copy content")}>
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
