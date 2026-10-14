@@ -1,0 +1,80 @@
+name: Make signing key
+
+# ONE-TIME setup. Creates the stable key that signs every MidNote APK, and stores it as
+# four repository secrets (ANDROID_KEYSTORE_B64, ANDROID_KEYSTORE_PASSWORD,
+# ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD) that "Build Android APK (debug)" picks up.
+# The key is generated on the runner from random passwords and goes straight into the
+# secrets: it is never printed, never uploaded as an artifact, never visible to anyone.
+#
+# Needs ONE secret you create first, because GitHub's built-in token is not allowed to
+# write secrets:
+#   SECRETS_ADMIN_PAT  a fine-grained personal access token for THIS repository only with
+#                      Repository permissions -> Secrets: Read and write.
+# Delete the token (and that secret) after this workflow has run.
+#
+# Run it ONCE. Running it again refuses unless replace=replace, because a replaced key
+# means every installed copy of the app must be uninstalled once (data is lost, so make a
+# Backup first). The key can't be read back from GitHub, so if the secrets are ever lost,
+# run this again with replace=replace and reinstall once.
+on:
+  workflow_dispatch:
+    inputs:
+      replace:
+        description: "Leave empty. Type 'replace' only to throw away the existing key and make a new one."
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  make-key:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate the key and store it as repository secrets
+        env:
+          GH_TOKEN: ${{ secrets.SECRETS_ADMIN_PAT }}
+          REPO: ${{ github.repository }}
+          REPLACE: ${{ inputs.replace }}
+        run: |
+          set -eu
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::Add the repository secret SECRETS_ADMIN_PAT first (fine-grained token, this repository only, Secrets: Read and write)."
+            exit 1
+          fi
+
+          # Refuse to overwrite an existing key unless asked to.
+          EXISTING=$(gh secret list --repo "$REPO")
+          if printf '%s\n' "$EXISTING" | grep -qE '^(ANDROID_KEYSTORE_B64|ANDROID_KEYSTORE_PASSWORD|ANDROID_KEY_ALIAS|ANDROID_KEY_PASSWORD)([[:space:]]|$)'; then
+            if [ "$REPLACE" != "replace" ]; then
+              echo "::error::Signing secrets already exist. Nothing was changed. To throw the old key away and make a new one, run again with replace=replace (installed apps will then need one uninstall)."
+              exit 1
+            fi
+            echo "Replacing the existing signing key."
+          fi
+
+          PW=$(openssl rand -hex 24)
+          echo "::add-mask::$PW"
+          ALIAS=midnote
+
+          keytool -genkeypair \
+            -keystore midnote.p12 -storetype PKCS12 \
+            -storepass "$PW" -keypass "$PW" \
+            -alias "$ALIAS" -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=MidNote,O=MidManStudio,C=US"
+
+          B64=$(base64 -w0 midnote.p12)
+          echo "::add-mask::$B64"
+
+          # Values go in on stdin, never on a command line.
+          printf '%s' "$PW"    | gh secret set ANDROID_KEYSTORE_PASSWORD --repo "$REPO"
+          printf '%s' "$ALIAS" | gh secret set ANDROID_KEY_ALIAS --repo "$REPO"
+          printf '%s' "$PW"    | gh secret set ANDROID_KEY_PASSWORD --repo "$REPO"
+          printf '%s' "$B64"   | gh secret set ANDROID_KEYSTORE_B64 --repo "$REPO"
+
+          echo "Stored: ANDROID_KEYSTORE_B64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD"
+          echo "Certificate fingerprints of the new key (public; keep them for Google sign-in later):"
+          keytool -list -v -keystore midnote.p12 -storepass "$PW" -alias "$ALIAS" | grep -E "SHA1:|SHA256:"
+
+          rm -f midnote.p12
+          echo "Done. Now delete the SECRETS_ADMIN_PAT secret and its token, then run 'Build Android APK (debug)'."

@@ -2,8 +2,10 @@ name: Build Android APK (debug)
 
 # Manual trigger only — this produces a debug-signed APK for sideloading
 # onto your own device, not a Play Store release. Debug signing means no
-# keystore secrets needed; Android will happily install it once you flip
-# "install unknown apps" on for whatever app you use to open the file.
+# keystore secrets required (without them the APK gets a throwaway key; with
+# the ANDROID_* secrets from the "Make signing key" workflow it gets a stable
+# one and installs over the previous build). Android will happily install it
+# once you flip "install unknown apps" on for whatever app you use to open the file.
 on:
   workflow_dispatch:
 
@@ -324,10 +326,21 @@ jobs:
       # it's inconsistent in practice — upstream reports of it landing an
       # unsigned release/ build instead regardless of the flag (see
       # tauri-apps/tauri#11453, #6528). Rather than depend on that, sign
-      # whatever APK actually got produced ourselves: a throwaway debug-style
-      # keystore, generated fresh every run, is all sideloading onto your own
-      # device needs — there's no reason it has to persist between builds.
+      # whatever APK actually got produced ourselves.
+      #
+      # With the four ANDROID_* secrets (created once by the "Make signing key"
+      # workflow) every build is signed with the SAME key, so a new APK installs
+      # OVER the previous one and keeps its data and the signed-in account.
+      # Without them it falls back to a throwaway key generated fresh each run,
+      # which Android treats as a different app: uninstall first. Setting only
+      # some of the four is a mistake, and fails the build instead of silently
+      # signing with the wrong key.
       - name: Sign APK
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           APK=$(find src-tauri/gen/android/app/build/outputs -name "*.apk" | head -n 1)
           if [ -z "$APK" ]; then
@@ -336,21 +349,48 @@ jobs:
           fi
           echo "Signing: $APK"
 
-          keytool -genkeypair -v \
-            -keystore debug.keystore -storepass android \
-            -alias androiddebugkey -keypass android \
-            -keyalg RSA -keysize 2048 -validity 10000 \
-            -dname "CN=MidNote Debug,O=MidManStudio,C=US"
+          SET=0
+          for v in "$KEYSTORE_B64" "$KEYSTORE_PASSWORD" "$KEY_ALIAS" "$KEY_PASSWORD"; do
+            if [ -n "$v" ]; then SET=$((SET + 1)); fi
+          done
 
+          if [ "$SET" -eq 4 ]; then
+            if ! echo "$KEYSTORE_B64" | base64 -d > release.keystore; then
+              rm -f release.keystore
+              echo "::error::ANDROID_KEYSTORE_B64 is not valid base64. Run the 'Make signing key' workflow again with replace=replace."
+              exit 1
+            fi
+            KS=release.keystore
+            echo "Signing with the stable MidNote key."
+          elif [ "$SET" -eq 0 ]; then
+            echo "::warning::No ANDROID_* signing secrets: signing with a throwaway key, so this APK cannot install over a previous one (uninstall first). Run the 'Make signing key' workflow once to fix that."
+            KEYSTORE_PASSWORD=android
+            KEY_ALIAS=androiddebugkey
+            KEY_PASSWORD=android
+            keytool -genkeypair -v \
+              -keystore debug.keystore -storepass "$KEYSTORE_PASSWORD" \
+              -alias "$KEY_ALIAS" -keypass "$KEY_PASSWORD" \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=MidNote Debug,O=MidManStudio,C=US"
+            KS=debug.keystore
+          else
+            echo "::error::Only $SET of the 4 signing secrets are set (ANDROID_KEYSTORE_B64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD). Set all four, or none. Running 'Make signing key' with replace=replace sets all four."
+            exit 1
+          fi
+
+          export KEYSTORE_PASSWORD KEY_PASSWORD
           BUILD_TOOLS="$ANDROID_HOME/build-tools/34.0.0"
           "$BUILD_TOOLS/apksigner" sign \
-            --ks debug.keystore --ks-pass pass:android \
-            --key-pass pass:android \
+            --ks "$KS" --ks-pass env:KEYSTORE_PASSWORD \
+            --ks-key-alias "$KEY_ALIAS" --key-pass env:KEY_PASSWORD \
             --out MidNote-signed.apk \
             "$APK"
 
-          "$BUILD_TOOLS/apksigner" verify MidNote-signed.apk
+          # --print-certs shows the signing certificate's fingerprint (public information).
+          # With the stable key it is the SAME line in every build.
+          "$BUILD_TOOLS/apksigner" verify --print-certs MidNote-signed.apk
 
+          rm -f release.keystore debug.keystore
           mkdir -p signed-output
           mv MidNote-signed.apk signed-output/
 
