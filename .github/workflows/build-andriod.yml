@@ -271,11 +271,50 @@ jobs:
       # them front and center. Exists specifically so "is this actually
       # the build with the fix" never has to be inferred from workflow
       # run timestamps again — the app just says so.
+      # Round B: the online side (sign-in now, sync and AI later) reads its Supabase address
+      # and PUBLISHABLE key from the build. Both are public by design (RLS protects the data),
+      # but pasting the SECRET key into the publishable slot would bake it into every APK, so
+      # this step refuses to build with one. Missing values are only a warning: the APK still
+      # builds and simply has its online features switched off.
+      - name: Check Supabase build settings
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_PUBLISHABLE_KEY" ]; then
+            echo "::warning::SUPABASE_URL and/or SUPABASE_PUBLISHABLE_KEY secrets are not set - this APK builds with online features switched off."
+            exit 0
+          fi
+          case "$SUPABASE_URL" in
+            https://*) ;;
+            *) echo "::error::SUPABASE_URL must start with https://"; exit 1 ;;
+          esac
+          case "$SUPABASE_PUBLISHABLE_KEY" in
+            sb_secret_*) echo "::error::SUPABASE_PUBLISHABLE_KEY holds a SECRET key (sb_secret_...). Put the publishable key (sb_publishable_...) there; secret keys never go in the app."; exit 1 ;;
+          esac
+          python3 -c '
+          import os, sys, json, base64
+          key = os.environ["SUPABASE_PUBLISHABLE_KEY"].strip()
+          parts = key.split(".")
+          if len(parts) == 3:
+              payload = parts[1] + "=" * (-len(parts[1]) % 4)
+              try:
+                  role = json.loads(base64.urlsafe_b64decode(payload)).get("role")
+              except Exception:
+                  role = None
+              if role == "service_role":
+                  print("::error::SUPABASE_PUBLISHABLE_KEY is the legacy service_role key. Use the publishable key (sb_publishable_...) instead.")
+                  sys.exit(1)
+          '
+          echo "Supabase build settings look fine."
+
       - name: Build APK
         env:
           NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
           VITE_BUILD_SHA: ${{ github.sha }}
           VITE_BUILD_TIME: ${{ steps.buildtime.outputs.value }}
+          VITE_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
         run: npx tauri android build --debug --target armv7
 
       - name: List built APKs
