@@ -7,7 +7,7 @@
 // Writes `account` only from event handlers / onMount / client callbacks, never from an
 // $effect (see docs/svelte5-effect-safety.md).
 import { AuthClient, AuthError, realHttpFetch, type AuthDeps } from "$lib/online/authClient";
-import { getOnlineConfig, type ConfigProblem } from "$lib/online/config";
+import { getOnlineConfig, PORTAL_URL, type ConfigProblem } from "$lib/online/config";
 import { ensureMidNoteEnrolment, type EnrolOutcome } from "$lib/online/enrol";
 import { breadcrumb } from "$lib/debug/log.svelte";
 
@@ -63,6 +63,7 @@ export function initAccount(): void {
     fetch: seam?.fetch ?? realHttpFetch(),
     now: seam?.now ?? (() => Date.now()),
     store: localStore(),
+    recoverRedirectTo: PORTAL_URL,
   };
   client = new AuthClient(deps);
   client.onChange(publish);
@@ -104,10 +105,10 @@ export async function signInWith(email: string, password: string): Promise<Accou
 }
 
 /** ok + signedIn:false means "check your email" (the project requires confirmation). */
-export async function signUpWith(email: string, password: string): Promise<AccountResult & { signedIn?: boolean }> {
+export async function signUpWith(email: string, password: string, name: string): Promise<AccountResult & { signedIn?: boolean }> {
   if (!client) return fail(new AuthError("not-configured", "Not ready"));
   try {
-    const { session } = await client.signUp(email, password);
+    const { session } = await client.signUp(email, password, name);
     breadcrumb(session ? "account: signed up and in" : "account: sign-up sent (confirmation pending)");
     if (session) void enrolSoon();
     return { ok: true, signedIn: session !== null };

@@ -21,6 +21,12 @@ export interface OnlineConfig {
   key: string;
 }
 
+/** The MidManStudio accounts portal (mms-accounts, on Cloudflare Pages). Password-reset emails
+ *  send people back to it, exactly as the portal's own "forgot password" does: it handles the
+ *  recovery link and lets them choose a new password. It is already on the project's redirect
+ *  allow-list (the portal itself uses it). */
+export const PORTAL_URL = "https://mms-accounts.pages.dev";
+
 export type ConfigProblem = "missing" | "bad-url" | "bad-key" | "secret-key";
 
 export type ConfigResult = { ok: true; config: OnlineConfig } | { ok: false; problem: ConfigProblem };

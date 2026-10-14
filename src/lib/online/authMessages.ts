@@ -18,9 +18,11 @@ export function friendlyAuthMessage(err: unknown): string {
     case "email-not-confirmed":
       return "Confirm your email first. We sent you a link when you signed up.";
     case "weak-password":
-      return `That password is too weak. Use at least ${MIN_PASSWORD_LENGTH} characters, longer is better.`;
+      return `That password is too weak. Use at least ${MIN_PASSWORD_LENGTH} characters.`;
     case "invalid-email":
       return "That email address doesn't look right.";
+    case "invalid-name":
+      return "Add your name.";
     case "user-exists":
       return "That email already has an account. Try signing in instead.";
     case "signups-disabled":

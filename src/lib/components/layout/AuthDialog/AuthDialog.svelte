@@ -6,7 +6,8 @@
   // Round B — sign in / create account / forgot password.
   //
   //   signin        email + password
-  //   signup        email + password; the project REQUIRES email confirmation, so success
+  //   signup        name + email + password (the name becomes the shared studio profile's display
+  //                 name, like the accounts portal's own sign-up); the project REQUIRES email confirmation, so success
   //                 lands on "check-email" (not signed in yet)
   //   check-email   "we sent a link" + resend. Neutral on purpose: it reads the same whether
   //                 the address is new or already has an account (the server doesn't say).
@@ -24,6 +25,7 @@
 
   let { open = $bindable(false), mode = $bindable<AuthMode>("signin") }: { open?: boolean; mode?: AuthMode } = $props();
 
+  let name = $state("");
   let email = $state("");
   let password = $state("");
   let showPassword = $state(false);
@@ -67,7 +69,7 @@
           unconfirmed = r.error.kind === "email-not-confirmed";
         }
       } else if (mode === "signup") {
-        const r = await signUpWith(email, password);
+        const r = await signUpWith(email, password, name);
         if (!r.ok) {
           error = friendlyAuthMessage(r.error);
         } else if (r.signedIn) {
@@ -139,6 +141,18 @@
         <button type="button" class="primary" aria-label="Back to sign in" onclick={() => go("signin")}>Back to sign in</button>
       {:else}
         <form onsubmit={submit}>
+          {#if mode === "signup"}
+            <input
+              type="text"
+              aria-label="Name"
+              placeholder="Your name"
+              autocomplete="name"
+              maxlength="80"
+              required
+              value={name}
+              oninput={(e) => (name = e.currentTarget.value)}
+            />
+          {/if}
           <input
             type="email"
             aria-label="Email"
@@ -170,7 +184,7 @@
             </div>
           {/if}
           {#if mode === "signup"}
-            <p class="hint">At least 6 characters. A longer one is better.</p>
+            <p class="hint">At least 8 characters.</p>
           {/if}
           {#if error}<p class="err" role="alert">{error}</p>{/if}
           {#if unconfirmed}

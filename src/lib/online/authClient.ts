@@ -48,6 +48,7 @@ export type AuthErrorKind =
   | "email-not-confirmed"
   | "weak-password"
   | "invalid-email"
+  | "invalid-name"
   | "user-exists"
   | "signups-disabled"
   | "rate-limited"
@@ -84,11 +85,16 @@ export interface AuthDeps {
   /** Epoch milliseconds. */
   now: () => number;
   store: SessionStore;
+  /** Where a password-reset email sends the person (the accounts portal). Left out: the
+   *  project's own Site URL is used. */
+  recoverRedirectTo?: string;
 }
 
 /** Refresh when fewer than this many ms of life are left. */
 export const REFRESH_MARGIN_MS = 60_000;
-export const MIN_PASSWORD_LENGTH = 6;
+/** The studio's rule (mms-accounts' sign-up enforces the same 8). */
+export const MIN_PASSWORD_LENGTH = 8;
+export const MAX_NAME_LENGTH = 80;
 
 // ---------------------------------------------------------------- pure helpers
 
@@ -208,12 +214,16 @@ export class AuthClient {
   }
 
   /** `session` is null when the project requires email confirmation (it does). Also null,
-   *  deliberately indistinguishable, when the email already has an account. */
-  async signUp(emailRaw: string, password: string): Promise<{ session: AuthSession | null }> {
+   *  deliberately indistinguishable, when the email already has an account.
+   *  The name goes in as `display_name` user metadata, exactly like the accounts portal's own
+   *  sign-up: the shared project's profile is built from it. */
+  async signUp(emailRaw: string, password: string, displayNameRaw: string): Promise<{ session: AuthSession | null }> {
     const email = normalizeEmail(emailRaw);
+    const displayName = String(displayNameRaw ?? "").trim().slice(0, MAX_NAME_LENGTH);
+    if (!displayName) throw new AuthError("invalid-name", "Missing name");
     if (!looksLikeEmail(email)) throw new AuthError("invalid-email", "Invalid email");
     if (password.length < MIN_PASSWORD_LENGTH) throw new AuthError("weak-password", "Password too short");
-    const res = await this.authCall("signup", { email, password });
+    const res = await this.authCall("signup", { email, password, data: { display_name: displayName } });
     if (typeof res.access_token === "string" && res.access_token) {
       const session = parseSession(res, this.deps.now());
       this.setSession(session);
@@ -231,7 +241,8 @@ export class AuthClient {
   async recoverPassword(emailRaw: string): Promise<void> {
     const email = normalizeEmail(emailRaw);
     if (!looksLikeEmail(email)) throw new AuthError("invalid-email", "Invalid email");
-    await this.authCall("recover", { email });
+    const to = this.deps.recoverRedirectTo;
+    await this.authCall(to ? `recover?redirect_to=${encodeURIComponent(to)}` : "recover", { email });
   }
 
   /** Local sign-out is immediate and cannot fail; telling the server is best effort. */

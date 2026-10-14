@@ -297,7 +297,8 @@ if (process.env.SMOKE_TTS === "fake" || process.env.SMOKE_TTS === "fake-noevents
 //   confirmOnResend  tapping "Resend" confirms the address (stands in for opening the email link)
 //   enrolPost        status for POST service_subscriptions (default 201)
 //   signupFail       {status, body}: sign-up is answered with this (e.g. a 500 from a database trigger)
-// Every request is recorded as "METHOD /path" (+ the body for the enrolment POST) in
+// Every request is recorded as "METHOD /path" (+ the body for the enrolment POST, + the display
+// name for a sign-up) in
 // globalThis.__onlineCalls; passwords and tokens are never recorded. Minted tokens are
 // "FAKEAT-n" / "FAKERT-n" so assertions can't be fooled by the seeded "AT-seed" / "RT-seed".
 if (process.env.SMOKE_ONLINE) {
@@ -324,7 +325,7 @@ if (process.env.SMOKE_ONLINE) {
     fetch: async (url, init) => {
       const u = new URL(url);
       const body = init.body ? JSON.parse(init.body) : {};
-      calls.push(`${init.method} ${u.pathname}${u.search}${u.pathname.endsWith("service_subscriptions") && init.method === "POST" ? " " + init.body : ""}`);
+      calls.push(`${init.method} ${u.pathname}${u.search}${u.pathname.endsWith("service_subscriptions") && init.method === "POST" ? " " + init.body : ""}${u.pathname === "/auth/v1/signup" ? " display_name=" + (body.data?.display_name ?? "") : ""}`);
       if (spec.offline) throw new TypeError("Failed to fetch");
       if (u.pathname === "/auth/v1/token" && u.searchParams.get("grant_type") === "password") {
         const user = users.get(body.email);
