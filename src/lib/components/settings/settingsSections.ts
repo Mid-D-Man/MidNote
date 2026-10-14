@@ -21,6 +21,7 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
   { slug: "read-aloud", title: "Read aloud", desc: "Voice, speed and pitch.", parent: "/settings", main: true },
   { slug: "trash", title: "Trash", desc: "Deleted notes, todos and boards.", parent: "/settings", main: true },
   { slug: "backup", title: "Backup & restore", desc: "Save everything to a file, or restore from one.", parent: "/settings", main: true },
+  { slug: "account", title: "Account", desc: "Sign in to use sync and AI.", parent: "/settings", main: true },
   { slug: "privacy", title: "Privacy & security", desc: "App password.", parent: "/settings", main: true },
   { slug: "developer", title: "Developer", desc: "Debug panel.", parent: "/settings", main: true },
   { slug: "fonts", title: "Fonts", desc: "Default note font and your own imported fonts.", parent: "/settings/appearance", main: false },

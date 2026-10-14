@@ -1,16 +1,25 @@
 <script lang="ts">
   import Button from "$lib/components/ui/Button/Button.svelte";
   import Sheet from "$lib/components/ui/Sheet/Sheet.svelte";
-  import AuthDialog from "$lib/components/layout/AuthDialog/AuthDialog.svelte";
+  import AuthDialog, { type AuthMode } from "$lib/components/layout/AuthDialog/AuthDialog.svelte";
   import SettingsSheet from "$lib/components/layout/SettingsSheet/SettingsSheet.svelte";
   import TrashSheet from "$lib/components/layout/TrashSheet/TrashSheet.svelte";
+  import { goto } from "$app/navigation";
   import { pushToast } from "$lib/stores/toast.svelte";
+  import { account } from "$lib/stores/account.svelte";
   import { appHeaderTheme } from "$lib/stores/settings.svelte";
   import { resolveTheme, hexToRgba, getImageTextColorVars } from "$lib/utils/themePalette";
   import { customThemes } from "$lib/stores/customThemes.svelte";
 
   let menuOpen = $state(false);
   let authOpen = $state(false);
+  let authMode = $state<AuthMode>("signin");
+
+  function openAuth(mode: AuthMode) {
+    menuOpen = false;
+    authMode = mode;
+    authOpen = true;
+  }
   let settingsOpen = $state(false);
   let trashOpen = $state(false);
 
@@ -37,13 +46,16 @@
         : "",
   );
 
-  // TODO: real Supabase auth + the Storage-bucket sync described in the
-  // sync-architecture discussion — this just tells the user honestly that
-  // it isn't wired up yet rather than pretending to sync.
+  // The cloud button. Signed out it opens sign-in; signed in it says so honestly, because
+  // the sync itself is the next round and a button that pretends to sync would be a lie.
   function handleSync() {
+    if (!account.signedIn) {
+      openAuth("signin");
+      return;
+    }
     pushToast({
-      title: "Sync not set up yet",
-      description: "Cloud sync (Supabase) isn't wired up in MidNote yet.",
+      title: "Signed in",
+      description: "Sync isn't built yet. Your notes are safe on this phone.",
     });
   }
 </script>
@@ -59,7 +71,7 @@
 
   <h1><img src="/midnote-logo.svg" alt="" class="logo-mark" /> MidNote</h1>
 
-  <Button variant="ghost" size="icon" onclick={handleSync}>
+  <Button variant="ghost" size="icon" aria-label="Cloud sync" onclick={handleSync}>
     <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
       <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />
     </svg>
@@ -71,19 +83,25 @@
     <Button variant="ghost" onclick={() => { menuOpen = false; trashOpen = true; }}>
       Trash
     </Button>
-    <Button variant="ghost" onclick={() => { menuOpen = false; authOpen = true; }}>
-      Login
-    </Button>
-    <Button variant="ghost" onclick={() => { menuOpen = false; authOpen = true; }}>
-      Sign Up
-    </Button>
+    {#if account.signedIn}
+      <Button variant="ghost" aria-label="Open account" onclick={() => { menuOpen = false; void goto("/settings/account"); }}>
+        Account
+      </Button>
+    {:else}
+      <Button variant="ghost" aria-label="Open login" onclick={() => openAuth("signin")}>
+        Login
+      </Button>
+      <Button variant="ghost" aria-label="Open sign up" onclick={() => openAuth("signup")}>
+        Sign Up
+      </Button>
+    {/if}
     <Button variant="ghost" aria-label="Open settings" onclick={() => { menuOpen = false; settingsOpen = true; }}>
       Settings
     </Button>
   </nav>
 </Sheet>
 
-<AuthDialog bind:open={authOpen} />
+<AuthDialog bind:open={authOpen} bind:mode={authMode} />
 <!-- Back returns to the Menu this was opened from. -->
 <SettingsSheet bind:open={settingsOpen} onBack={() => { settingsOpen = false; menuOpen = true; }} />
 <!-- Back returns to the Menu this was opened from. -->

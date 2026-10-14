@@ -15,6 +15,7 @@
   import { initCustomFonts } from "$lib/stores/customFonts.svelte";
   import { initCustomThemes } from "$lib/stores/customThemes.svelte";
   import { initCustomIcons } from "$lib/stores/customIcons.svelte";
+  import { initAccount } from "$lib/stores/account.svelte";
   import ReadAloudBar from "$lib/components/shared/ReadAloudBar/ReadAloudBar.svelte";
   import type { Snippet } from "svelte";
 
@@ -60,6 +61,10 @@
     // Capture always runs regardless of the panel's own visibility
     // setting — see settings.svelte.ts's comment on debugPanelVisible.
     installGlobalCapture();
+
+    // Round B: restore the signed-in session (if any) before the header first paints.
+    // Local only, no network wait; never throws.
+    initAccount();
 
     // Round 33: register imported fonts with the browser. Independent of
     // entry loading (a note just paints in its fallback face for the moment

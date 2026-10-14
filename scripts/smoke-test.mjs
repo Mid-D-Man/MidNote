@@ -154,6 +154,272 @@ const FOLDER_TAB = ".view-tabs button:nth-child(4)";
 const smokeFolder = (id, title, parentId = null, tags = []) => ({ id, type: "folder", title, tags, lastModified: now, parentId });
 const smokeNote = (id, title, parentId = null, tags = []) => ({ id, type: "regular", title, content: "x", tags, lastModified: now, isBookmarked: false, encrypted: false, parentId });
 
+// Round B: seeds and helpers for the account scenarios (declared before SCENARIOS because it calls accountScenarios()).
+// A person who signed in on an earlier run: the session MidNote keeps on the phone.
+const SEED_UID = "22222222-2222-4222-8222-222222222222";
+const sessionJson = (expiresAt) =>
+  JSON.stringify({ accessToken: "AT-seed", refreshToken: "RT-seed", expiresAt, user: { id: SEED_UID, email: "seed@verified.test" } });
+const SESSION_EXPIRED = sessionJson(1);
+const SESSION_VALID = sessionJson(4102444800000);
+const SEED_USER = { email: "seed@verified.test", password: "seed-password", id: SEED_UID };
+const SUBMIT = 'form button[type="submit"]';
+const SIGNUP_TAB = ".tabs button:nth-child(2)";
+const A_USER = { email: "a@verified.test", password: "correct-horse" };
+const fillSignIn = (email, password) => [
+  { type: { label: "Email", value: email } },
+  { type: { label: "Password", value: password } },
+  { clickSelector: SUBMIT },
+  { wait: 400 },
+];
+
+function accountScenarios() {
+  return [
+    {
+      name: "account — no online settings in the build: the dialog says so, plainly",
+      path: "/",
+      seed: [],
+      steps: [{ click: "Open menu" }, { click: "Open login" }, { expectText: "Online features" }, { expectText: "isn't connected to an account service" }, { expectNoSelector: 'input[aria-label="Email"]' }],
+    },
+    { name: "account — Settings → Account without online settings", path: "/settings/account", seed: [], steps: [{ expectText: "Online features aren't available in this build" }] },
+    { name: "account — the settings hub lists Account", path: "/settings", seed: [], steps: [{ expectText: "Account" }, { expectText: "Sign in to use sync and AI" }] },
+    {
+      name: "account — a secret key in the build is refused, not used",
+      path: "/",
+      seed: [],
+      online: { config: { url: "https://smoke.supabase.co", key: "sb_secret_oops" } },
+      steps: [{ click: "Open menu" }, { click: "Open login" }, { expectText: "secret key" }, { expectNoSelector: 'input[aria-label="Email"]' }, { expectGlobalCount: { name: "__onlineCalls", substring: "/", count: 0 } }],
+    },
+    {
+      name: "account — wrong password: a plain message, nothing saved",
+      path: "/",
+      seed: [],
+      online: { users: [A_USER] },
+      steps: [
+        { click: "Open menu" },
+        { click: "Open login" },
+        ...fillSignIn(A_USER.email, "not-the-password"),
+        { expectText: "That email and password don't match" },
+        { expectNotStored: "FAKEAT-" },
+        { expectSelector: 'input[aria-label="Password"]' },
+      ],
+    },
+    {
+      name: "account — sign in: session saved, menu switches to Account, MidNote enrolled",
+      path: "/",
+      seed: [],
+      online: { users: [A_USER] },
+      steps: [
+        { click: "Open menu" },
+        { click: "Open login" },
+        ...fillSignIn(A_USER.email, A_USER.password),
+        { expectStored: "FAKEAT-" },
+        { expectNoSelector: 'input[aria-label="Email"]' },
+        { wait: 400 },
+        { expectGlobalIncludes: { name: "__onlineCalls", substring: "POST /rest/v1/service_subscriptions" } },
+        { expectGlobalIncludes: { name: "__onlineCalls", substring: '"service_id":"svc-1"' } },
+        { click: "Open menu" },
+        { expectSelector: '[aria-label="Open account"]' },
+        { expectNoSelector: '[aria-label="Open login"]' },
+        { expectNoSelector: '[aria-label="Open sign up"]' },
+      ],
+    },
+    {
+      name: "account — the studio refusing the enrolment never blocks sign-in",
+      path: "/",
+      seed: [],
+      online: { users: [A_USER], enrolPost: 403 },
+      steps: [{ click: "Open menu" }, { click: "Open login" }, ...fillSignIn(A_USER.email, A_USER.password), { wait: 400 }, { expectStored: "FAKEAT-" }, { expectGlobalIncludes: { name: "__onlineCalls", substring: "POST /rest/v1/service_subscriptions" } }],
+    },
+    {
+      name: "account — sign up asks to confirm the email; after confirming, sign in works",
+      path: "/",
+      seed: [],
+      online: { users: [], confirmOnResend: true },
+      steps: [
+        { click: "Open menu" },
+        { click: "Open sign up" },
+        { type: { label: "Email", value: "New.Person@verified.test" } },
+        { type: { label: "Password", value: "a-fine-password" } },
+        { clickSelector: SUBMIT },
+        { wait: 400 },
+        { expectText: "Check your email" },
+        { expectText: "New.Person@verified.test" },
+        { expectNotStored: "FAKEAT-" },
+        { expectGlobalIncludes: { name: "__onlineCalls", substring: "POST /auth/v1/signup" } },
+        { click: "Resend email" },
+        { wait: 300 },
+        { expectText: "Sent again" },
+        { click: "Go to sign in" },
+        { type: { label: "Password", value: "a-fine-password" } },
+        { clickSelector: SUBMIT },
+        { wait: 400 },
+        { expectStored: "FAKEAT-" },
+        { expectStored: "new.person@verified.test" },
+      ],
+    },
+    {
+      name: "account — signing in before confirming offers a resend",
+      path: "/",
+      seed: [],
+      online: { users: [{ email: "late@verified.test", password: "pw-pw-pw", confirmed: false }] },
+      steps: [
+        { click: "Open menu" },
+        { click: "Open login" },
+        ...fillSignIn("late@verified.test", "pw-pw-pw"),
+        { expectText: "Confirm your email first" },
+        { expectSelector: '[aria-label="Resend confirmation email"]' },
+        { expectNotStored: "FAKEAT-" },
+      ],
+    },
+    {
+      name: "account — a short password is refused before anything is sent",
+      path: "/",
+      seed: [],
+      online: { users: [] },
+      steps: [
+        { click: "Open menu" },
+        { click: "Open sign up" },
+        { type: { label: "Email", value: "short@verified.test" } },
+        { type: { label: "Password", value: "12345" } },
+        { clickSelector: SUBMIT },
+        { wait: 300 },
+        { expectText: "too weak" },
+        { expectGlobalCount: { name: "__onlineCalls", substring: "/auth/v1/signup", count: 0 } },
+      ],
+    },
+    {
+      name: "account — the server failing a sign-up: a plain message, the form usable again, the reason in the debug log",
+      path: "/",
+      seed: [],
+      online: { users: [], signupFail: { status: 500, body: { code: 500, error_code: "unexpected_failure", msg: "Database error saving new user" } } },
+      steps: [
+        { click: "Open menu" },
+        { click: "Open sign up" },
+        { type: { label: "Email", value: "trouble@verified.test" } },
+        { type: { label: "Password", value: "a-fine-password" } },
+        { clickSelector: SUBMIT },
+        { wait: 400 },
+        { expectText: "The server had a problem" },
+        { expectNoText: "Please wait" },
+        { click: "Debug panel" },
+        { expectText: "account: sign-up failed (server 500: Database error saving new user)" },
+        { expectNotStored: "FAKEAT-" },
+      ],
+    },
+    {
+      name: "account — forgot password stays neutral",
+      path: "/",
+      seed: [],
+      online: { users: [] },
+      steps: [
+        { click: "Open menu" },
+        { click: "Open login" },
+        { click: "Forgot password" },
+        { type: { label: "Email", value: "nobody@verified.test" } },
+        { clickSelector: SUBMIT },
+        { wait: 300 },
+        { expectText: "a reset link is on its way" },
+        { expectGlobalIncludes: { name: "__onlineCalls", substring: "POST /auth/v1/recover" } },
+        { click: "Back to sign in" },
+        { expectSelector: 'input[aria-label="Password"]' },
+      ],
+    },
+    {
+      name: "account — no signal: signing in says so, and stays signed out",
+      path: "/",
+      seed: [],
+      online: { users: [A_USER], offline: true },
+      steps: [{ click: "Open menu" }, { click: "Open login" }, ...fillSignIn(A_USER.email, A_USER.password), { expectText: "Can't reach the server" }, { expectNotStored: "FAKEAT-" }],
+    },
+    {
+      name: "account — a saved session is picked up at startup",
+      path: "/settings/account",
+      seed: [],
+      storage: { "midnote:session": SESSION_VALID },
+      online: { users: [SEED_USER], validAccess: ["AT-seed"] },
+      steps: [{ expectText: "seed@verified.test" }, { expectSelector: '[aria-label="Sign out"]' }, { expectNoSelector: '[aria-label="Create an account"]' }],
+    },
+    {
+      name: "account — an expired token is refreshed quietly at startup (and the new tokens saved)",
+      path: "/settings/account",
+      seed: [],
+      storage: { "midnote:session": SESSION_EXPIRED },
+      online: { users: [SEED_USER], knownRefreshTokens: [{ token: "RT-seed", email: SEED_USER.email }] },
+      steps: [{ wait: 600 }, { expectText: "seed@verified.test" }, { expectStored: "FAKEAT-" }, { expectNotStored: "RT-seed" }, { expectGlobalCount: { name: "__onlineCalls", substring: "grant_type=refresh_token", count: 1 } }],
+    },
+    {
+      name: "account — no signal at startup with an old token: still signed in, session kept",
+      path: "/settings/account",
+      seed: [],
+      storage: { "midnote:session": SESSION_EXPIRED },
+      online: { users: [SEED_USER], offline: true },
+      steps: [{ wait: 600 }, { expectText: "seed@verified.test" }, { expectStored: "RT-seed" }, { expectSelector: '[aria-label="Sign out"]' }],
+    },
+    {
+      name: "account — a session the server has ended signs you out",
+      path: "/settings/account",
+      seed: [],
+      storage: { "midnote:session": SESSION_EXPIRED },
+      online: { users: [SEED_USER], refreshStatus: 400 },
+      steps: [{ wait: 600 }, { expectText: "You're not signed in" }, { expectNotStored: "RT-seed" }, { expectNotStored: "AT-seed" }],
+    },
+    {
+      name: "account — sign out: ends the session here, tells the server, notes stay",
+      path: "/settings/account",
+      seed: SEED_ENTRIES,
+      storage: { "midnote:session": SESSION_VALID },
+      online: { users: [SEED_USER], validAccess: ["AT-seed"] },
+      steps: [
+        { click: "Sign out" },
+        { wait: 400 },
+        { expectText: "You're not signed in" },
+        { expectNotStored: "AT-seed" },
+        { expectNotStored: "RT-seed" },
+        { expectStored: "Smoke test note" },
+        { expectGlobalIncludes: { name: "__onlineCalls", substring: "POST /auth/v1/logout?scope=local" } },
+        { expectSelector: '[aria-label="Create an account"]' },
+      ],
+    },
+    {
+      name: "account — change password emails a reset link",
+      path: "/settings/account",
+      seed: [],
+      storage: { "midnote:session": SESSION_VALID },
+      online: { users: [SEED_USER], validAccess: ["AT-seed"] },
+      steps: [{ click: "Change password" }, { wait: 300 }, { expectText: "We emailed a reset link to seed@verified.test" }, { expectGlobalIncludes: { name: "__onlineCalls", substring: "POST /auth/v1/recover" } }],
+    },
+    {
+      name: "account — enrolment runs once, and not again for a person it already worked for",
+      path: "/settings/account",
+      seed: [],
+      storage: { "midnote:session": SESSION_VALID, "midnote:enrolled-user": SEED_UID },
+      online: { users: [SEED_USER], validAccess: ["AT-seed"] },
+      steps: [{ wait: 500 }, { expectText: "seed@verified.test" }, { expectGlobalCount: { name: "__onlineCalls", substring: "/rest/v1/services", count: 0 } }],
+    },
+    {
+      name: "account — a signed-in person with no enrolment record gets enrolled at startup",
+      path: "/settings/account",
+      seed: [],
+      storage: { "midnote:session": SESSION_VALID },
+      online: { users: [SEED_USER], validAccess: ["AT-seed"] },
+      steps: [{ wait: 500 }, { expectGlobalCount: { name: "__onlineCalls", substring: "/rest/v1/services", count: 1 } }, { expectGlobalIncludes: { name: "__onlineCalls", substring: `"user_id":"${SEED_UID}"` } }],
+    },
+    {
+      name: "account — the cloud button signed out opens sign-in; signed in it is honest about sync",
+      path: "/",
+      seed: [],
+      online: { users: [A_USER] },
+      steps: [
+        { click: "Cloud sync" },
+        { expectSelector: 'input[aria-label="Email"]' },
+        ...fillSignIn(A_USER.email, A_USER.password),
+        { click: "Cloud sync" },
+        { expectText: "Sync isn't built yet" },
+      ],
+    },
+  ];
+}
+
 const SCENARIOS = [
   { name: "home / list page", path: "/", seed: SEED_ENTRIES },
   { name: "note — new", path: "/note/new", seed: SEED_ENTRIES },
@@ -1566,6 +1832,9 @@ const SCENARIOS = [
     ],
   },
   { name: "folders — backup counts folders", path: "/settings/backup", seed: [smokeFolder("smoke-f-work", "Work")], steps: [{ expectText: "1 folder" }] },
+
+  // ---- Round B: accounts (sign up / sign in / sign out) against a fake Supabase (scenario.online) ----
+  ...accountScenarios(),
 ];
 
 // steps (round 26): an ordered script of interactions, run after the
@@ -1599,6 +1868,7 @@ function runScenario(scenario) {
         ...(scenario.reminderBackend ? { SMOKE_REMINDER_BACKEND: "fake" } : {}),
         ...(scenario.share ? { SMOKE_SHARE: scenario.share } : {}),
         ...(scenario.copy ? { SMOKE_COPY: "fake" } : {}),
+        ...(scenario.online ? { SMOKE_ONLINE: JSON.stringify(scenario.online) } : {}),
         ...(scenario.tts ? { SMOKE_TTS: scenario.tts === "noevents" ? "fake-noevents" : "fake" } : {}),
         SMOKE_BUILD_DIR: BUILD_DIR,
         SMOKE_ROUTE_PATH: scenario.path,

@@ -285,6 +285,85 @@ if (process.env.SMOKE_TTS === "fake" || process.env.SMOKE_TTS === "fake-noevents
   };
 }
 
+// Round B: a stand-in for the studio's Supabase project (GoTrue sign-in + the little PostgREST
+// the app touches), so the whole account flow runs in jsdom with no network.
+// SMOKE_ONLINE is a JSON spec:
+//   config           {url,key} override (default: a fine https URL + a publishable-looking key)
+//   users            [{email,password,confirmed?,id?}]   confirmed defaults to true
+//   knownRefreshTokens [{token,email}]   refresh tokens the server will accept
+//   validAccess      ["AT-seed"]         extra access tokens REST calls accept
+//   offline          every request throws (a phone with no signal)
+//   refreshStatus    the refresh endpoint answers this HTTP status (a session the server ended)
+//   confirmOnResend  tapping "Resend" confirms the address (stands in for opening the email link)
+//   enrolPost        status for POST service_subscriptions (default 201)
+//   signupFail       {status, body}: sign-up is answered with this (e.g. a 500 from a database trigger)
+// Every request is recorded as "METHOD /path" (+ the body for the enrolment POST) in
+// globalThis.__onlineCalls; passwords and tokens are never recorded. Minted tokens are
+// "FAKEAT-n" / "FAKERT-n" so assertions can't be fooled by the seeded "AT-seed" / "RT-seed".
+if (process.env.SMOKE_ONLINE) {
+  const spec = JSON.parse(process.env.SMOKE_ONLINE);
+  const calls = (globalThis.__onlineCalls = []);
+  const users = new Map();
+  const refreshTokens = new Map();
+  const validAccess = new Set(spec.validAccess ?? []);
+  let n = 0;
+  const addUser = (email, password, confirmed, id) =>
+    users.set(email, { id: id ?? `00000000-0000-4000-8000-${String(users.size + 1).padStart(12, "0")}`, email, password, confirmed });
+  for (const u of spec.users ?? []) addUser(u.email, u.password, u.confirmed !== false, u.id);
+  for (const k of spec.knownRefreshTokens ?? []) refreshTokens.set(k.token, k.email);
+  const json = (status, obj) => ({ status, text: async () => JSON.stringify(obj) });
+  const mint = (u) => {
+    const at = `FAKEAT-${++n}`;
+    const rt = `FAKERT-${++n}`;
+    validAccess.add(at);
+    refreshTokens.set(rt, u.email);
+    return { access_token: at, refresh_token: rt, expires_in: 3600, expires_at: 4102444800, token_type: "bearer", user: { id: u.id, email: u.email } };
+  };
+  globalThis.__midnoteOnline = {
+    config: spec.config ?? { url: "https://smoke.supabase.co", key: "sb_publishable_smoke" },
+    fetch: async (url, init) => {
+      const u = new URL(url);
+      const body = init.body ? JSON.parse(init.body) : {};
+      calls.push(`${init.method} ${u.pathname}${u.search}${u.pathname.endsWith("service_subscriptions") && init.method === "POST" ? " " + init.body : ""}`);
+      if (spec.offline) throw new TypeError("Failed to fetch");
+      if (u.pathname === "/auth/v1/token" && u.searchParams.get("grant_type") === "password") {
+        const user = users.get(body.email);
+        if (!user || user.password !== body.password) return json(400, { code: 400, error_code: "invalid_credentials", msg: "Invalid login credentials" });
+        if (!user.confirmed) return json(400, { code: 400, error_code: "email_not_confirmed", msg: "Email not confirmed" });
+        return json(200, mint(user));
+      }
+      if (u.pathname === "/auth/v1/token" && u.searchParams.get("grant_type") === "refresh_token") {
+        if (spec.refreshStatus) return json(spec.refreshStatus, { code: spec.refreshStatus, error_code: "refresh_token_not_found", msg: "Invalid Refresh Token: Refresh Token Not Found" });
+        const email = refreshTokens.get(body.refresh_token);
+        if (!email) return json(400, { code: 400, error_code: "refresh_token_not_found", msg: "Invalid Refresh Token: Refresh Token Not Found" });
+        refreshTokens.delete(body.refresh_token);
+        return json(200, mint(users.get(email)));
+      }
+      if (u.pathname === "/auth/v1/signup") {
+        if (spec.signupFail) return json(spec.signupFail.status, spec.signupFail.body);
+        if (String(body.password).length < 6) return json(422, { code: 422, error_code: "weak_password", msg: "Password should be at least 6 characters." });
+        const existing = users.get(body.email);
+        if (existing) return json(200, { id: "fake", email: body.email, identities: [] });
+        addUser(body.email, body.password, false);
+        return json(200, { id: users.get(body.email).id, email: body.email, confirmation_sent_at: "now" });
+      }
+      if (u.pathname === "/auth/v1/resend") {
+        if (spec.confirmOnResend && users.get(body.email)) users.get(body.email).confirmed = true;
+        return json(200, {});
+      }
+      if (u.pathname === "/auth/v1/recover") return json(200, {});
+      if (u.pathname === "/auth/v1/logout") return json(204, {});
+      if (u.pathname.startsWith("/rest/v1/")) {
+        const bearer = String(init.headers.Authorization || "").replace("Bearer ", "");
+        if (!validAccess.has(bearer)) return json(401, { message: "JWT expired" });
+        if (u.pathname === "/rest/v1/services") return json(200, [{ id: "svc-1" }]);
+        if (u.pathname === "/rest/v1/service_subscriptions") return init.method === "POST" ? json(spec.enrolPost ?? 201, {}) : json(200, []);
+      }
+      return json(404, {});
+    },
+  };
+}
+
 // Bare-identifier browser globals the SvelteKit client runtime and app
 // code touch directly (the way real browser globals work — `window`
 // properties are implicitly global). Extend this list if a new scenario
