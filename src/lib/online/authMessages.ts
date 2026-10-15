@@ -18,7 +18,11 @@ export function friendlyAuthMessage(err: unknown): string {
     case "email-not-confirmed":
       return "Confirm your email first. We sent you a link when you signed up.";
     case "weak-password":
-      return `That password is too weak. Use at least ${MIN_PASSWORD_LENGTH} characters.`;
+      return `That password is too weak. Use at least ${MIN_PASSWORD_LENGTH} characters, with a capital letter and a number.`;
+    case "oauth-cancelled":
+      return "Google sign-in was cancelled.";
+    case "oauth-failed":
+      return "Google sign-in didn't finish. Try again.";
     case "invalid-email":
       return "That email address doesn't look right.";
     case "invalid-name":

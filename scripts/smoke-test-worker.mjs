@@ -12,6 +12,7 @@
 import { JSDOM } from "jsdom";
 import { pathToFileURL } from "node:url";
 import { readdirSync, readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 
 const BUILD_DIR = process.env.SMOKE_BUILD_DIR;
@@ -297,6 +298,16 @@ if (process.env.SMOKE_TTS === "fake" || process.env.SMOKE_TTS === "fake-noevents
 //   confirmOnResend  tapping "Resend" confirms the address (stands in for opening the email link)
 //   enrolPost        status for POST service_subscriptions (default 201)
 //   signupFail       {status, body}: sign-up is answered with this (e.g. a 500 from a database trigger)
+//   google           what happens when the app opens Google sign-in in the browser:
+//                    "ok" (the link comes back with a code) | "dupe" (the same link twice) |
+//                    "denied" | "error" | "never" (default: the person never returns)
+//   googleUser       {email} the Google account that signs in (default gina@gmail.test)
+//   coldStart        {verifier,email?}: the app was CLOSED while in the browser and is opened by
+//                    the returning link (pair it with storage midnote:oauth-pending)
+//   strayLink        the app is opened by a midnote://auth link nobody asked for
+// The stand-in server checks PKCE for real: the code only trades for a session when
+// base64url(sha256(code_verifier)) equals the challenge the app sent, so a wrong hash,
+// encoding or verifier fails the scenario.
 // Every request is recorded as "METHOD /path" (+ the body for the enrolment POST, + the display
 // name for a sign-up) in
 // globalThis.__onlineCalls; passwords and tokens are never recorded. Minted tokens are
@@ -313,6 +324,9 @@ if (process.env.SMOKE_ONLINE) {
   for (const u of spec.users ?? []) addUser(u.email, u.password, u.confirmed !== false, u.id);
   for (const k of spec.knownRefreshTokens ?? []) refreshTokens.set(k.token, k.email);
   const json = (status, obj) => ({ status, text: async () => JSON.stringify(obj) });
+  const codes = new Map();
+  const gUser = spec.googleUser ?? { email: "gina@gmail.test" };
+  const sha = (text) => createHash("sha256").update(text).digest("base64url");
   const mint = (u) => {
     const at = `FAKEAT-${++n}`;
     const rt = `FAKERT-${++n}`;
@@ -340,6 +354,14 @@ if (process.env.SMOKE_ONLINE) {
         refreshTokens.delete(body.refresh_token);
         return json(200, mint(users.get(email)));
       }
+      if (u.pathname === "/auth/v1/token" && u.searchParams.get("grant_type") === "pkce") {
+        const issued = codes.get(body.auth_code);
+        if (!issued) return json(400, { code: 400, error_code: "validation_failed", msg: "invalid flow state, no valid flow state found" });
+        if (sha(String(body.code_verifier)) !== issued.challenge) return json(400, { code: 400, error_code: "validation_failed", msg: "code challenge does not match previously saved code verifier" });
+        codes.delete(body.auth_code);
+        if (!users.has(issued.email)) addUser(issued.email, "no-password-google-account", true);
+        return json(200, mint(users.get(issued.email)));
+      }
       if (u.pathname === "/auth/v1/signup") {
         if (spec.signupFail) return json(spec.signupFail.status, spec.signupFail.body);
         if (String(body.password).length < 6) return json(422, { code: 422, error_code: "weak_password", msg: "Password should be at least 6 characters." });
@@ -361,6 +383,47 @@ if (process.env.SMOKE_ONLINE) {
         if (u.pathname === "/rest/v1/service_subscriptions") return init.method === "POST" ? json(spec.enrolPost ?? 201, {}) : json(200, []);
       }
       return json(404, {});
+    },
+  };
+
+  // The phone's browser + the midnote://auth deep link, as the app sees them.
+  const listeners = [];
+  const emit = (url) => {
+    for (const cb of [...listeners]) cb(url);
+  };
+  const coldUrls = [];
+  if (spec.coldStart) {
+    codes.set("COLDCODE", { challenge: sha(spec.coldStart.verifier), email: spec.coldStart.email ?? gUser.email });
+    coldUrls.push("midnote://auth?code=COLDCODE");
+  }
+  if (spec.strayLink) coldUrls.push("midnote://auth?code=STRAYCODE");
+  let codeN = 0;
+  globalThis.__midnoteDeepLink = {
+    getCurrent: async () => coldUrls,
+    onUrl: async (cb) => {
+      listeners.push(cb);
+      return () => {
+        const i = listeners.indexOf(cb);
+        if (i >= 0) listeners.splice(i, 1);
+      };
+    },
+    openUrl: async (url) => {
+      const u = new URL(url);
+      calls.push(`OPEN ${u.origin}${u.pathname} provider=${u.searchParams.get("provider")} method=${u.searchParams.get("code_challenge_method")} redirect=${u.searchParams.get("redirect_to")}`);
+      const mode = spec.google ?? "never";
+      if (u.pathname !== "/auth/v1/authorize" || mode === "never") return;
+      const code = `GCODE-${++codeN}`;
+      codes.set(code, { challenge: u.searchParams.get("code_challenge"), email: gUser.email });
+      const back = {
+        ok: `midnote://auth?code=${code}`,
+        dupe: `midnote://auth?code=${code}`,
+        denied: "midnote://auth?error=access_denied&error_code=access_denied&error_description=The+user+denied+access",
+        error: "midnote://auth?error=server_error&error_description=Unable+to+exchange+external+code",
+      }[mode];
+      setTimeout(() => {
+        emit(back);
+        if (mode === "dupe") setTimeout(() => emit(back), 20);
+      }, 30);
     },
   };
 }

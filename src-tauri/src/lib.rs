@@ -17,6 +17,11 @@ pub fn run() {
     #[cfg(mobile)]
     let builder = builder.plugin(tauri_plugin_tts::init());
 
+    // Round B2: the deep link Google sign-in returns through (midnote://auth). Mobile only,
+    // like tts above. Its scheme/host come from tauri.conf.json -> plugins.deep-link.
+    #[cfg(mobile)]
+    let builder = builder.plugin(tauri_plugin_deep_link::init());
+
     builder
         .invoke_handler(tauri::generate_handler![
             commands::entries::get_all_entries,

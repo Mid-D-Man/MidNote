@@ -8,11 +8,15 @@
 // $effect (see docs/svelte5-effect-safety.md).
 import { AuthClient, AuthError, realHttpFetch, type AuthDeps } from "$lib/online/authClient";
 import { getOnlineConfig, PORTAL_URL, type ConfigProblem } from "$lib/online/config";
+import { OAUTH_REDIRECT_URI, realDeepLinkBackend } from "$lib/online/deepLink";
+import { friendlyAuthMessage } from "$lib/online/authMessages";
+import { pushToast } from "$lib/stores/toast.svelte";
 import { ensureMidNoteEnrolment, type EnrolOutcome } from "$lib/online/enrol";
 import { breadcrumb } from "$lib/debug/log.svelte";
 
 const SESSION_KEY = "midnote:session";
 const ENROLLED_KEY = "midnote:enrolled-user";
+const OAUTH_KEY = "midnote:oauth-pending";
 
 export const account = $state({
   /** The build has a usable Supabase address + publishable key. */
@@ -21,6 +25,10 @@ export const account = $state({
   problem: null as ConfigProblem | null,
   signedIn: false,
   email: null as string | null,
+  /** A Google sign-in is open in the browser and we're waiting for it to come back. */
+  oauthPending: false,
+  /** Why the last Google sign-in didn't finish (shown in the sign-in dialog). */
+  oauthMessage: null as string | null,
 });
 
 let client: AuthClient | null = null;
@@ -44,6 +52,30 @@ function localStore() {
   };
 }
 
+function oauthStore() {
+  return {
+    get: () => {
+      try {
+        return typeof localStorage === "undefined" ? null : localStorage.getItem(OAUTH_KEY);
+      } catch {
+        return null;
+      }
+    },
+    set: (v: string) => {
+      if (typeof localStorage !== "undefined") localStorage.setItem(OAUTH_KEY, v);
+    },
+    clear: () => {
+      if (typeof localStorage !== "undefined") localStorage.removeItem(OAUTH_KEY);
+    },
+  };
+}
+
+function randomBytes(n: number): Uint8Array {
+  const out = new Uint8Array(n);
+  globalThis.crypto.getRandomValues(out);
+  return out;
+}
+
 function publish() {
   const s = client?.current() ?? null;
   account.signedIn = s !== null;
@@ -64,11 +96,13 @@ export function initAccount(): void {
     now: seam?.now ?? (() => Date.now()),
     store: localStore(),
     recoverRedirectTo: PORTAL_URL,
+    oauth: { redirectUri: OAUTH_REDIRECT_URI, store: oauthStore(), randomBytes },
   };
   client = new AuthClient(deps);
   client.onChange(publish);
   publish();
   if (account.signedIn) void enrolSoon();
+  void startDeepLinks();
 }
 
 /** The client the sync round will use. Null until initAccount() ran. */
@@ -144,6 +178,70 @@ export async function signOutNow(): Promise<void> {
   if (!client) return;
   await client.signOut();
   breadcrumb("account: signed out");
+}
+
+// ----- Google sign-in: browser out, deep link back
+
+let deepLinksStarted = false;
+
+/** Listens for the link the browser sends back, and checks whether the app was OPENED by one
+ *  (Android may have closed the app while the person was in the browser). Never throws. */
+async function startDeepLinks(): Promise<void> {
+  if (deepLinksStarted) return;
+  deepLinksStarted = true;
+  const backend = realDeepLinkBackend();
+  if (!backend) return;
+  try {
+    await backend.onUrl((url) => void handleDeepLink(url));
+    for (const url of await backend.getCurrent()) await handleDeepLink(url);
+  } catch (e) {
+    breadcrumb(`account: deep links unavailable (${e instanceof Error ? e.message.slice(0, 120) : "error"})`);
+  }
+}
+
+async function handleDeepLink(url: string): Promise<void> {
+  if (!client) return;
+  try {
+    const session = await client.completeOAuth(url);
+    if (!session) return; // not ours, a repeat, or nothing was pending
+    account.oauthPending = false;
+    account.oauthMessage = null;
+    breadcrumb("account: signed in with Google");
+    pushToast({ title: "Signed in", description: session.user.email || undefined });
+    void enrolSoon();
+  } catch (e) {
+    account.oauthPending = false;
+    account.oauthMessage = friendlyAuthMessage(e);
+    breadcrumb(`account: Google sign-in failed (${describe(e)})`);
+    pushToast({ title: "Google sign-in", description: friendlyAuthMessage(e) });
+  }
+}
+
+/** Opens Google sign-in in the browser. The result arrives later through handleDeepLink. */
+export async function signInWithGoogle(): Promise<AccountResult> {
+  if (!client) return fail(new AuthError("not-configured", "Not ready"));
+  const backend = realDeepLinkBackend();
+  if (!backend) return fail(new AuthError("oauth-failed", "Google sign-in needs the phone app"));
+  try {
+    account.oauthMessage = null;
+    const url = await client.beginOAuth("google");
+    account.oauthPending = true;
+    await backend.openUrl(url);
+    breadcrumb("account: Google sign-in opened in the browser");
+    return { ok: true };
+  } catch (e) {
+    account.oauthPending = false;
+    client.cancelOAuth();
+    breadcrumb(`account: Google sign-in could not start (${describe(e)})`);
+    return fail(e);
+  }
+}
+
+/** The person came back without finishing. */
+export function cancelGoogle(): void {
+  client?.cancelOAuth();
+  account.oauthPending = false;
+  account.oauthMessage = null;
 }
 
 // ----- registering the person as a MidNote user in the shared studio project

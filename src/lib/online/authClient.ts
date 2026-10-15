@@ -25,6 +25,10 @@
 //   * Signing out clears the phone first, then tells the server (best effort).
 //   * Tokens are never logged and never put in error messages.
 import type { OnlineConfig } from "./config";
+import { bytesToBase64Url, sha256 } from "./sha256";
+import { checkPassword, MIN_PASSWORD_LENGTH } from "./passwordRules";
+
+export { MIN_PASSWORD_LENGTH };
 
 export interface AuthUser {
   id: string;
@@ -50,6 +54,8 @@ export type AuthErrorKind =
   | "invalid-email"
   | "invalid-name"
   | "user-exists"
+  | "oauth-cancelled"
+  | "oauth-failed"
   | "signups-disabled"
   | "rate-limited"
   | "server"
@@ -88,13 +94,60 @@ export interface AuthDeps {
   /** Where a password-reset email sends the person (the accounts portal). Left out: the
    *  project's own Site URL is used. */
   recoverRedirectTo?: string;
+  /** Browser sign-in (Google). Left out: beginOAuth/completeOAuth report "not configured". */
+  oauth?: OAuthDeps;
+}
+
+export interface OAuthDeps {
+  /** Where the browser sends the person back to: the app's deep link, e.g. "midnote://auth".
+   *  It must be in the project's redirect allow-list EXACTLY as written (no extra query). */
+  redirectUri: string;
+  /** Holds the pending sign-in's secret while the person is in the browser (survives the app
+   *  being closed by Android meanwhile). */
+  store: SessionStore;
+  randomBytes(n: number): Uint8Array;
+}
+
+/** What the browser's trip back to the app carried. */
+export interface OAuthCallback {
+  code: string | null;
+  error: string | null;
+  errorDescription: string | null;
+}
+
+/** null when the URL isn't our redirect at all. Parameters may sit in the query or the #fragment. */
+export function parseOAuthCallback(url: string, redirectUri: string): OAuthCallback | null {
+  let u: URL;
+  let r: URL;
+  try {
+    u = new URL(url);
+    r = new URL(redirectUri);
+  } catch {
+    return null;
+  }
+  if (u.protocol !== r.protocol || u.host.toLowerCase() !== r.host.toLowerCase()) return null;
+  const params: Record<string, string> = {};
+  if (u.hash.startsWith("#")) {
+    try {
+      new URLSearchParams(u.hash.slice(1)).forEach((v, k) => {
+        params[k] = v;
+      });
+    } catch {
+      /* not a query string */
+    }
+  }
+  u.searchParams.forEach((v, k) => {
+    params[k] = v; // the query wins over the fragment
+  });
+  const error = params.error || (params.error_description || params.error_code ? "error" : null);
+  return { code: params.code || null, error: error || null, errorDescription: params.error_description || null };
 }
 
 /** Refresh when fewer than this many ms of life are left. */
 export const REFRESH_MARGIN_MS = 60_000;
-/** The studio's rule (mms-accounts' sign-up enforces the same 8). */
-export const MIN_PASSWORD_LENGTH = 8;
 export const MAX_NAME_LENGTH = 80;
+/** How long a started Google sign-in stays valid while the person is in the browser. */
+export const OAUTH_TTL_MS = 10 * 60_000;
 
 // ---------------------------------------------------------------- pure helpers
 
@@ -222,7 +275,7 @@ export class AuthClient {
     const displayName = String(displayNameRaw ?? "").trim().slice(0, MAX_NAME_LENGTH);
     if (!displayName) throw new AuthError("invalid-name", "Missing name");
     if (!looksLikeEmail(email)) throw new AuthError("invalid-email", "Invalid email");
-    if (password.length < MIN_PASSWORD_LENGTH) throw new AuthError("weak-password", "Password too short");
+    if (!checkPassword(password).ok) throw new AuthError("weak-password", "Password doesn't meet the rules");
     const res = await this.authCall("signup", { email, password, data: { display_name: displayName } });
     if (typeof res.access_token === "string" && res.access_token) {
       const session = parseSession(res, this.deps.now());
@@ -259,6 +312,91 @@ export class AuthClient {
     } catch {
       /* the phone is signed out either way */
     }
+  }
+
+  // ----- sign in with Google (browser + deep link + PKCE)
+
+  private pendingOAuth: { verifier: string; at: number } | null = null;
+  /** Starts a sign-in: returns the URL to open in the browser. Remembers the PKCE secret. */
+  async beginOAuth(provider: "google"): Promise<string> {
+    const cfg = this.deps.config;
+    const o = this.deps.oauth;
+    if (!cfg || !o) throw new AuthError("not-configured", "Online features aren't set up");
+    const verifier = bytesToBase64Url(o.randomBytes(48)); // 64 chars of the unreserved set
+    const challenge = bytesToBase64Url(sha256(new TextEncoder().encode(verifier)));
+    this.pendingOAuth = { verifier, at: this.deps.now() };
+    try {
+      o.store.set(JSON.stringify(this.pendingOAuth));
+    } catch {
+      /* the in-memory copy still works while the app stays open */
+    }
+    return (
+      `${cfg.url}/auth/v1/authorize?provider=${encodeURIComponent(provider)}` +
+      `&redirect_to=${encodeURIComponent(o.redirectUri)}` +
+      `&code_challenge=${challenge}&code_challenge_method=s256`
+    );
+  }
+
+  /** Gives up on a started sign-in (the person came back without finishing). */
+  cancelOAuth(): void {
+    this.takePendingOAuth();
+  }
+
+  /** Handles a link the app was opened with. Returns the session when it was ours and worked,
+   *  null when it wasn't ours / was a repeat / there was nothing pending, and throws
+   *  AuthError when the sign-in failed or was cancelled in the browser. */
+  async completeOAuth(url: string): Promise<AuthSession | null> {
+    const o = this.deps.oauth;
+    if (!o || !this.deps.config) return null;
+    const cb = parseOAuthCallback(url, o.redirectUri);
+    if (!cb) return null;
+    if (cb.error) {
+      this.takePendingOAuth();
+      const cancelled = cb.error === "access_denied";
+      throw new AuthError(cancelled ? "oauth-cancelled" : "oauth-failed", cb.errorDescription || cb.error);
+    }
+    if (!cb.code) return null;
+    // The pending secret is taken (and so used up) BEFORE the network call, which is also what
+    // makes a link Android delivers twice (cold start + event) harmless: the repeat finds
+    // nothing pending and is ignored.
+    const pending = this.takePendingOAuth();
+    if (!pending) return null;
+    if (this.deps.now() - pending.at > OAUTH_TTL_MS) throw new AuthError("oauth-failed", "The sign-in took too long");
+    let body: Record<string, unknown>;
+    try {
+      body = await this.authCall("token?grant_type=pkce", { auth_code: cb.code, code_verifier: pending.verifier });
+    } catch (e) {
+      if (e instanceof AuthError && !["network", "rate-limited", "server", "not-configured"].includes(e.kind)) {
+        throw new AuthError("oauth-failed", e.message, e.status);
+      }
+      throw e;
+    }
+    const session = parseSession(body, this.deps.now());
+    this.setSession(session);
+    return session;
+  }
+
+  private takePendingOAuth(): { verifier: string; at: number } | null {
+    let pending = this.pendingOAuth;
+    this.pendingOAuth = null;
+    const o = this.deps.oauth;
+    if (o) {
+      if (!pending) {
+        try {
+          const raw = o.store.get();
+          const v = raw ? (JSON.parse(raw) as { verifier?: unknown; at?: unknown }) : null;
+          if (v && typeof v.verifier === "string" && v.verifier && typeof v.at === "number") pending = { verifier: v.verifier, at: v.at };
+        } catch {
+          pending = null;
+        }
+      }
+      try {
+        o.store.clear();
+      } catch {
+        /* ignore */
+      }
+    }
+    return pending;
   }
 
   // ----- tokens

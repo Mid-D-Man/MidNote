@@ -516,7 +516,7 @@
       <button class:active={activeView === "folders"} onclick={() => switchView("folders")}>Folders</button>
     </div>
 
-    <div class="content" class:with-bar={selectMode}>
+    <div class="content">
       <div class="inner">
         {#if activeView === "folders"}
           <FoldersView />
@@ -957,12 +957,6 @@
     overflow-y: auto;
     overflow-x: hidden;
     padding: var(--space-5) var(--space-4);
-  }
-  .content.with-bar {
-    /* SelectionActionBar is position:fixed at the bottom — without this
-       its ~64px would sit on top of the last row of cards instead of
-       leaving room for them. */
-    padding-bottom: calc(var(--space-5) + 64px);
   }
   .inner {
     max-width: 760px;

@@ -54,7 +54,7 @@
   }
 </script>
 
-<div class="bar">
+<div class="bar" data-edge="top">
   <button class="cancel" onclick={onCancel} aria-label="Cancel selection">
     <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
       <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
@@ -171,20 +171,23 @@
 </Sheet>
 
 <style>
+  /* Round B2: pinned to the TOP of the screen (it was at the bottom, under the thumb and the
+     keyboard). It sits over the app header while selecting, like a normal selection app bar,
+     and the header is always at least as tall as this bar, so nothing underneath is covered. */
   .bar {
     position: fixed;
     left: 0;
     right: 0;
-    bottom: 0;
+    top: 0;
     z-index: 45;
     display: flex;
     align-items: center;
     gap: var(--space-3);
     padding: var(--space-3) var(--space-4);
-    padding-bottom: max(var(--space-3), env(safe-area-inset-bottom));
+    padding-top: max(var(--space-3), env(safe-area-inset-top));
     background: var(--surface-raised);
-    border-top: 1px solid var(--hairline);
-    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.28);
+    border-bottom: 1px solid var(--hairline);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
   }
   .cancel {
     flex-shrink: 0;

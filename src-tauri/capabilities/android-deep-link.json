@@ -1,0 +1,14 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "android-deep-link",
+  "description": "Lets the app read the link it was opened with (Google sign-in returns to midnote://auth). Android only: the plugin is a mobile-only dependency, so a desktop build has no \"deep-link\" permissions to validate against, and tauri-build skips a capability whose platforms don't include the build target.",
+  "windows": [
+    "main"
+  ],
+  "platforms": [
+    "android"
+  ],
+  "permissions": [
+    "deep-link:default"
+  ]
+}
