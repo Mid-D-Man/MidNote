@@ -213,6 +213,17 @@ jobs:
           for activity in activities:
               activity.set(attr, "adjustResize")
 
+          # Round B2: Google sign-in returns to the app through a deep link (midnote://auth).
+          # singleTask makes Android hand that link to the RUNNING app (the deep-link plugin's
+          # onNewIntent) instead of starting a second copy of it. Tauri's template already
+          # uses it; setting it here just guarantees it. The intent-filter itself is written
+          # into this manifest by the deep-link plugin's build script during the build.
+          launch_attr = f"{{{ns}}}launchMode"
+          for activity in activities:
+              before = activity.get(launch_attr)
+              activity.set(launch_attr, "singleTask")
+              print(f"launchMode: {before!r} -> 'singleTask'")
+
           # <uses-permission> is a direct child of <manifest>, same level
           # as <application> — not nested under it or under <activity>,
           # unlike windowSoftInputMode above. Checked for existing entries
@@ -318,6 +329,19 @@ jobs:
           VITE_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
         run: npx tauri android build --debug --target armv7
+
+      # Round B2: the deep-link plugin writes the midnote:// intent-filter into the generated
+      # manifest while the Rust side compiles. If it didn't, Google sign-in could not return to
+      # the app, so say so loudly (a warning, not a failure: everything else still works).
+      - name: Check deep link in manifest
+        run: |
+          MANIFEST=src-tauri/gen/android/app/src/main/AndroidManifest.xml
+          if grep -q 'android:scheme="midnote"' "$MANIFEST"; then
+            echo "Deep link present: midnote://auth"
+            grep -n -B1 -A1 'android:scheme="midnote"' "$MANIFEST"
+          else
+            echo "::warning::The midnote:// deep link is NOT in the generated AndroidManifest.xml. Google sign-in will open the browser but cannot come back to the app."
+          fi
 
       - name: List built APKs
         run: find src-tauri/gen/android/app/build/outputs -name "*.apk" -exec ls -la {} \;
