@@ -328,6 +328,10 @@ jobs:
           VITE_BUILD_TIME: ${{ steps.buildtime.outputs.value }}
           VITE_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+          # Optional: set the secret EMAIL_FLOWS to "on" once the Supabase project can really send
+          # email to any address (custom SMTP). Until then create-account-by-email, forgot password
+          # and resend are hidden (Google sign-in and in-app password do not need email).
+          VITE_EMAIL_FLOWS: ${{ secrets.EMAIL_FLOWS }}
         run: npx tauri android build --debug --target armv7
 
       # Round B2: the deep-link plugin writes the midnote:// intent-filter into the generated
