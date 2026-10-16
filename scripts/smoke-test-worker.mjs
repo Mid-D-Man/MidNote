@@ -19,7 +19,11 @@ const BUILD_DIR = process.env.SMOKE_BUILD_DIR;
 const ROUTE_PATH = process.env.SMOKE_ROUTE_PATH;
 const SEED_ENTRIES = JSON.parse(process.env.SMOKE_SEED_ENTRIES || "[]");
 // Round 46: extra localStorage values present before the app boots (scenario.storage).
-const SEED_STORAGE = JSON.parse(process.env.SMOKE_SEED_STORAGE || "{}");
+// A preset value may contain the JSON token "__NOW__" (quotes included): it becomes the current
+// time in ms when THIS scenario starts, so a fixture like {at: "__NOW__"} is never already stale
+// by the time a long full run reaches it (the full suite takes well over the app's 10-minute
+// limit on a pending Google sign-in).
+const SEED_STORAGE = JSON.parse((process.env.SMOKE_SEED_STORAGE || "{}").replaceAll('"__NOW__"', String(Date.now())).replaceAll('\\"__NOW__\\"', String(Date.now())));
 const SETTLE_MS = Number(process.env.SMOKE_SETTLE_MS || 1200);
 // Optional, per-scenario — see smoke-test.mjs's SCENARIOS comment on
 // `expectText` for why this exists alongside the crash-only check below:
@@ -297,6 +301,9 @@ if (process.env.SMOKE_TTS === "fake" || process.env.SMOKE_TTS === "fake-noevents
 //   refreshStatus    the refresh endpoint answers this HTTP status (a session the server ended)
 //   confirmOnResend  tapping "Resend" confirms the address (stands in for opening the email link)
 //   enrolPost        status for POST service_subscriptions (default 201)
+//   emailFlows       true: the email-dependent flows (create account by email, forgot password,
+//                    resend) are switched on in the build; default off like the real build
+//   passwordChange   what PUT /auth/v1/user answers: "ok" (default) | "same" | "reauth" | "weak"
 //   signupFail       {status, body}: sign-up is answered with this (e.g. a 500 from a database trigger)
 //   google           what happens when the app opens Google sign-in in the browser:
 //                    "ok" (the link comes back with a code) | "dupe" (the same link twice) |
@@ -336,6 +343,7 @@ if (process.env.SMOKE_ONLINE) {
   };
   globalThis.__midnoteOnline = {
     config: spec.config ?? { url: "https://smoke.supabase.co", key: "sb_publishable_smoke" },
+    emailFlows: spec.emailFlows === true,
     fetch: async (url, init) => {
       const u = new URL(url);
       const body = init.body ? JSON.parse(init.body) : {};
@@ -376,6 +384,15 @@ if (process.env.SMOKE_ONLINE) {
       }
       if (u.pathname === "/auth/v1/recover") return json(200, {});
       if (u.pathname === "/auth/v1/logout") return json(204, {});
+      if (u.pathname === "/auth/v1/user" && init.method === "PUT") {
+        const bearer = String(init.headers.Authorization || "").replace("Bearer ", "");
+        if (!validAccess.has(bearer)) return json(401, { message: "JWT expired" });
+        const mode = spec.passwordChange ?? "ok";
+        if (mode === "same") return json(422, { code: 422, error_code: "same_password", msg: "New password should be different from the old password." });
+        if (mode === "reauth") return json(400, { code: 400, error_code: "reauthentication_needed", msg: "Password update requires reauthentication" });
+        if (mode === "weak") return json(422, { code: 422, error_code: "weak_password", msg: "Password is known to be weak and easy to guess, please choose a different one." });
+        return json(200, { id: "x", email: "x" });
+      }
       if (u.pathname.startsWith("/rest/v1/")) {
         const bearer = String(init.headers.Authorization || "").replace("Bearer ", "");
         if (!validAccess.has(bearer)) return json(401, { message: "JWT expired" });

@@ -7,7 +7,7 @@
 // Writes `account` only from event handlers / onMount / client callbacks, never from an
 // $effect (see docs/svelte5-effect-safety.md).
 import { AuthClient, AuthError, realHttpFetch, type AuthDeps } from "$lib/online/authClient";
-import { getOnlineConfig, PORTAL_URL, type ConfigProblem } from "$lib/online/config";
+import { emailFlowsEnabled, getOnlineConfig, PORTAL_URL, type ConfigProblem } from "$lib/online/config";
 import { OAUTH_REDIRECT_URI, realDeepLinkBackend } from "$lib/online/deepLink";
 import { friendlyAuthMessage } from "$lib/online/authMessages";
 import { pushToast } from "$lib/stores/toast.svelte";
@@ -25,6 +25,8 @@ export const account = $state({
   problem: null as ConfigProblem | null,
   signedIn: false,
   email: null as string | null,
+  /** The email-dependent flows are switched on in this build (see emailFlowsEnabled). */
+  emailFlows: false,
   /** A Google sign-in is open in the browser and we're waiting for it to come back. */
   oauthPending: false,
   /** Why the last Google sign-in didn't finish (shown in the sign-in dialog). */
@@ -88,6 +90,7 @@ export function initAccount(): void {
   const seam = globalThis.__midnoteOnline;
   const cfg = getOnlineConfig();
   account.configured = cfg.ok;
+  account.emailFlows = emailFlowsEnabled();
   account.problem = cfg.ok ? null : cfg.problem;
   if (!cfg.ok && cfg.problem !== "missing") breadcrumb(`account: online settings refused (${cfg.problem})`);
   const deps: AuthDeps = {
@@ -171,6 +174,28 @@ export async function sendPasswordReset(email: string): Promise<AccountResult> {
   } catch (e) {
     breadcrumb(`account: password reset failed (${describe(e)})`);
     return fail(e);
+  }
+}
+
+/** Set or change the password of the signed-in person (no email involved). */
+export async function setPassword(password: string): Promise<AccountResult> {
+  if (!client) return fail(new AuthError("not-configured", "Not ready"));
+  try {
+    await client.updatePassword(password);
+    breadcrumb("account: password saved");
+    return { ok: true };
+  } catch (e) {
+    breadcrumb(`account: password change failed (${describe(e)})`);
+    return fail(e);
+  }
+}
+
+/** Opens the MidManStudio accounts page in the browser. */
+export async function openPortal(): Promise<void> {
+  try {
+    await realDeepLinkBackend()?.openUrl(PORTAL_URL);
+  } catch (e) {
+    breadcrumb(`account: could not open the portal (${describe(e)})`);
   }
 }
 

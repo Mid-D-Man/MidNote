@@ -53,6 +53,8 @@ export type AuthErrorKind =
   | "weak-password"
   | "invalid-email"
   | "invalid-name"
+  | "same-password"
+  | "reauth-needed"
   | "user-exists"
   | "oauth-cancelled"
   | "oauth-failed"
@@ -178,6 +180,8 @@ export function mapAuthError(status: number, bodyText: string): AuthError {
   if (status === 429 || code.startsWith("over_") || m.includes("rate limit")) return new AuthError("rate-limited", msg || "Too many requests", status);
   if (code === "invalid_credentials" || m.includes("invalid login credentials")) return new AuthError("invalid-credentials", msg || "Invalid login credentials", status);
   if (code === "email_not_confirmed" || m.includes("email not confirmed")) return new AuthError("email-not-confirmed", msg || "Email not confirmed", status);
+  if (code === "same_password" || m.includes("different from the old password")) return new AuthError("same-password", msg || "Same password", status);
+  if (code === "reauthentication_needed" || code === "reauthentication_not_valid" || m.includes("reauthentication")) return new AuthError("reauth-needed", msg || "Reauthentication needed", status);
   if (code === "weak_password" || (m.includes("password") && (m.includes("should be at least") || m.includes("too short") || m.includes("weak")))) return new AuthError("weak-password", msg || "Weak password", status);
   if (code === "user_already_exists" || code === "email_exists" || m.includes("already registered")) return new AuthError("user-exists", msg || "User already registered", status);
   if (code === "signup_disabled" || m.includes("signups not allowed") || m.includes("signup is disabled")) return new AuthError("signups-disabled", msg || "Signups disabled", status);
@@ -296,6 +300,22 @@ export class AuthClient {
     if (!looksLikeEmail(email)) throw new AuthError("invalid-email", "Invalid email");
     const to = this.deps.recoverRedirectTo;
     await this.authCall(to ? `recover?redirect_to=${encodeURIComponent(to)}` : "recover", { email });
+  }
+
+  /** Sets or changes the password of the signed-in person. No email is involved: it is the
+   *  signed-in user updating their own account (PUT /auth/v1/user). This also gives a Google
+   *  account a password, so email + password sign-in works for it too. */
+  async updatePassword(password: string): Promise<void> {
+    if (!checkPassword(password).ok) throw new AuthError("weak-password", "Password doesn't meet the rules");
+    const res = await this.request("auth/v1/user", { method: "PUT", body: JSON.stringify({ password }) });
+    if (res.status >= 200 && res.status < 300) return;
+    let text = "";
+    try {
+      text = await res.text();
+    } catch {
+      /* no body */
+    }
+    throw mapAuthError(res.status, text);
   }
 
   /** Local sign-out is immediate and cannot fail; telling the server is best effort. */

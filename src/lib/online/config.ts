@@ -27,6 +27,23 @@ export interface OnlineConfig {
  *  allow-list (the portal itself uses it). */
 export const PORTAL_URL = "https://mms-accounts.pages.dev";
 
+/** Email-dependent flows (create an account by email, forgot password, resend confirmation) only
+ *  work when the project can actually SEND mail to any address, which needs a custom SMTP
+ *  sender (the built-in one only reaches the project's own team). Until then they are hidden
+ *  instead of showing "check your email" for a mail that never comes. Turn them on by setting
+ *  the GitHub secret EMAIL_FLOWS to "on" (the build passes it as VITE_EMAIL_FLOWS). */
+export function emailFlowsEnabled(): boolean {
+  const seam = globalThis.__midnoteOnline;
+  if (seam && "emailFlows" in seam) return seam.emailFlows === true;
+  return parseEmailFlows(import.meta.env.VITE_EMAIL_FLOWS);
+}
+
+/** Only the word "on" (any case, spaces ignored) switches them on; anything else, including
+ *  "true" or "yes", leaves them off, so a typo can never half-enable a flow that can't work. */
+export function parseEmailFlows(raw: unknown): boolean {
+  return typeof raw === "string" && raw.trim().toLowerCase() === "on";
+}
+
 export type ConfigProblem = "missing" | "bad-url" | "bad-key" | "secret-key";
 
 export type ConfigResult = { ok: true; config: OnlineConfig } | { ok: false; problem: ConfigProblem };
@@ -37,6 +54,7 @@ declare global {
   var __midnoteOnline:
     | {
         config?: OnlineConfig | null;
+        emailFlows?: boolean;
         fetch?: (url: string, init: { method: string; headers: Record<string, string>; body?: string }) => Promise<{ status: number; text(): Promise<string> }>;
         now?: () => number;
       }

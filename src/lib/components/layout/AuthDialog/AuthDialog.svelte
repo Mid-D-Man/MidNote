@@ -157,7 +157,7 @@
     {:else}
       <h2 id="auth-title">{title}</h2>
 
-      {#if mode === "signin" || mode === "signup"}
+      {#if (mode === "signin" || mode === "signup") && account.emailFlows}
         <div class="tabs">
           <button type="button" class:active={mode === "signin"} aria-pressed={mode === "signin"} onclick={() => go("signin")}>Sign in</button>
           <button type="button" class:active={mode === "signup"} aria-pressed={mode === "signup"} onclick={() => go("signup")}>Create account</button>
@@ -178,6 +178,9 @@
             </svg>
             Continue with Google
           </button>
+        {/if}
+        {#if !account.emailFlows}
+          <p class="note subtle">New here? Google creates your account the first time. Already set a password? Use it below.</p>
         {/if}
         <div class="or" role="separator"><span>or use email</span></div>
       {/if}
@@ -256,7 +259,7 @@
             </ul>
           {/if}
           {#if shownError}<p class="err" role="alert">{shownError}</p>{/if}
-          {#if unconfirmed}
+          {#if unconfirmed && account.emailFlows}
             {#if resent}
               <p class="ok" role="status">Confirmation email sent again.</p>
             {:else}
@@ -267,7 +270,7 @@
             {busy ? "Please wait…" : mode === "signup" ? "Create account" : mode === "forgot" ? "Send reset link" : "Sign in"}
           </button>
         </form>
-        {#if mode === "signin"}
+        {#if mode === "signin" && account.emailFlows}
           <button type="button" class="link" aria-label="Forgot password" onclick={() => go("forgot")}>Forgot password?</button>
         {:else if mode === "forgot"}
           <button type="button" class="link" aria-label="Back to sign in" onclick={() => go("signin")}>Back to sign in</button>

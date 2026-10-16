@@ -17,7 +17,7 @@
 
   function openAuth(mode: AuthMode) {
     menuOpen = false;
-    authMode = mode;
+    authMode = account.emailFlows ? mode : "signin";
     authOpen = true;
   }
   let settingsOpen = $state(false);
@@ -91,9 +91,11 @@
       <Button variant="ghost" aria-label="Open login" onclick={() => openAuth("signin")}>
         Login
       </Button>
-      <Button variant="ghost" aria-label="Open sign up" onclick={() => openAuth("signup")}>
-        Sign Up
-      </Button>
+      {#if account.emailFlows}
+        <Button variant="ghost" aria-label="Open sign up" onclick={() => openAuth("signup")}>
+          Sign Up
+        </Button>
+      {/if}
     {/if}
     <Button variant="ghost" aria-label="Open settings" onclick={() => { menuOpen = false; settingsOpen = true; }}>
       Settings
