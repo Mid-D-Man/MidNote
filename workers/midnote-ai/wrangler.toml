@@ -1,0 +1,20 @@
+# MidNote AI proxy (Cloudflare Worker). Deployed by .github/workflows/deploy-ai-worker.yml.
+# Stay on the FREE Workers plan: past 10,000 neurons/day Workers AI then returns errors instead of
+# billing, which is the platform-level guarantee behind the "never pay" rule. Do not add a card.
+name = "midnote-ai"
+main = "src/index.ts"
+compatibility_date = "2025-06-01"
+workers_dev = true
+
+[ai]
+binding = "AI"
+
+# Never log notes or answers: logging stays off. (Cloudflare's Workers AI itself keeps no prompts.)
+[observability]
+enabled = false
+
+# Secrets (set by the deploy workflow, never in this file):
+#   SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, SUPABASE_SECRET_KEY
+# Optional plain variables:
+#   AI_ENABLED = "off"                -> instant kill switch (also: update midnote_ai_settings set enabled=false)
+#   ALLOWED_ORIGINS = "a,b"           -> browser origins allowed by CORS (default: the Tauri webview origins)
