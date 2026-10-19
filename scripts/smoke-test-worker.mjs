@@ -290,6 +290,41 @@ if (process.env.SMOKE_TTS === "fake" || process.env.SMOKE_TTS === "fake-noevents
   };
 }
 
+// Round E (backup): a stand-in for the lock_payload / unlock_payload Tauri commands (the real ones are Rust:
+// DixScript's DLM, AES-256-GCM + Argon2id), so password-protected backups run end to end in jsdom.
+// The output is deliberately NOT valid UTF-8 (so it is recognised as an encrypted file), carries a per-backup
+// id that the key file repeats, and unlock fails for a wrong password or for a key file from another backup.
+// Passwords are never recorded; globalThis.__backupCryptoCalls records "lock" / "unlock".
+if (process.env.SMOKE_BACKUP_CRYPTO) {
+  const calls = (globalThis.__backupCryptoCalls = []);
+  let seq = 0;
+  const pwHash = (pw) => createHash("sha256").update(pw).digest();
+  globalThis.__midnoteBackupCrypto = {
+    async lock(plaintext, password) {
+      calls.push("lock");
+      if (!password) throw new Error("Password cannot be empty.");
+      const id = `SMOKEKEY${++seq}`;
+      const h = pwHash(password);
+      const body = Buffer.from(plaintext, "utf8");
+      const xored = Buffer.from(body.map((b, i) => b ^ h[i % 32]));
+      const enc = Buffer.concat([Buffer.from([0x00, 0xff, 0xfe]), Buffer.from(id + "\n", "utf8"), h.subarray(0, 8), xored]);
+      return { encryptedDataB64: enc.toString("base64"), keyFileContent: `// DixScript Key File v1.0.0\n// smoke-id: ${id}\n@CONFIG(\n  key_type -> "password",\n)\n` };
+    },
+    async unlock(encryptedDataB64, keyFileContent, password) {
+      calls.push("unlock");
+      const enc = Buffer.from(encryptedDataB64, "base64");
+      if (enc.length < 12 || enc[0] !== 0x00 || enc[1] !== 0xff) throw new Error("Unlock failed: not an encrypted backup");
+      const nl = enc.indexOf(10, 3);
+      const id = enc.subarray(3, nl).toString("utf8");
+      if (!keyFileContent.includes(`smoke-id: ${id}`)) throw new Error("Unlock failed: key file does not match");
+      const h = pwHash(password);
+      if (!enc.subarray(nl + 1, nl + 9).equals(h.subarray(0, 8))) throw new Error("Unlock failed: wrong password");
+      const xored = enc.subarray(nl + 9);
+      return Buffer.from(xored.map((b, i) => b ^ h[i % 32])).toString("utf8");
+    },
+  };
+}
+
 // Round B: a stand-in for the studio's Supabase project (GoTrue sign-in + the little PostgREST
 // the app touches), so the whole account flow runs in jsdom with no network.
 // SMOKE_ONLINE is a JSON spec:
@@ -554,9 +589,9 @@ if (STEPS.length > 0 && errors.length === 0) {
       }
       el.click();
     } else if (step.type) {
-      const el = target.querySelector(`[aria-label="${step.type.label}"]`);
+      const el = step.type.selector ? target.querySelector(step.type.selector) : target.querySelector(`[aria-label="${step.type.label}"]`);
       if (!el) {
-        errors.push(new Error(`${where}: no input with aria-label="${step.type.label}" to type into.`));
+        errors.push(new Error(`${where}: no input with ${step.type.selector ? `selector ${step.type.selector}` : `aria-label="${step.type.label}"`} to type into.`));
         break;
       }
       el.value = step.type.value;
@@ -583,7 +618,9 @@ if (STEPS.length > 0 && errors.length === 0) {
       }
     } else if (step.expectDownload) {
       const want = step.expectDownload;
-      const d = w.__downloads[w.__downloads.length - 1];
+      // `find: true` looks at every recorded download (latest first) for one ending in `ext`;
+      // otherwise the LAST download must be that file.
+      const d = want.find ? [...w.__downloads].reverse().find((x) => x.name.endsWith(want.ext)) : w.__downloads[w.__downloads.length - 1];
       if (!d || !d.blob) {
         errors.push(new Error(`${where}: no download was triggered.`));
         break;
@@ -592,6 +629,30 @@ if (STEPS.length > 0 && errors.length === 0) {
         errors.push(new Error(`${where}: last download was "${d.name}", expected a file ending ${want.ext}.`));
         break;
       }
+      if (want.binary) {
+        // an encrypted file must NOT be readable text
+        const raw = new Uint8Array(await d.blob.arrayBuffer());
+        let isText = true;
+        try {
+          new TextDecoder("utf-8", { fatal: true }).decode(raw);
+          isText = !raw.includes(0);
+        } catch {
+          isText = false;
+        }
+        if (isText) {
+          errors.push(new Error(`${where}: "${d.name}" is readable text but was expected to be encrypted binary.`));
+          break;
+        }
+      }
+      if (want.notContains) {
+        const hay = Buffer.from(await d.blob.arrayBuffer()).toString("latin1") + Buffer.from(await d.blob.arrayBuffer()).toString("utf8");
+        const leaked = want.notContains.filter((x) => hay.includes(x));
+        if (leaked.length) {
+          errors.push(new Error(`${where}: "${d.name}" leaks ${JSON.stringify(leaked)} in the clear.`));
+          break;
+        }
+      }
+      if (want.magic === undefined) continue;
       // The app's `new Blob()` is Node's own (Blob isn't one of the globals
       // copied from jsdom), so read it with Node's Blob.arrayBuffer() —
       // jsdom's FileReader rejects a Blob from another implementation.
@@ -607,6 +668,11 @@ if (STEPS.length > 0 && errors.length === 0) {
       }
       if (head !== want.magic || buf.length < (want.minBytes ?? 0)) {
         errors.push(new Error(`${where}: "${d.name}" starts with ${JSON.stringify(head)} and is ${buf.length} bytes; expected magic ${JSON.stringify(want.magic)} and >= ${want.minBytes ?? 0} bytes.`));
+        break;
+      }
+    } else if (step.expectDownloadCount !== undefined) {
+      if (w.__downloads.length !== step.expectDownloadCount) {
+        errors.push(new Error(`${where}: expected ${step.expectDownloadCount} download(s), got ${w.__downloads.length} (${w.__downloads.map((x) => x.name).join(", ")}).`));
         break;
       }
     } else if (step.expectGlobalIncludes || step.expectGlobalCount) {
@@ -671,13 +737,30 @@ if (STEPS.length > 0 && errors.length === 0) {
       // Round 45: pick a file in an <input type="file">. The File is Node's own (it has
       // .text(), like the Blob note above); jsdom can't be given real files, so the
       // input's `files` is defined directly and a `change` event announced.
+      // Round E (backup): `files: [{ name, text }, { fromDownload: ".mdix.enc" }]` picks several files at once;
+      // `fromDownload` re-uses the real bytes of the latest recorded download ending that way (a backup the app just saved).
       const { selector, name, text } = step.chooseFile;
       const el = target.querySelector(selector);
       if (!el) {
         errors.push(new Error(`${where}: nothing matched ${selector} to choose a file in.`));
         break;
       }
-      Object.defineProperty(el, "files", { value: [new File([text], name)], configurable: true });
+      const specs = step.chooseFile.files ?? [{ name, text }];
+      const picked = [];
+      for (const f of specs) {
+        if (f.fromDownload) {
+          const d = [...w.__downloads].reverse().find((x) => x.name.endsWith(f.fromDownload));
+          if (!d || !d.blob) {
+            errors.push(new Error(`${where}: no recorded download ending ${f.fromDownload} to pick.`));
+            break;
+          }
+          picked.push(new File([new Uint8Array(await d.blob.arrayBuffer())], f.name ?? d.name));
+        } else {
+          picked.push(new File([f.text], f.name));
+        }
+      }
+      if (picked.length !== specs.length) break;
+      Object.defineProperty(el, "files", { value: picked, configurable: true });
       el.dispatchEvent(new w.Event("change", { bubbles: true }));
     } else if (step.longPress) {
       // Round 44: press and hold (a card's long-press-to-select). Pointer events with

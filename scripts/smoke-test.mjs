@@ -103,7 +103,7 @@ const LONG_NOTE = {
 // timestamp (the phone's copy is newer -> kept), the todo is the seeded one with a FAR-FUTURE
 // timestamp and a new title (the file's copy is newer -> updated), the second note is new (added).
 // A theme and a font (a 4-byte TrueType header is enough for the app's own font check) come along.
-const RESTORE_BACKUP_TEXT = JSON.stringify({
+const RESTORE_BACKUP = {
   app: "midnote-backup",
   format: 1,
   createdAt: "2026-10-01T10:00:00.000Z",
@@ -117,7 +117,23 @@ const RESTORE_BACKUP_TEXT = JSON.stringify({
   icons: [],
   fonts: [{ id: "font-restored", name: "Restored Font", kind: "ttf", size: 8, addedAt: "2026-09-01T00:00:00.000Z", data: "AAEAAAAAAAA=" }],
   settings: { "midnote:note-lines": "true" },
-});
+};
+// the old (format 1) file: plain JSON, still readable
+const RESTORE_BACKUP_TEXT = JSON.stringify(RESTORE_BACKUP);
+
+// Round E: the same backup as a format 2 .mdix file. A deliberately tiny writer for FIXTURES (the app's own
+// writer is utils/backupMdix.ts; its output is checked against the real DixScript parser in the logic tests).
+const mdixLit = (v) =>
+  v === null || v === undefined ? "null"
+  : Array.isArray(v) ? `[${v.map(mdixLit).join(", ")}]`
+  : typeof v === "object" ? `{ ${Object.entries(v).filter(([, x]) => x !== undefined).map(([k, x]) => `${k} = ${mdixLit(x)}`).join(", ")} }`
+  : JSON.stringify(v);
+const group = (name, items) => (items.length ? `  ${name}::\n${items.map((i) => `    ${mdixLit(i)}`).join(",\n")}\n` : "");
+const RESTORE_BACKUP_MDIX =
+  `// Brought to u by MidManStudio\n\n@CONFIG(\n  version    -> "1.0.0"\n  features   -> "data"\n  debug_mode -> "off"\n)\n\n@DATA(\n` +
+  `  app = "midnote-backup"\n  format = 2\n  createdAt = "${RESTORE_BACKUP.createdAt}"\n  tags = ${mdixLit(RESTORE_BACKUP.tags)}\n` +
+  group("entries", RESTORE_BACKUP.entries) + group("themes", RESTORE_BACKUP.themes) + group("fonts", RESTORE_BACKUP.fonts) +
+  group("settings", Object.entries(RESTORE_BACKUP.settings).map(([key, value]) => ({ key, value }))) + ")\n";
 
 // Every scenario that mounts a route component and runs its effects.
 // "existing note/todo" is the one that actually caught the real bug —
@@ -1028,28 +1044,45 @@ const SCENARIOS = [
     seed: SEED_ENTRIES.map((e) => (e.id === NOTE_ID ? { ...e, reminderAt: "2099-01-01T12:00:00.000Z" } : e)),
     steps: [{ expectSelector: ".reminder-badge" }],
   },
-  // Round 45: Backup & restore. The backup text below is what the app itself writes (format 1).
+  // Round 45 (format 1) / Round E (format 2, .mdix): Backup & restore.
   {
-    name: "settings — backup: Back up everything saves one file",
+    name: "settings — backup: Back up everything saves one plain .mdix file",
     path: "/settings/backup",
     seed: SEED_ENTRIES,
+    storage: { "midnote:note-lines": "true", "midnote:font-size": "large" },
     steps: [
       { wait: 200 },
       { expectText: "Last backup: never" },
       { click: "Back up everything" },
       { wait: 500 },
-      { expectDownload: { ext: ".json", magic: '{"app":"midnote-backup"', minBytes: 300, contains: ["Smoke test note", "Smoke test todo", "Smoke test board", '"format":1', '"counts":{"notes":1,"todos":1,"boards":1,"folders":0,"trashed":0'] } },
+      { expectDownloadCount: 1 },
+      { expectDownload: { ext: ".mdix", magic: "// Brought to u by MidManStudio", minBytes: 300, contains: ["@DATA(", 'app = "midnote-backup"', "format = 2", "Smoke test note", "Smoke test todo", "Smoke test board", "counts = { notes = 1, todos = 1, boards = 1, folders = 0, trashed = 0, themes = 0, icons = 0, fonts = 0 }", "entries::", "settings::", '{ key = "midnote:note-lines", value = "true" }', '{ key = "midnote:font-size", value = "large" }'] } },
       { expectText: "Backup saved" },
       { expectNoText: "Last backup: never" },
     ],
   },
   {
-    name: "settings — backup: restore merges, newer copy wins, nothing is deleted",
+    name: "settings — backup: restore from an older .json backup still works (preview only)",
     path: "/settings/backup",
     seed: SEED_ENTRIES,
     steps: [
       { wait: 200 },
       { chooseFile: { selector: 'input[type="file"]', name: "midnote-backup.json", text: RESTORE_BACKUP_TEXT } },
+      { wait: 400 },
+      { expectText: "Restore this backup?" },
+      { expectText: "1 to add" },
+      { expectText: "1 to update" },
+      { expectText: "2 theme/icon/fonts to add" },
+      { expectNotStored: "Restored note from backup" },
+    ],
+  },
+  {
+    name: "settings — backup: restore merges, newer copy wins, nothing is deleted (.mdix)",
+    path: "/settings/backup",
+    seed: SEED_ENTRIES,
+    steps: [
+      { wait: 200 },
+      { chooseFile: { selector: 'input[type="file"]', name: "midnote-backup-2026-10-01-1000.mdix", text: RESTORE_BACKUP_MDIX } },
       { wait: 400 },
       { expectText: "Restore this backup?" },
       // the note is already here and not older (kept), the todo in the file is NEWER (updated), the
@@ -1076,7 +1109,167 @@ const SCENARIOS = [
       { expectStored: "data:image/png;base64,AAAA" },
     ],
   },
-  { name: "settings — backup: a file that isn't a backup", path: "/settings/backup", seed: SEED_ENTRIES, steps: [{ wait: 200 }, { chooseFile: { selector: 'input[type="file"]', name: "notes.txt", text: "hello world" } }, { wait: 300 }, { expectText: "isn't a MidNote backup" }, { expectNoText: "Restore this backup?" }] },
+  // Round E: password-protected backups (.mdix.enc + .mdix.key) with a stand-in for the Rust encryption (scenario.backupCrypto).
+  {
+    name: "settings — backup: password protect saves an encrypted .mdix.enc and its .mdix.key",
+    path: "/settings/backup",
+    seed: SEED_ENTRIES,
+    backupCrypto: true,
+    steps: [
+      { wait: 200 },
+      { click: "Protect backup with a password" },
+      { click: "Back up everything" },
+      { wait: 200 },
+      { expectText: "Protect this backup" },
+      { type: { selector: 'input[placeholder="Password"]', value: "open-sesame" } },
+      { type: { selector: 'input[placeholder="Confirm password"]', value: "open-sesame" } },
+      { clickSelector: ".dialog .confirm" },
+      { wait: 600 },
+      { expectDownloadCount: 2 },
+      // the encrypted file is binary and shows none of the notes; the key file is the DixScript key file text
+      { expectDownload: { find: true, ext: ".mdix.enc", binary: true, minBytes: 100, notContains: ["Smoke test note", "Smoke test todo", "midnote-backup", "open-sesame"] } },
+      { expectDownload: { find: true, ext: ".mdix.key", magic: "// DixScript Key File", contains: ["key_type"], notContains: ["open-sesame", "Smoke test note"] } },
+      { expectText: "Backup saved" },
+      { expectText: "keep the backup AND its key file" },
+      { expectGlobalIncludes: { name: "__backupCryptoCalls", substring: "lock" } },
+    ],
+  },
+  {
+    name: "settings — backup: password mismatch is refused, nothing is saved",
+    path: "/settings/backup",
+    seed: SEED_ENTRIES,
+    backupCrypto: true,
+    steps: [
+      { wait: 200 },
+      { click: "Protect backup with a password" },
+      { click: "Back up everything" },
+      { wait: 200 },
+      { type: { selector: 'input[placeholder="Password"]', value: "one-password" } },
+      { type: { selector: 'input[placeholder="Confirm password"]', value: "another-password" } },
+      { clickSelector: ".dialog .confirm" },
+      { wait: 100 },
+      { expectText: "Passwords don't match." },
+      { expectDownloadCount: 0 },
+      { clickSelector: ".dialog .cancel" },
+      { wait: 300 },
+      { expectDownloadCount: 0 },
+      { expectNoText: "Backup saved" },
+      { expectNoSelector: ".dialog" },
+    ],
+  },
+  {
+    name: "settings — backup: password protect outside the installed app says so",
+    path: "/settings/backup",
+    seed: SEED_ENTRIES,
+    steps: [
+      { wait: 200 },
+      { click: "Protect backup with a password" },
+      { click: "Back up everything" },
+      { wait: 300 },
+      { expectText: "only works in the installed app" },
+      { expectDownloadCount: 0 },
+    ],
+  },
+  {
+    name: "settings — backup: encrypted round trip (wrong password first, then the right one)",
+    path: "/settings/backup",
+    seed: SEED_ENTRIES,
+    backupCrypto: true,
+    steps: [
+      { wait: 200 },
+      { click: "Protect backup with a password" },
+      { click: "Back up everything" },
+      { wait: 200 },
+      { type: { selector: 'input[placeholder="Password"]', value: "open-sesame" } },
+      { type: { selector: 'input[placeholder="Confirm password"]', value: "open-sesame" } },
+      { clickSelector: ".dialog .confirm" },
+      { wait: 600 },
+      { expectDownloadCount: 2 },
+      // pick BOTH files together, as the real picker would
+      { chooseFile: { selector: 'input[aria-label="Backup file"]', files: [{ fromDownload: ".mdix.enc" }, { fromDownload: ".mdix.key" }] } },
+      { wait: 300 },
+      { expectText: "Backup password" },
+      { type: { selector: 'input[placeholder="Password"]', value: "not-the-password" } },
+      { clickSelector: ".dialog .confirm" },
+      { wait: 400 },
+      // asked again, with the reason; nothing is previewed yet
+      { expectText: "Wrong password, or this key file belongs to a different backup" },
+      { expectNoText: "Restore this backup?" },
+      { type: { selector: 'input[placeholder="Password"]', value: "open-sesame" } },
+      { clickSelector: ".dialog .confirm" },
+      { wait: 600 },
+      { expectText: "Restore this backup?" },
+      { expectText: "Contains 1 note · 1 todo · 1 board" },
+      { expectText: "Nothing to restore" },
+      { expectGlobalIncludes: { name: "__backupCryptoCalls", substring: "unlock" } },
+    ],
+  },
+  {
+    name: "settings — backup: encrypted file picked alone asks for its key file, then opens",
+    path: "/settings/backup",
+    seed: SEED_ENTRIES,
+    backupCrypto: true,
+    steps: [
+      { wait: 200 },
+      { click: "Protect backup with a password" },
+      { click: "Back up everything" },
+      { wait: 200 },
+      { type: { selector: 'input[placeholder="Password"]', value: "open-sesame" } },
+      { type: { selector: 'input[placeholder="Confirm password"]', value: "open-sesame" } },
+      { clickSelector: ".dialog .confirm" },
+      { wait: 600 },
+      { chooseFile: { selector: 'input[aria-label="Backup file"]', files: [{ fromDownload: ".mdix.enc" }] } },
+      { wait: 300 },
+      { expectText: "Key file needed" },
+      { expectSelector: '[aria-label="Pick key file"]' },
+      { expectNoSelector: ".dialog" },
+      { chooseFile: { selector: 'input[aria-label="Key file"]', files: [{ fromDownload: ".mdix.key" }] } },
+      { wait: 300 },
+      { expectNoText: "Key file needed" },
+      { expectText: "Backup password" },
+      { type: { selector: 'input[placeholder="Password"]', value: "open-sesame" } },
+      { clickSelector: ".dialog .confirm" },
+      { wait: 600 },
+      { expectText: "Restore this backup?" },
+    ],
+  },
+  {
+    name: "settings — backup: cancelling the password prompt on restore opens nothing",
+    path: "/settings/backup",
+    seed: SEED_ENTRIES,
+    backupCrypto: true,
+    steps: [
+      { wait: 200 },
+      { click: "Protect backup with a password" },
+      { click: "Back up everything" },
+      { wait: 200 },
+      { type: { selector: 'input[placeholder="Password"]', value: "open-sesame" } },
+      { type: { selector: 'input[placeholder="Confirm password"]', value: "open-sesame" } },
+      { clickSelector: ".dialog .confirm" },
+      { wait: 600 },
+      { chooseFile: { selector: 'input[aria-label="Backup file"]', files: [{ fromDownload: ".mdix.enc" }, { fromDownload: ".mdix.key" }] } },
+      { wait: 300 },
+      { expectText: "Backup password" },
+      { clickSelector: ".dialog .cancel" },
+      { wait: 300 },
+      { expectNoText: "Restore this backup?" },
+      { expectNoText: "Key file needed" },
+      { expectNoSelector: ".dialog" },
+    ],
+  },
+  {
+    name: "settings — backup: a key file on its own is explained",
+    path: "/settings/backup",
+    seed: SEED_ENTRIES,
+    steps: [
+      { wait: 200 },
+      { chooseFile: { selector: 'input[aria-label="Backup file"]', files: [{ name: "x.mdix.key", text: '// DixScript Key File v1.0.0\n@CONFIG(\n  key_type -> "password",\n)\n' }] } },
+      { wait: 300 },
+      { expectText: "That's a key file" },
+      { expectNoText: "Restore this backup?" },
+    ],
+  },
+  { name: "settings — backup: a file that isn't a backup", path: "/settings/backup", seed: SEED_ENTRIES, steps: [{ wait: 200 }, { chooseFile: { selector: 'input[type="file"]', name: "notes.txt", text: "hello world" } }, { wait: 300 }, { expectText: "That isn't a MidNote backup." }, { expectNoText: "Restore this backup?" }] },
   { name: "settings — backup: a backup from a newer app", path: "/settings/backup", seed: SEED_ENTRIES, steps: [{ wait: 200 }, { chooseFile: { selector: 'input[type="file"]', name: "future.json", text: JSON.stringify({ app: "midnote-backup", format: 99 }) } }, { wait: 300 }, { expectText: "newer version of MidNote" }] },
   {
     name: "settings — backup: everything already here",
@@ -2231,6 +2424,7 @@ function runScenario(scenario) {
         ...(scenario.share ? { SMOKE_SHARE: scenario.share } : {}),
         ...(scenario.copy ? { SMOKE_COPY: "fake" } : {}),
         ...(scenario.online ? { SMOKE_ONLINE: JSON.stringify(scenario.online) } : {}),
+        ...(scenario.backupCrypto ? { SMOKE_BACKUP_CRYPTO: "1" } : {}),
         ...(scenario.tts ? { SMOKE_TTS: scenario.tts === "noevents" ? "fake-noevents" : "fake" } : {}),
         SMOKE_BUILD_DIR: BUILD_DIR,
         SMOKE_ROUTE_PATH: scenario.path,

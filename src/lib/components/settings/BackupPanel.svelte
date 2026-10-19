@@ -1,17 +1,24 @@
 <script lang="ts">
   // Round 45 — Settings -> Backup & restore.
   //
-  //   Back up everything   one .json file: notes, todos, boards (and Trash), tags, themes,
-  //                        icons, imported fonts and look-and-feel settings
-  //                        (utils/backup.ts has the format and its rules)
-  //   Restore from a file  reads a backup, SHOWS what it would do, and only then merges it in:
-  //                        nothing on the phone is deleted, a newer copy wins, locked notes stay locked
+  //   Back up everything   one .mdix file (plain DixScript text): notes, todos, boards (and Trash),
+  //                        tags, themes, icons, imported fonts and look-and-feel settings
+  //                        (utils/backup.ts + backupMdix.ts have the format and its rules).
+  //                        With "Protect with a password" it saves midnote-backup-DATE.mdix.enc and
+  //                        its key file midnote-backup-DATE.mdix.key instead (utils/backupFiles.ts).
+  //   Restore from a file  reads a backup (.mdix, .mdix.enc + key file, or an older .json), SHOWS what
+  //                        it would do, and only then merges it in: nothing on the phone is deleted,
+  //                        a newer copy wins, locked notes stay locked
   //
-  // Saving goes through downloadFiles() — the Android-safe save dialog. Picking a file uses a
-  // plain <input type="file"> with NO accept filter (Android's picker hides .json files that
-  // way, same lesson as the font picker). The file is NOT encrypted; the screen says so.
+  // Saving goes through downloadFiles() — the Android-safe save dialog. Picking files uses a plain
+  // <input type="file" multiple> with NO accept filter (Android's picker hides unknown extensions that
+  // way, same lesson as the font picker); an encrypted backup and its key file are picked together, and
+  // files are recognised by their content, not their names.
   import SettingsRow from "./SettingsRow.svelte";
   import Button from "$lib/components/ui/Button/Button.svelte";
+  import Switch from "$lib/components/ui/Switch/Switch.svelte";
+  import { askPassword } from "$lib/stores/lockPrompt.svelte";
+  import { beginGlobalBusy, endGlobalBusy } from "$lib/stores/globalBusy.svelte";
   import { entries, refresh } from "$lib/stores/entries.svelte";
   import { sync as syncTags } from "$lib/stores/tags.svelte";
   import { customThemes, restoreCustomTheme } from "$lib/stores/customThemes.svelte";
@@ -22,16 +29,15 @@
   import * as storage from "$lib/storage";
   import { downloadFiles } from "$lib/utils/selectionActions";
   import { syncReminderSilently } from "$lib/utils/reminders";
+  import { classifyPicked, cryptoAvailable, makeBackupFiles, openClassified, type Classified, type PickedFile } from "$lib/utils/backupFiles";
   import {
     applyRestore,
-    backupFileName,
     base64ToBytes,
     buildBackup,
     countEntries,
     describeReport,
     parseBackup,
     planRestore,
-    serializeBackup,
     type BackupFile,
     type RestorePlan,
     type RestoreSink,
@@ -41,6 +47,10 @@
   const LAST_BACKUP_KEY = "midnote:last-backup";
 
   let fileInput = $state<HTMLInputElement | null>(null);
+  let keyInput = $state<HTMLInputElement | null>(null);
+  let protect = $state(false);
+  // an encrypted backup was picked without its key file: it waits here for the key
+  let waiting = $state<{ enc: Uint8Array } | null>(null);
   let busy = $state<"backup" | "reading" | "restoring" | null>(null);
   let progress = $state<{ done: number; total: number } | null>(null);
   let notice = $state<{ kind: "error" | "info"; text: string } | null>(null);
@@ -109,9 +119,32 @@
           }
         },
       });
-      const text = serializeBackup(file);
-      const blob = new Blob([text], { type: "application/json" });
-      const saved = await downloadFiles([{ name: backupFileName(), blob }]);
+      let password: string | undefined;
+      if (protect) {
+        if (!cryptoAvailable()) {
+          notice = { kind: "error", text: "Password protection only works in the installed app." };
+          return;
+        }
+        const p = await askPassword(
+          "Protect this backup",
+          "You'll need this password, and the key file saved with the backup, to restore it. The password can't be recovered.",
+          true
+        );
+        if (p === null) {
+          breadcrumb("backup: password prompt cancelled");
+          return;
+        }
+        password = p;
+      }
+      if (password) beginGlobalBusy("Encrypting…");
+      let out;
+      try {
+        out = await makeBackupFiles(file, { password });
+      } finally {
+        if (password) endGlobalBusy();
+      }
+      const total = out.reduce((n, f) => n + f.bytes.length, 0);
+      const saved = await downloadFiles(out.map((f) => ({ name: f.name, blob: new Blob([f.bytes as BlobPart], { type: f.type }) })));
       if (saved > 0) {
         const iso = new Date().toISOString();
         try {
@@ -120,8 +153,12 @@
           /* not worth failing the backup over */
         }
         lastBackup = iso;
-        breadcrumb(`backup: saved ${formatSize(blob.size)} (${file.counts.notes}n ${file.counts.todos}t ${file.counts.boards}b ${file.counts.themes}th ${file.counts.icons}ic ${file.counts.fonts}f)`);
-        pushToast({ title: "Backup saved", description: `${formatSize(blob.size)} — keep it somewhere safe.` });
+        breadcrumb(`backup: saved ${out.length} file${out.length === 1 ? "" : "s"} ${formatSize(total)}${password ? " (encrypted)" : ""} (${file.counts.notes}n ${file.counts.todos}t ${file.counts.boards}b ${file.counts.themes}th ${file.counts.icons}ic ${file.counts.fonts}f)`);
+        if (saved < out.length) {
+          pushToast({ title: "Only part of the backup was saved", description: "A password-protected backup needs both the .mdix.enc file and its .mdix.key file. Back up again and save both." });
+        } else {
+          pushToast({ title: "Backup saved", description: password ? `${formatSize(total)} — keep the backup AND its key file, and remember the password.` : `${formatSize(total)} — keep it somewhere safe.` });
+        }
       } else {
         pushToast({ title: "Backup not saved", description: "The save was cancelled." });
       }
@@ -145,26 +182,99 @@
     };
   }
 
+  async function readPicked(list: File[]): Promise<PickedFile[]> {
+    return Promise.all(list.map(async (f) => ({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) })));
+  }
+
+  /** Asks for the password (again, if it was wrong) and opens an encrypted backup. Null = cancelled or failed (notice set). */
+  async function openWithPassword(c: Classified): Promise<BackupFile | null> {
+    let error: string | null = null;
+    for (;;) {
+      const p = await askPassword("Backup password", "Enter the password this backup was saved with.", false, error);
+      if (p === null) {
+        breadcrumb("backup: password prompt cancelled");
+        return null;
+      }
+      beginGlobalBusy("Unlocking…");
+      let r;
+      try {
+        r = await openClassified(c, p);
+      } finally {
+        endGlobalBusy();
+      }
+      if (r.ok) return r.backup;
+      if ("wrongPassword" in r) {
+        breadcrumb("backup: wrong password or key file");
+        error = "Wrong password, or this key file belongs to a different backup. Try again.";
+        continue;
+      }
+      notice = { kind: "error", text: r.message };
+      return null;
+    }
+  }
+
+  /** What was picked -> a restore preview. */
+  async function openFiles(files: PickedFile[]) {
+    const c = classifyPicked(files);
+    breadcrumb(`backup: picked ${files.length} file${files.length === 1 ? "" : "s"} -> ${c.kind}${c.kind === "encrypted" ? (c.key === null ? " (no key file)" : " (with key file)") : ""}`);
+    if (c.kind === "encrypted" && c.key === null) {
+      waiting = { enc: c.enc };
+      return;
+    }
+    let backup: BackupFile | null;
+    if (c.kind === "encrypted") {
+      if (!cryptoAvailable()) {
+        notice = { kind: "error", text: "Opening a password-protected backup only works in the installed app." };
+        return;
+      }
+      backup = await openWithPassword(c);
+    } else {
+      const r = await openClassified(c, null);
+      if (!r.ok) {
+        notice = { kind: "error", text: r.message };
+        return;
+      }
+      backup = r.backup;
+    }
+    if (!backup) return;
+    pending = { backup, plan: planRestore(backup, snapshot(), storage.normalizeEntry) };
+  }
+
   async function handlePicked(e: Event) {
     const input = e.currentTarget as HTMLInputElement;
-    const file = input.files?.[0];
+    const picked = Array.from(input.files ?? []);
     input.value = ""; // so picking the same file again still fires
-    if (!file || busy) return;
-    breadcrumb(`backup: restore file picked (${formatSize(file.size)})`);
+    if (picked.length === 0 || busy) return;
+    breadcrumb(`backup: restore picked ${picked.length} file${picked.length === 1 ? "" : "s"} (${formatSize(picked.reduce((n, f) => n + f.size, 0))})`);
     busy = "reading";
     notice = null;
     report = null;
     pending = null;
+    waiting = null;
     try {
-      const parsed = parseBackup(await file.text());
-      if (!parsed.ok) {
-        notice = { kind: "error", text: parsed.message };
-        return;
-      }
-      const plan = planRestore(parsed.backup, snapshot(), storage.normalizeEntry);
-      pending = { backup: parsed.backup, plan };
+      await openFiles(await readPicked(picked));
     } catch (err) {
       breadcrumb(`backup: couldn't read the picked file (${err instanceof Error ? err.message : String(err)})`);
+      notice = { kind: "error", text: "Couldn't read that file." };
+    } finally {
+      busy = null;
+    }
+  }
+
+  async function handleKeyPicked(e: Event) {
+    const input = e.currentTarget as HTMLInputElement;
+    const picked = Array.from(input.files ?? []);
+    input.value = "";
+    if (picked.length === 0 || busy || !waiting) return;
+    const enc = waiting.enc;
+    busy = "reading";
+    notice = null;
+    try {
+      const files = await readPicked(picked);
+      waiting = null;
+      await openFiles([{ name: "backup.mdix.enc", bytes: enc }, ...files]);
+    } catch (err) {
+      breadcrumb(`backup: couldn't read the key file (${err instanceof Error ? err.message : String(err)})`);
       notice = { kind: "error", text: "Couldn't read that file." };
     } finally {
       busy = null;
@@ -240,20 +350,35 @@
     value={busy === "backup" ? "Saving…" : ""}
     chevron={busy !== "backup"}
   />
+  <SettingsRow label="Protect with a password" desc="Saves an encrypted .mdix.enc backup plus its .mdix.key key file. Keep both, and remember the password.">
+    <Switch bind:checked={protect} aria-label="Protect backup with a password" />
+  </SettingsRow>
   <SettingsRow
     label="Restore from a backup"
-    desc="Merges a backup file into this phone. Nothing is deleted."
+    desc="Merges a backup into this phone. Nothing is deleted. For an encrypted backup, pick its .mdix.enc and .mdix.key files together."
     aria-label="Restore from a backup"
     onclick={() => fileInput?.click()}
     value={busy === "reading" ? "Reading…" : ""}
     chevron={busy !== "reading"}
   />
-  <input bind:this={fileInput} type="file" class="file-input" aria-label="Backup file" onchange={handlePicked} />
+  <input bind:this={fileInput} type="file" multiple class="file-input" aria-label="Backup file" onchange={handlePicked} />
+  <input bind:this={keyInput} type="file" class="file-input" aria-label="Key file" onchange={handleKeyPicked} />
 
-  <p class="warn">The backup file isn't encrypted: anyone who has it can read your unlocked notes. Locked notes stay locked inside it. Keep it somewhere private.</p>
+  <p class="warn">A plain .mdix backup isn't encrypted: anyone who has it can read your unlocked notes. Turn on "Protect with a password" for an encrypted copy. Locked notes stay locked inside either kind. Keep backups somewhere private.</p>
 
   {#if notice}
     <p class="notice" class:error={notice.kind === "error"} role="alert">{notice.text}</p>
+  {/if}
+
+  {#if waiting}
+    <section class="card" aria-label="Key file needed">
+      <h2>Key file needed</h2>
+      <p class="line">This backup is encrypted. Pick the key file that was saved with it (it ends in .mdix.key).</p>
+      <div class="actions">
+        <Button variant="default" onclick={() => keyInput?.click()} disabled={busy !== null} aria-label="Pick key file">Pick key file</Button>
+        <Button variant="ghost" onclick={() => (waiting = null)} aria-label="Cancel key file">Cancel</Button>
+      </div>
+    </section>
   {/if}
 
   {#if pending}

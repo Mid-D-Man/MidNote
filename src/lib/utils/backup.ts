@@ -6,8 +6,13 @@
 // fonts (the font files themselves) and the look-and-feel settings.
 //
 // WHY: fonts, themes and icons live only on this phone (IndexedDB). A reinstall
-// or a new phone would lose them. The file is plain JSON — readable, and easy to
-// carry — and is NOT encrypted: anyone who has it can read the unlocked notes.
+// or a new phone would lose them.
+//
+// THE FILE (format 2): plain-text DixScript, midnote-backup-DATE.mdix (backupMdix.ts has the
+// dialect and what was verified against the real parser). With a password it is instead
+// midnote-backup-DATE.mdix.enc + midnote-backup-DATE.mdix.key (backupFiles.ts: the same DixScript
+// encryption the locked notes use; the .key file is the encryption's own key file, the password
+// is still needed). Format 1 backups (plain JSON, written by rounds 45-47) can still be READ.
 //
 // RESTORE IS A MERGE, never a wipe. Nothing already on the phone is deleted:
 //   notes/todos/boards  same id: the NEWER one (by last-modified) wins, otherwise
@@ -20,9 +25,10 @@
 // Plain TypeScript with the app's stores injected (BackupSource / RestoreSink),
 // so all of it can be exercised in Node.
 import type { CustomIcon, CustomTheme, Entry } from "$lib/types/entry";
+import { readMdix, writeMdix } from "./backupMdix";
 
 export const BACKUP_APP = "midnote-backup";
-export const BACKUP_FORMAT = 1;
+export const BACKUP_FORMAT = 2;
 
 /** The look-and-feel settings carried in a backup (localStorage keys). Everything else — the debug panel, the last open tab, ... — stays per device. */
 export const BACKUP_SETTING_KEYS: readonly string[] = [
@@ -152,9 +158,14 @@ export function base64ToBytes(b64: string): Uint8Array {
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
-/** midnote-backup-2026-10-09-1430.json (local time) */
+/** midnote-backup-2026-10-09-1430 (local time), no extension */
+export function backupBaseName(now: Date = new Date()): string {
+  return `midnote-backup-${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`;
+}
+
+/** midnote-backup-2026-10-09-1430.mdix */
 export function backupFileName(now: Date = new Date()): string {
-  return `midnote-backup-${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}.json`;
+  return `${backupBaseName(now)}.mdix`;
 }
 
 export function countEntries(entries: ReadonlyArray<{ type?: unknown; deletedAt?: unknown }>): Pick<BackupCounts, "notes" | "todos" | "boards" | "folders" | "trashed"> {
@@ -194,8 +205,26 @@ export async function buildBackup(src: BackupSource, now: Date = new Date()): Pr
   };
 }
 
+/** The backup as plain DixScript text (the .mdix file's content). */
 export function serializeBackup(file: BackupFile): string {
-  return JSON.stringify(file);
+  return writeMdix({
+    comments: ["MidNote backup. Plain DixScript text: any editor can open it.", "Restore it from Settings -> Backup & restore."],
+    scalars: [
+      ["app", file.app],
+      ["format", file.format],
+      ["createdAt", file.createdAt],
+      ["counts", file.counts],
+      ["tags", file.tags],
+    ],
+    groups: [
+      ["entries", file.entries],
+      ["themes", file.themes],
+      ["icons", file.icons],
+      ["fonts", file.fonts],
+      // setting keys contain ':' and '-', which are not field names: they travel as key/value pairs
+      ["settings", Object.entries(file.settings).map(([key, value]) => ({ key, value }))],
+    ],
+  });
 }
 
 // ------------------------------------------------------------------ reading
@@ -209,13 +238,23 @@ function strList(v: unknown): string[] {
   return Array.isArray(v) ? v.filter((x): x is string => isStr(x) && x.trim() !== "") : [];
 }
 
-/** Reads and sanity-checks a backup file's text. Anything malformed inside is dropped, not trusted. */
+/**
+ * Reads and sanity-checks a backup file's text: the .mdix format, or a format 1 JSON backup.
+ * Anything malformed inside is dropped, not trusted.
+ */
 export function parseBackup(text: string): ParseResult {
   let raw: unknown;
-  try {
-    raw = JSON.parse(text);
-  } catch {
-    return { ok: false, message: "That file isn't a MidNote backup (it isn't readable JSON)." };
+  const head = text.trimStart(); // trimStart also drops a byte-order mark
+  if (head.startsWith("{")) {
+    try {
+      raw = JSON.parse(head);
+    } catch {
+      return { ok: false, message: "That file isn't a MidNote backup (it can't be read)." };
+    }
+  } else {
+    const r = readMdix(text);
+    if (!r.ok) return { ok: false, message: "That file isn't a MidNote backup (it can't be read)." };
+    raw = r.data;
   }
   if (!isObj(raw) || raw.app !== BACKUP_APP) return { ok: false, message: "That file isn't a MidNote backup." };
   if (typeof raw.format !== "number" || !Number.isFinite(raw.format) || raw.format < 1) {
@@ -239,11 +278,16 @@ export function parseBackup(text: string): ParseResult {
       data: f.data as string,
     }));
   const settings: Record<string, string> = {};
-  if (isObj(raw.settings)) {
-    for (const key of BACKUP_SETTING_KEYS) {
-      const v = raw.settings[key];
-      if (isStr(v)) settings[key] = v;
-    }
+  // format 2 stores settings as [{ key, value }]; format 1 as an object
+  const settingsIn: Record<string, unknown> = {};
+  if (Array.isArray(raw.settings)) {
+    for (const item of raw.settings) if (isObj(item) && isStr(item.key)) settingsIn[item.key] = item.value;
+  } else if (isObj(raw.settings)) {
+    Object.assign(settingsIn, raw.settings);
+  }
+  for (const key of BACKUP_SETTING_KEYS) {
+    const v = settingsIn[key];
+    if (isStr(v)) settings[key] = v;
   }
   const t = isObj(raw.tags) ? raw.tags : {};
   const backup: BackupFile = {
