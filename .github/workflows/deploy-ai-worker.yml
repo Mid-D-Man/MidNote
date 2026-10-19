@@ -110,12 +110,27 @@ jobs:
             exit 0
           fi
           echo "Worker URL: $URL"
-          code() { curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$@"; }
-          H="$(code "$URL/health")"
-          R="$(code -X POST -H 'content-type: application/json' -d '{"task":"create","prompt":"hi"}' "$URL/v1/ai/run")"
+          code() { curl -s -o "${BODY:-/dev/null}" -w '%{http_code}' --max-time 20 "$@" || echo 000; }
+          # A brand-new Worker (or a brand-new workers.dev name) can take a minute or two to start answering,
+          # so wait for /health instead of failing on the first try.
+          H=000
+          for attempt in $(seq 1 15); do
+            BODY=/tmp/health.txt H="$(code "$URL/health")"
+            [ "$H" = "200" ] && break
+            echo "attempt $attempt: /health -> $H (not live yet, waiting)"
+            sleep "${PROBE_SLEEP:-10}"
+          done
+          if [ "$H" != "200" ]; then
+            echo "--- what the URL answers ---"
+            curl -s -i --max-time 20 "$URL/health" | head -c 600 || true
+            echo
+            echo "::error::$URL/health never answered 200 (last: $H). If the answer above is a Cloudflare page ('There is nothing here yet') the Worker is deployed but not reachable on workers.dev: Cloudflare dashboard -> Workers & Pages -> midnote-ai -> Settings -> Domains & Routes -> enable the workers.dev route. If it is JSON with error not-found, the wrong code was deployed."
+            exit 1
+          fi
+          BODY="" R="$(code -X POST -H 'content-type: application/json' -d '{"task":"create","prompt":"hi"}' "$URL/v1/ai/run")"
           S="$(code "$URL/v1/ai/status")"
           echo "health=$H  run-without-sign-in=$R  status-without-sign-in=$S"
-          [ "$H" = "200" ] || { echo "::error::/health did not answer 200 (got $H)"; exit 1; }
+          grep -q '"ok":true' /tmp/health.txt || { echo "::error::/health answered 200 but not with {\"ok\":true}"; exit 1; }
           [ "$R" = "401" ] || { echo "::error::an anonymous AI request was NOT refused with 401 (got $R). 503 means the Worker is missing a secret or the AI binding."; exit 1; }
           [ "$S" = "401" ] || { echo "::error::anonymous /v1/ai/status was not refused with 401 (got $S)"; exit 1; }
           {
