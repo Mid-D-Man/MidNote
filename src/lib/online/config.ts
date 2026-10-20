@@ -44,6 +44,24 @@ export function parseEmailFlows(raw: unknown): boolean {
   return typeof raw === "string" && raw.trim().toLowerCase() === "on";
 }
 
+/** The AI proxy (the Cloudflare Worker in workers/midnote-ai). Its address is PUBLIC, like the Supabase
+ *  URL: the build reads it from the GitHub secret AI_PROXY_URL as VITE_AI_PROXY_URL. Returns the address
+ *  without a trailing slash, or null when it is missing or not a plain https address. A wrong address can
+ *  only make AI fail; it can't leak anything, because the app sends the signed-in person's own token and
+ *  nothing else to it. */
+export function resolveAiProxyUrl(raw: unknown): string | null {
+  const url = typeof raw === "string" ? raw.trim() : "";
+  if (!url) return null;
+  if (!/^https:\/\/[A-Za-z0-9.-]+(:\d{1,5})?(\/[^\s?#@]*)?$/.test(url)) return null;
+  return url.replace(/\/+$/, "");
+}
+
+export function getAiProxyUrl(): string | null {
+  const seam = globalThis.__midnoteOnline;
+  if (seam && "aiUrl" in seam) return resolveAiProxyUrl(seam.aiUrl);
+  return resolveAiProxyUrl(import.meta.env.VITE_AI_PROXY_URL);
+}
+
 export type ConfigProblem = "missing" | "bad-url" | "bad-key" | "secret-key";
 
 export type ConfigResult = { ok: true; config: OnlineConfig } | { ok: false; problem: ConfigProblem };
@@ -55,6 +73,8 @@ declare global {
     | {
         config?: OnlineConfig | null;
         emailFlows?: boolean;
+        /** The AI proxy address (null = this build has none). */
+        aiUrl?: string | null;
         fetch?: (url: string, init: { method: string; headers: Record<string, string>; body?: string }) => Promise<{ status: number; text(): Promise<string> }>;
         now?: () => number;
       }

@@ -376,10 +376,33 @@ if (process.env.SMOKE_ONLINE) {
     refreshTokens.set(rt, u.email);
     return { access_token: at, refresh_token: rt, expires_in: 3600, expires_at: 4102444800, token_type: "bearer", user: { id: u.id, email: u.email } };
   };
+  // Round D2: the AI proxy (workers/midnote-ai). spec.ai = { url, status?, statusHttp?, run?, runs?, offline?, rejectFirst? }.
+  // Calls are recorded as "METHOD /path auth=user|bad|none <body>" in globalThis.__aiCalls ("user" = the bearer is one of
+  // the access tokens this fake issued or accepts, so a wrong token - e.g. the publishable key - shows up as "bad").
+  // No spec.ai -> the build has no AI address (aiUrl null).
+  const aiCalls = (globalThis.__aiCalls = []);
+  let aiRun = 0;
+  const AI_STATUS = { enabled: true, has_account: true, balance: 2996, daily_cap: 400, daily_left: 396, next_topup_at: "2026-11-17T10:00:00.000Z", pool_open: true, resets_in: 21600 };
   globalThis.__midnoteOnline = {
     config: spec.config ?? { url: "https://smoke.supabase.co", key: "sb_publishable_smoke" },
     emailFlows: spec.emailFlows === true,
+    aiUrl: spec.ai ? spec.ai.url : null,
     fetch: async (url, init) => {
+      if (spec.ai && String(url).startsWith(spec.ai.url)) {
+        const a = spec.ai;
+        const au = new URL(url);
+        const bearer = String((init.headers && init.headers.Authorization) || "").replace("Bearer ", "");
+        const who = validAccess.has(bearer) ? "user" : bearer ? "bad" : "none";
+        aiCalls.push(`${init.method} ${au.pathname} auth=${who}${init.body ? " " + init.body : ""}`);
+        if (a.offline) throw new TypeError("Failed to fetch");
+        if (who !== "user" || (a.rejectFirst && !a._rejected && (a._rejected = true))) return json(401, { error: "signed-out", message: "Sign in to use AI." });
+        if (au.pathname === "/v1/ai/status") return json(a.statusHttp ?? 200, a.status ?? AI_STATUS);
+        if (au.pathname === "/v1/ai/run") {
+          const r = (a.runs ?? [])[aiRun++] ?? a.run ?? { status: 200, body: { text: "OK", model: "m", credits_charged: 4, balance: 2992 } };
+          return json(r.status, r.body);
+        }
+        return json(404, { error: "not-found" });
+      }
       const u = new URL(url);
       const body = init.body ? JSON.parse(init.body) : {};
       calls.push(`${init.method} ${u.pathname}${u.search}${u.pathname.endsWith("service_subscriptions") && init.method === "POST" ? " " + init.body : ""}${u.pathname === "/auth/v1/signup" ? " display_name=" + (body.data?.display_name ?? "") : ""}`);

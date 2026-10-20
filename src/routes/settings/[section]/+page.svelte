@@ -8,6 +8,7 @@
   //   /settings/trash        what's in Trash, and how long it stays
   //   /settings/backup       back up everything to a file / restore from one
   //   /settings/account      sign in / out (round B)
+  //   /settings/ai           AI credits and a try-it box (round D2)
   //   /settings/privacy      app password
   //   /settings/developer    debug panel
   import { page } from "$app/stores";
@@ -21,6 +22,7 @@
   import ReadAloudPanel from "$lib/components/settings/ReadAloudPanel.svelte";
   import BackupPanel from "$lib/components/settings/BackupPanel.svelte";
   import AccountPanel from "$lib/components/settings/AccountPanel.svelte";
+  import AiPanel from "$lib/components/settings/AiPanel.svelte";
   import { findSection } from "$lib/components/settings/settingsSections";
   import TrashSheet from "$lib/components/layout/TrashSheet/TrashSheet.svelte";
   import { getTrashed } from "$lib/stores/entries.svelte";
@@ -98,6 +100,8 @@
       <BackupPanel />
     {:else if section.slug === "account"}
       <AccountPanel />
+    {:else if section.slug === "ai"}
+      <AiPanel />
     {:else if section.slug === "privacy"}
       <AppPasswordRow />
     {:else if section.slug === "developer"}
