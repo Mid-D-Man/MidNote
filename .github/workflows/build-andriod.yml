@@ -321,6 +321,24 @@ jobs:
           '
           echo "Supabase build settings look fine."
 
+      # The AI proxy address is optional, but a wrong one would only show up on the phone.
+      - name: Check AI proxy address
+        env:
+          AI_PROXY_URL: ${{ secrets.AI_PROXY_URL }}
+        run: |
+          if [ -z "$AI_PROXY_URL" ]; then
+            echo "::warning::The AI_PROXY_URL secret is not set - this APK builds with the AI screen switched off. Run 'Deploy AI Worker' and save the URL it prints as AI_PROXY_URL."
+            exit 0
+          fi
+          case "$AI_PROXY_URL" in
+            https://*) ;;
+            *) echo "::error::AI_PROXY_URL must start with https://"; exit 1 ;;
+          esac
+          case "$AI_PROXY_URL" in
+            *" "*|*"?"*|*"#"*|*"@"*) echo "::error::AI_PROXY_URL must be a plain address like https://midnote-ai.<name>.workers.dev (no spaces, no ? # or @)"; exit 1 ;;
+          esac
+          echo "AI proxy address looks fine."
+
       - name: Build APK
         env:
           NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
@@ -332,6 +350,10 @@ jobs:
           # email to any address (custom SMTP). Until then create-account-by-email, forgot password
           # and resend are hidden (Google sign-in and in-app password do not need email).
           VITE_EMAIL_FLOWS: ${{ secrets.EMAIL_FLOWS }}
+          # The AI proxy's address (workers/midnote-ai). PUBLIC, like the Supabase URL. The deploy
+          # workflow prints it; save it as the secret AI_PROXY_URL. Without it the AI screen says
+          # "AI isn't set up in this build" and nothing else changes.
+          VITE_AI_PROXY_URL: ${{ secrets.AI_PROXY_URL }}
         run: npx tauri android build --debug --target armv7
 
       # Round B2: the deep-link plugin writes the midnote:// intent-filter into the generated
