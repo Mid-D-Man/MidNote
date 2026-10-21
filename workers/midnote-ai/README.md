@@ -33,11 +33,20 @@ Request bodies (the server owns the prompts):
 ```json
 { "task": "create",    "prompt": "a packing list for a weekend away" }
 { "task": "transform", "instruction": "make it shorter", "text": "..." }
+{ "task": "transform", "instruction": "make it shorter", "text": "<the selection>", "mode": "edit",
+  "before": "<note text before the selection>", "after": "<note text after it>" }
 { "task": "chat",      "note": "...the note...", "messages": [{"role":"user","content":"when is it?"}] }
 ```
 
+A transform with a `mode` is a **selection task** (the note editor's AI button): `edit` returns a replacement
+for the selection, `continue` returns text that follows it, `ask` answers a question about it. `before` and
+`after` (each up to 16,000 characters) are the rest of the note, sent only so the model understands it; the
+Worker keeps what is nearest the selection and trims the rest so the estimated input stays under 7,600
+tokens (the ledger refuses over 8,000). The reply is tidied (echoed markers, a code fence or quotes around
+everything, "Here is the text:" lines, stray `**bold**`). `before`/`after` without a `mode` are refused.
+
 Optional `"max_tokens"` (1..4096, the ledger clamps it to the model's limit). Answers:
-`{ text, model, credits_charged, balance }`, or `{ error, message, ... }` with these `error` codes:
+`{ text, model, credits_charged, balance }` (plus `truncated: true` when the answer used the whole output allowance and was probably cut off), or `{ error, message, ... }` with these `error` codes:
 `signed-out 401`, `bad-request 400`, `too-long 413`, `no-credits 402`, `daily-cap 429`, `busy 429`,
 `rate-limited 429`, `pool-exhausted 503 (+ Retry-After)`, `disabled 503`, `ai-unavailable 503`,
 `ai-failed 502`, `timeout 504`, `empty-response 502`.

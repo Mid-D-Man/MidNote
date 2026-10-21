@@ -59,6 +59,7 @@
     hasSelection = false,
     entryId = "",
     height = $bindable(0),
+    onAskAi,
   }: {
     editor: Editor | null;
     // Bumped by NoteContent on every Tiptap transaction — read (not
@@ -72,6 +73,8 @@
     // panel's rendered height, published so the "Reading…" bar can ride above it.
     entryId?: string;
     height?: number;
+    // Round F: the sparkle button (shown while text is selected) hands the tap up; the page owns the AI sheet.
+    onAskAi?: () => void;
   } = $props();
 
   // Re-derive on every tick. Cheap: isActive/getAttributes just read
@@ -249,6 +252,14 @@
           <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><path d="M15.5 8.5a5 5 0 0 1 0 7" /><path d="M19 5a10 10 0 0 1 0 14" />
         </svg>
       </button>
+      {#if onAskAi}
+        <button type="button" class="icon-btn" onclick={() => tap("ask AI", onAskAi)} aria-label="Ask AI about selection" title="Ask AI about selection">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round">
+            <path d="M10 3l1.9 5.1L17 10l-5.1 1.9L10 17l-1.9-5.1L3 10l5.1-1.9z" />
+            <path d="M18 14l.8 2.2 2.2.8-2.2.8L18 20l-.8-2.2-2.2-.8 2.2-.8z" />
+          </svg>
+        </button>
+      {/if}
     {/if}
 
     {#if !hasSelection}

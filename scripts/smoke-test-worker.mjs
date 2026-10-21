@@ -801,6 +801,64 @@ if (STEPS.length > 0 && errors.length === 0) {
       el.dispatchEvent(make("pointerdown"));
       await new Promise((r) => setTimeout(r, 700));
       el.dispatchEvent(make("pointerup"));
+    } else if (step.selectText) {
+      // Round F: a REAL partial selection in the editor. jsdom cannot drag a selection, so this sets ProseMirror's own
+      // selection through the Tiptap instance (which Tiptap keeps on the editor's DOM element). { from, to? } are texts
+      // inside ONE text node each: the selection runs from the start of `from` to the end of `to` (default: of `from`).
+      const sel = step.selectText;
+      const el = target.querySelector(sel.selector ?? ".ProseMirror");
+      const ed = el && el.editor;
+      if (!ed) {
+        errors.push(new Error(`${where}: no editor on ${sel.selector ?? ".ProseMirror"} to select text in.`));
+        break;
+      }
+      let start = -1;
+      let end = -1;
+      ed.state.doc.descendants((node, pos) => {
+        if (!node.isText || end >= 0) return;
+        let from = 0;
+        if (start < 0) {
+          const i = node.text.indexOf(sel.from);
+          if (i < 0) return;
+          start = pos + i;
+          from = i + sel.from.length;
+          if (sel.to === undefined) {
+            end = start + sel.from.length;
+            return;
+          }
+        }
+        const j = node.text.indexOf(sel.to, from);
+        if (j >= 0) end = pos + j + sel.to.length;
+      });
+      if (start < 0 || end < 0) {
+        errors.push(new Error(`${where}: could not find "${sel.from}"${sel.to === undefined ? "" : ` .. "${sel.to}"`} in the editor to select.`));
+        break;
+      }
+      ed.commands.setTextSelection({ from: start, to: end });
+      await new Promise((r) => setTimeout(r, sel.settleMs ?? 150));
+    } else if (step.editorInsert !== undefined) {
+      // Round F: a document change made behind the sheet's back (typing at the caret), for the "note changed" guards.
+      const el = target.querySelector(".ProseMirror");
+      const ed = el && el.editor;
+      if (!ed) {
+        errors.push(new Error(`${where}: no editor on the page.`));
+        break;
+      }
+      ed.commands.insertContent(step.editorInsert);
+      await new Promise((r) => setTimeout(r, 150));
+    } else if (step.expectEditorHtml !== undefined) {
+      // Round F: the editor's exact HTML (what would be saved), to prove what a Replace / Insert did and did not touch.
+      const el = target.querySelector(".ProseMirror");
+      const ed = el && el.editor;
+      if (!ed) {
+        errors.push(new Error(`${where}: no editor on the page.`));
+        break;
+      }
+      const html = ed.getHTML();
+      if (html !== step.expectEditorHtml) {
+        errors.push(new Error(`${where}: editor HTML is\n  ${html}\nbut should be\n  ${step.expectEditorHtml}`));
+        break;
+      }
     } else if (step.press) {
       // Round 38: a keyboard shortcut on an element — e.g. Ctrl+A inside the editor
       // to make a real selection (ProseMirror handles it through its own keymap).

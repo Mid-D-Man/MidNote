@@ -21,6 +21,9 @@
   import NoteContent from "$lib/components/notes/NoteContent/NoteContent.svelte";
   import FormattingToolbar from "$lib/components/notes/FormattingToolbar/FormattingToolbar.svelte";
   import FindReplaceBar from "$lib/components/notes/FindReplaceBar/FindReplaceBar.svelte";
+  import AiEditSheet from "$lib/components/notes/AiEditSheet/AiEditSheet.svelte";
+  import { captureSelection, type AiSelection } from "$lib/utils/aiSelection";
+  import { pushToast } from "$lib/stores/toast.svelte";
   import { escapeRegExp } from "$lib/utils/findReplaceCore";
   import { getKeyboardInset } from "$lib/utils/keyboardInset.svelte";
   import { readBarLift } from "$lib/stores/readAloud.svelte";
@@ -78,6 +81,24 @@
     };
   });
   let findOpts = $state({ find: "", replace: "", regex: false, caseSensitive: false, wholeWord: false });
+
+  // Round F: AI on the selected text. The sparkle in the formatting toolbar hands up a tap; the selection and the
+  // note text around it are captured NOW (raw: ProseMirror marks must stay plain objects) and the sheet works from
+  // that snapshot. AI only ever sees this page of the note, and only after the person taps.
+  let aiOpen = $state(false);
+  let aiSelection = $state.raw<AiSelection | null>(null);
+  function openAi() {
+    const ed = editor;
+    if (!ed || ed.isDestroyed) return;
+    const snap = captureSelection(ed.state);
+    if (!snap) {
+      pushToast({ title: "Select some text first", description: "Then tap the sparkle to ask AI about it." });
+      return;
+    }
+    breadcrumb(`note page: AI opened (${snap.text.length} chars selected, note text ${snap.before.length}+${snap.after.length})`);
+    aiSelection = snap;
+    aiOpen = true;
+  }
 
   // Selecting a word first and then opening find prefills it (single line
   // only, and escaped when regex mode is on so the selection is searched
@@ -442,7 +463,10 @@
       {#if findOpen}
         <FindReplaceBar {editor} {tick} bind:opts={findOpts} bind:height={findBarHeight} onClose={closeFind} />
       {:else}
-        <FormattingToolbar {editor} {tick} {hasSelection} entryId={note.id} bind:height={toolbarHeight} />
+        <FormattingToolbar {editor} {tick} {hasSelection} entryId={note.id} bind:height={toolbarHeight} onAskAi={openAi} />
+      {/if}
+      {#if aiOpen && aiSelection && editor}
+        <AiEditSheet bind:open={aiOpen} selection={aiSelection} {editor} />
       {/if}
     {/if}
   {/if}

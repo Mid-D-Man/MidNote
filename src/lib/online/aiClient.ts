@@ -11,11 +11,15 @@
 // save a round trip for requests that cannot work.
 import type { HttpFetch, HttpResponse } from "./authClient";
 
-export const AI_LIMITS = { prompt: 4000, instruction: 600, text: 16000, note: 16000, turn: 4000, turns: 12, maxTokens: 4096 } as const;
+export const AI_LIMITS = { prompt: 4000, instruction: 600, text: 16000, context: 16000, note: 16000, turn: 4000, turns: 12, maxTokens: 4096 } as const;
+
+/** What an AI answer is FOR: edit = replaces the selection, continue = text that follows it, ask = an answer about it. */
+export type AiEditMode = "edit" | "continue" | "ask";
 
 export type AiRequest =
   | { task: "create"; prompt: string; maxTokens?: number }
-  | { task: "transform"; instruction: string; text: string; maxTokens?: number }
+  // `mode` makes it a SELECTION task: `text` is the selection and `before`/`after` the rest of the note around it
+  | { task: "transform"; instruction: string; text: string; mode?: AiEditMode; before?: string; after?: string; maxTokens?: number }
   | { task: "chat"; note: string; messages: { role: "user" | "assistant"; content: string }[]; maxTokens?: number };
 
 export type AiErrorKind =
@@ -66,6 +70,8 @@ export interface AiResult {
   model: string;
   /** Credits this answer cost; null when the proxy could not settle it yet. */
   creditsCharged: number | null;
+  /** The answer used the whole output allowance, so it is probably cut off: never let it replace anything. */
+  truncated: boolean;
   balance: number | null;
 }
 
@@ -124,7 +130,9 @@ export function checkRequest(req: AiRequest): AiError | null {
       return req.prompt.length > AI_LIMITS.prompt ? long("prompt too long") : null;
     case "transform":
       if (!req.instruction.trim() || !req.text.trim()) return bad("empty instruction or text");
-      return req.instruction.length > AI_LIMITS.instruction || req.text.length > AI_LIMITS.text ? long("text too long") : null;
+      if ((req.before !== undefined || req.after !== undefined) && req.mode === undefined) return bad("context needs a mode");
+      if (req.instruction.length > AI_LIMITS.instruction || req.text.length > AI_LIMITS.text) return long("text too long");
+      return (req.before?.length ?? 0) > AI_LIMITS.context || (req.after?.length ?? 0) > AI_LIMITS.context ? long("context too long") : null;
     case "chat": {
       if (req.note.length > AI_LIMITS.note) return long("note too long");
       if (req.messages.length < 1) return bad("no message");
@@ -169,6 +177,9 @@ export class AiClient {
     else if (req.task === "transform") {
       body.instruction = req.instruction;
       body.text = req.text;
+      if (req.mode !== undefined) body.mode = req.mode;
+      if (req.before !== undefined) body.before = req.before;
+      if (req.after !== undefined) body.after = req.after;
     } else {
       body.note = req.note;
       body.messages = req.messages;
@@ -183,6 +194,7 @@ export class AiClient {
       model: typeof json.model === "string" ? json.model : "",
       creditsCharged: typeof json.credits_charged === "number" ? json.credits_charged : null,
       balance: typeof json.balance === "number" ? json.balance : null,
+      truncated: json.truncated === true,
     };
   }
 

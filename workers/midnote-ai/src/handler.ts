@@ -15,10 +15,11 @@ import {
   secondsUntilUtcMidnight,
   stripThinking,
   TimeoutError,
+  utf8Bytes,
   withTimeout,
 } from "./budget";
 import { configProblem, isUuid, LedgerError, rpc, verifyUser, type FetchFn, type LedgerEnv } from "./ledger";
-import { buildMessages, LIMITS, parseRun, temperatureFor } from "./prompts";
+import { buildMessages, cleanReply, LIMITS, parseRun, temperatureFor } from "./prompts";
 
 export interface Env extends LedgerEnv {
   AI: { run(model: string, input: unknown): Promise<unknown> };
@@ -229,7 +230,7 @@ export async function handle(req: Request, env: Env, deps: Deps): Promise<Respon
     let result: unknown;
     try {
       result = await withTimeout(
-        env.AI.run(r.model, { messages, max_tokens: r.max_out, temperature: temperatureFor(parsed.value.task) }),
+        env.AI.run(r.model, { messages, max_tokens: r.max_out, temperature: temperatureFor(parsed.value) }),
         deps.aiTimeoutMs ?? 45000,
       );
     } catch (e) {
@@ -248,7 +249,7 @@ export async function handle(req: Request, env: Env, deps: Deps): Promise<Respon
     }
 
     // 5. SETTLE to the real usage (retry: this is the step that keeps the books honest)
-    const text = stripThinking(extractText(result));
+    const text = cleanReply(parsed.value, stripThinking(extractText(result)));
     const usage = extractUsage(result);
     let settled: any = null;
     const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((res) => setTimeout(res, ms)));
@@ -265,6 +266,11 @@ export async function handle(req: Request, env: Env, deps: Deps): Promise<Respon
       }
     }
     if (!text) return fail("empty-response", cors, deps);
+    // An answer that used the whole output allowance was probably cut off. The phone must never let a cut-off
+    // rewrite replace a selection, so it is told. Without real counts the output is estimated at 3 bytes a token
+    // (English is ~4, so this errs towards "cut off").
+    const outTokens = usage ? usage.outTokens : Math.ceil(utf8Bytes(text) / 3);
+    const truncated = outTokens >= r.max_out;
     return reply(
       200,
       {
@@ -272,6 +278,7 @@ export async function handle(req: Request, env: Env, deps: Deps): Promise<Respon
         model: r.model,
         credits_charged: settled ? Number(settled.charged) : null,
         balance: settled ? Number(settled.balance) : null,
+        ...(truncated ? { truncated: true } : {}),
       },
       cors,
     );
