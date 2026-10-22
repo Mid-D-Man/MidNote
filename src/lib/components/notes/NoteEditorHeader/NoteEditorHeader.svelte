@@ -47,6 +47,7 @@
     onDeletePage,
     onRenamePage,
     onFindReplace,
+    onInsertAnswer,
   }: {
     note: Note;
     availableTags: string[];
@@ -68,6 +69,9 @@
     // sees it) — so, like page switching above, the header only
     // surfaces the entry point and hands the tap up.
     onFindReplace?: () => void;
+    // Round G: adds an AI answer to the end of the page being edited. The editor belongs to the route page (like the
+    // find bar above), so the chat sheet hands the text to this callback; it returns false if it couldn't.
+    onInsertAnswer?: (text: string) => boolean;
   } = $props();
 
   let isSaving = $state(false);
@@ -350,7 +354,7 @@
     });
   }
 
-  // Round 29: STUB entry point for chatting with AI about this note. Same
+  // Round 29 (a stub then, the real chat since Round G): the entry point for chatting with AI about this note. Same
   // lock gate and same sequential close-then-open Sheet pattern as Theme.
   function handleAskAi() {
     breadcrumb(`note header: Ask AI tapped (encrypted=${note.encrypted})`);
@@ -540,7 +544,7 @@
   </div>
 </Sheet>
 
-<NoteAiChatSheet bind:open={aiChatOpen} noteTitle={note.title} />
+<NoteAiChatSheet bind:open={aiChatOpen} {note} onInsert={onInsertAnswer} />
 <PagesPanel bind:open={pagesOpen} {note} {currentPageIndex} {onSwitchPage} {onAddPage} {onDeletePage} {onRenamePage} />
 
 <ThemeSectionsSheet

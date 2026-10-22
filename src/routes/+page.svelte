@@ -258,17 +258,17 @@
     if (selectedTag === tag) selectedTag = null;
   }
 
-  function handleAiNoteCreated(note: { title: string; content: string }) {
+  function handleAiNoteCreated(note: { title: string; content: string; html: string }): string {
     const n = createNote();
     n.title = note.title;
-    // note.content is stored as HTML now (see NoteContent.svelte) — the
-    // AI creator hands back plain text, so it needs escaping rather
-    // than being written straight in, or a "<" in the generated text
-    // would get parsed as a tag instead of displayed literally.
-    n.content = plainTextToHtml(note.content);
+    // note.content is stored as HTML (see NoteContent.svelte). The AI creator hands back BOTH: `html`, the answer turned
+    // into the note's own formatting (bullets, bold; everything escaped, utils/aiNoteHtml.ts), and the plain text. If a
+    // caller gives no html, the plain text is escaped rather than written in, or a "<" would be parsed as a tag.
+    n.content = note.html || plainTextToHtml(note.content);
     n.tags = ["AI Generated"];
     saveEntry(n);
     registerTag("notes", "AI Generated");
+    return n.id;
   }
 
   // --- Multi-select ---

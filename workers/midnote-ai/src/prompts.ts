@@ -26,7 +26,7 @@ export const INPUT_TOKEN_CEILING = 7600;
 export type TransformMode = "edit" | "continue" | "ask";
 
 export type RunRequest =
-  | { task: "create"; prompt: string; maxTokens: number | null }
+  | { task: "create"; prompt: string; titled: boolean; maxTokens: number | null }
   | { task: "transform"; instruction: string; text: string; mode: TransformMode | null; before: string; after: string; maxTokens: number | null }
   | { task: "chat"; note: string; messages: { role: "user" | "assistant"; content: string }[]; maxTokens: number | null };
 
@@ -51,7 +51,9 @@ export function parseRun(raw: unknown): ParseResult {
     case "create": {
       if (typeof raw.prompt !== "string" || !raw.prompt.trim()) return bad;
       if (raw.prompt.length > LIMITS.prompt) return long;
-      return { ok: true, value: { task: "create", prompt: raw.prompt.trim(), maxTokens } };
+      // titled: the answer is a NOTE (a title line, then the body) rather than free text
+      if (raw.titled !== undefined && typeof raw.titled !== "boolean") return bad;
+      return { ok: true, value: { task: "create", prompt: raw.prompt.trim(), titled: raw.titled === true, maxTokens } };
     }
     case "transform": {
       if (typeof raw.instruction !== "string" || !raw.instruction.trim()) return bad;
@@ -100,6 +102,13 @@ const CREATE_SYSTEM =
   "Use plain text with simple Markdown (short headings, bullet lists) where it helps. " +
   "Reply in the language of the request. Output only the note itself: no preamble, no closing remarks.";
 
+// a note for the app to file: the first line is its title (round G, the landing page's "Create with AI")
+const CREATE_NOTE_SYSTEM =
+  "You write notes inside a note-taking app. Write the note the user asks for. " +
+  "Reply in exactly this shape: the first line is a short title (at most 8 words, plain text: no #, no quotes), then one empty line, then the note itself. " +
+  "In the note use plain paragraphs, lines that start with '- ' for bullet lists, lines that start with '1. ' for numbered lists, and **bold** for emphasis; no tables and no # headings. " +
+  "Reply in the language of the request. No preamble and no closing remarks.";
+
 // the original, context-free transform (Settings -> AI "Edit text")
 const TRANSFORM_SYSTEM =
   "You edit text inside a note-taking app. Apply the user's instruction to the text they give you. " +
@@ -130,8 +139,10 @@ const ASK_SYSTEM =
   " Answer from the note; if the answer is not in it, say so briefly. Be concise, plain text without Markdown, and reply in the language of the question.";
 
 const CHAT_SYSTEM =
-  "You answer questions about one note in a note-taking app. The note is between the NOTE markers. " +
-  "Answer from the note; if the answer is not in it, say so briefly. Be concise and reply in the user's language.";
+  "You answer questions about one note in a note-taking app. The note is between the NOTE markers; if it has several pages, each starts with a line like --- Page 2 ---. " +
+  "A line that is only […] means part of the note was left out. " +
+  "Answer from the note; if the answer is not in it, say so briefly. " +
+  "Be concise, use plain text (no Markdown headings or tables; short lines starting with '- ' are fine) and reply in the user's language.";
 
 export function temperatureFor(req: RunRequest): number {
   switch (req.task) {
@@ -231,6 +242,56 @@ export function windowContext(before: string, after: string, availBytes: number)
   return { before: b, after: a, cutBefore, cutAfter };
 }
 
+// ---------------------------------------------------------------- chat: the note and the conversation
+
+/** The part of the input budget the conversation so far may take; the note gets the rest. */
+const HISTORY_SHARE = 0.4;
+
+function turnTokens(content: string): number {
+  return Math.ceil(utf8Bytes(content) / 2) + 8; // the same arithmetic as estimateTokens
+}
+
+/**
+ * The newest turns that fit `budgetTokens` (always at least the last one: that is the question), starting with a
+ * person's turn. Older turns are forgotten rather than refusing the request.
+ */
+export function windowTurns<T extends { role: "user" | "assistant"; content: string }>(turns: T[], budgetTokens: number): T[] {
+  const kept: T[] = [];
+  let used = 0;
+  for (let i = turns.length - 1; i >= 0; i--) {
+    const cost = turnTokens(turns[i].content);
+    if (kept.length > 0 && used + cost > budgetTokens) break;
+    kept.unshift(turns[i]);
+    used += cost;
+  }
+  while (kept.length > 1 && kept[0].role === "assistant") kept.shift();
+  return kept;
+}
+
+/** A note too big for its share: its start and its end are kept (60 / 40), the middle becomes "[…]". */
+export function windowNote(note: string, availBytes: number): string {
+  const avail = Math.max(0, Math.floor(availBytes));
+  if (utf8Bytes(note) <= avail) return note;
+  const headBudget = Math.floor(avail * 0.6);
+  let head = headBytes(note, headBudget);
+  let tail = tailBytes(note, avail - headBudget);
+  const tailSnap = /\s/.exec(tail.slice(0, SNAP));
+  if (tailSnap && tail.length > tailSnap.index + 1) tail = tail.slice(tailSnap.index + 1);
+  const headTail = head.slice(Math.max(0, head.length - SNAP));
+  const idx = Math.max(headTail.lastIndexOf(" "), headTail.lastIndexOf("\n"), headTail.lastIndexOf("\t"));
+  if (idx > 0) head = head.slice(0, head.length - headTail.length + idx);
+  return `${head}\n[…]\n${tail}`;
+}
+
+function chatMessages(req: Extract<RunRequest, { task: "chat" }>): ChatMessage[] {
+  const system = (note: string) => `${CHAT_SYSTEM}\n\n--- NOTE ---\n${note}\n--- END NOTE ---`;
+  const history = windowTurns(req.messages, Math.floor(INPUT_TOKEN_CEILING * HISTORY_SHARE));
+  const turns = history.map((m) => ({ role: m.role, content: m.content }) as ChatMessage);
+  const base = estimateTokens([{ role: "system", content: system("") }, ...turns]);
+  const avail = Math.max(0, (INPUT_TOKEN_CEILING - base) * 2 - CUT_MARK_BYTES);
+  return [{ role: "system", content: system(windowNote(req.note, avail)) }, ...turns];
+}
+
 function selectionMessages(system: string, label: string, req: Extract<RunRequest, { task: "transform" }>, w: ContextWindow): ChatMessage[] {
   const note =
     (w.cutBefore ? "[…]\n" : "") +
@@ -250,7 +311,7 @@ export function buildMessages(req: RunRequest): ChatMessage[] {
   switch (req.task) {
     case "create":
       return [
-        { role: "system", content: CREATE_SYSTEM },
+        { role: "system", content: req.titled ? CREATE_NOTE_SYSTEM : CREATE_SYSTEM },
         { role: "user", content: req.prompt },
       ];
     case "transform": {
@@ -269,10 +330,7 @@ export function buildMessages(req: RunRequest): ChatMessage[] {
       return selectionMessages(system, label, req, windowContext(req.before, req.after, avail));
     }
     case "chat":
-      return [
-        { role: "system", content: `${CHAT_SYSTEM}\n\n--- NOTE ---\n${req.note}\n--- END NOTE ---` },
-        ...req.messages.map((m) => ({ role: m.role, content: m.content }) as ChatMessage),
-      ];
+      return chatMessages(req);
   }
 }
 
@@ -287,8 +345,21 @@ const CLOSE_MARK = "[[/SELECTION]]";
  * around everything, **bold** the note never had) and leaves the rest untouched. Ask answers and the
  * older context-free tasks are only trimmed. It never invents or rewrites words.
  */
+const FENCED = /^```[A-Za-z0-9_-]*[ \t]*\n([\s\S]*?)\n?```$/;
+const PREAMBLE = /^(?:(?:sure|certainly|of course|okay|ok|absolutely)[!,.]?\s+)?(?:here(?:'s| is| are)|below is)\b[^\n]{0,100}:[ \t]*\n+/i;
+const BOLD = /\*\*([^*\n]+?)\*\*/g;
+
 export function cleanReply(req: RunRequest, raw: string): string {
   let t = raw.trim();
+  // a titled note keeps its Markdown (the phone turns it into real formatting); only the wrapping goes
+  if (req.task === "create") {
+    if (!req.titled) return t;
+    const f = FENCED.exec(t);
+    if (f) t = f[1].trim();
+    return t.replace(PREAMBLE, "").trim();
+  }
+  // a chat answer is shown as plain text, so bold markers are removed
+  if (req.task === "chat") return t.replace(BOLD, "$1");
   if (req.task !== "transform" || req.mode === null || req.mode === "ask") return t;
 
   const open = t.indexOf(OPEN_MARK);
@@ -297,10 +368,10 @@ export function cleanReply(req: RunRequest, raw: string): string {
   else t = t.split(OPEN_MARK).join("").split(CLOSE_MARK).join("");
   t = t.trim();
 
-  const fenced = /^```[A-Za-z0-9_-]*[ \t]*\n([\s\S]*?)\n?```$/.exec(t);
+  const fenced = FENCED.exec(t);
   if (fenced) t = fenced[1].trim();
 
-  t = t.replace(/^(?:(?:sure|certainly|of course|okay|ok|absolutely)[!,.]?\s+)?(?:here(?:'s| is| are)|below is)\b[^\n]{0,100}:[ \t]*\n+/i, "").trim();
+  t = t.replace(PREAMBLE, "").trim();
 
   const src = req.text.trimStart();
   const pairs: [string, string][] = [
@@ -315,7 +386,7 @@ export function cleanReply(req: RunRequest, raw: string): string {
     }
   }
 
-  if (!req.text.includes("**")) t = t.replace(/\*\*([^*\n]+?)\*\*/g, "$1");
+  if (!req.text.includes("**")) t = t.replace(BOLD, "$1");
 
   if (req.mode === "continue") {
     const sel = req.text.trim();

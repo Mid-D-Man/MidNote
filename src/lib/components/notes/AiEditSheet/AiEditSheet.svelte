@@ -21,6 +21,7 @@
   import { AI_LIMITS, type AiEditMode } from "$lib/online/aiClient";
   import { ASK_CHIPS, EDIT_CHIPS, LONG_SELECTION_CHARS, planInsertBelow, planReplace, type AiSelection } from "$lib/utils/aiSelection";
   import { configProblemMessage } from "$lib/online/authMessages";
+  import { aiNoticeSeen, markAiNoticeSeen } from "$lib/utils/aiNotice";
   import { copyText } from "$lib/utils/copyText";
   import { getKeyboardInset } from "$lib/utils/keyboardInset.svelte";
   import { pushToast } from "$lib/stores/toast.svelte";
@@ -37,15 +38,6 @@
     editor: Editor;
   } = $props();
 
-  const NOTICE_KEY = "midnote:ai-notice";
-  function readNoticeSeen(): boolean {
-    try {
-      return localStorage.getItem(NOTICE_KEY) === "1";
-    } catch {
-      return false;
-    }
-  }
-
   type Result = { text: string; mode: AiEditMode; charged: number | null; balance: number | null; truncated: boolean };
 
   let mode = $state<"edit" | "ask">("edit");
@@ -53,7 +45,7 @@
   let busy = $state(false);
   let notice = $state<string | null>(null);
   let result = $state<Result | null>(null);
-  let noticeSeen = $state(readNoticeSeen());
+  let noticeSeen = $state(aiNoticeSeen());
   let dialogOpen = $state(false);
   let dialogMode = $state<AuthMode>("signin");
   let resultEl = $state<HTMLElement | null>(null);
@@ -71,11 +63,7 @@
   const preview = $derived(selection.text.length > 240 ? `${selection.text.slice(0, 240)}…` : selection.text);
 
   function ackNotice() {
-    try {
-      localStorage.setItem(NOTICE_KEY, "1");
-    } catch {
-      /* the notice just shows again next time */
-    }
+    markAiNoticeSeen();
     noticeSeen = true;
   }
 

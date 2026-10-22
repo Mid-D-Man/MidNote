@@ -22,7 +22,7 @@
   import FormattingToolbar from "$lib/components/notes/FormattingToolbar/FormattingToolbar.svelte";
   import FindReplaceBar from "$lib/components/notes/FindReplaceBar/FindReplaceBar.svelte";
   import AiEditSheet from "$lib/components/notes/AiEditSheet/AiEditSheet.svelte";
-  import { captureSelection, type AiSelection } from "$lib/utils/aiSelection";
+  import { captureSelection, planAppend, type AiSelection } from "$lib/utils/aiSelection";
   import { pushToast } from "$lib/stores/toast.svelte";
   import { escapeRegExp } from "$lib/utils/findReplaceCore";
   import { getKeyboardInset } from "$lib/utils/keyboardInset.svelte";
@@ -87,6 +87,30 @@
   // that snapshot. AI only ever sees this page of the note, and only after the person taps.
   let aiOpen = $state(false);
   let aiSelection = $state.raw<AiSelection | null>(null);
+  // Round G: the note chat's "Add to page". Adds the answer at the end of the page being edited, as real formatting, in
+  // one undo step; the toast's Undo only acts while nothing else has changed the note since.
+  function insertAiAnswer(text: string): boolean {
+    const ed = editor;
+    if (!ed || ed.isDestroyed) return false;
+    const plan = planAppend(ed.state, text);
+    if (!plan.ok) return false;
+    ed.view.dispatch(plan.tr);
+    const done = ed.state.doc;
+    breadcrumb("note page: AI answer added to the end of the page");
+    pushToast({
+      title: "Added to the page",
+      description: "At the end of the page you're on. Undo takes it out.",
+      durationMs: 6000,
+      action: {
+        label: "Undo",
+        run: () => {
+          if (!ed.isDestroyed && ed.state.doc.eq(done)) ed.commands.undo();
+        },
+      },
+    });
+    return true;
+  }
+
   function openAi() {
     const ed = editor;
     if (!ed || ed.isDestroyed) return;
@@ -430,6 +454,7 @@
       onDeletePage={deletePage}
       onRenamePage={renamePage}
       onFindReplace={openFind}
+      onInsertAnswer={insertAiAnswer}
     />
 
     {#if note.encrypted}

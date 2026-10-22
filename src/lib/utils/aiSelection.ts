@@ -11,9 +11,10 @@
 //   planInsertBelow    the answer as new paragraphs after the block the selection ends in.
 //
 // Nothing here dispatches: the caller applies a plan only when the person taps the button for it.
-import { Fragment, Slice, type Mark, type Node as PMNode, type Schema } from "@tiptap/pm/model";
+import { DOMParser as PMDOMParser, Fragment, Slice, type Mark, type Node as PMNode, type Schema } from "@tiptap/pm/model";
 import { TextSelection, type EditorState, type Transaction } from "@tiptap/pm/state";
 import type { AiEditMode } from "$lib/online/aiClient";
+import { aiTextToHtml } from "$lib/utils/aiNoteHtml";
 
 /** How much of the note on EACH side of the selection the phone sends. (The server trims further to fit.) */
 export const CONTEXT_CHARS = 6000;
@@ -113,6 +114,25 @@ export function planInsertBelow(state: EditorState, sel: AiSelection, reply: str
   const tr = state.tr.insert(pos, nodes);
   const size = nodes.reduce((n, node) => n + node.nodeSize, 0);
   return { ok: true, tr: tr.setSelection(TextSelection.near(tr.doc.resolve(pos + size), -1)).scrollIntoView() };
+}
+
+/**
+ * Round G: an answer from the note chat, added at the END of the page being edited. Unlike Insert below it needs no
+ * selection, and light Markdown becomes real formatting (bullets, numbers, bold) through the note's own schema.
+ * Browser/jsdom only (it parses HTML). One transaction, so one undo step.
+ */
+export function planAppend(state: EditorState, text: string): Plan {
+  const html = aiTextToHtml(text);
+  if (!html) return { ok: false, reason: "empty" };
+  const holder = document.createElement("div");
+  holder.innerHTML = html;
+  const content = PMDOMParser.fromSchema(state.schema).parseSlice(holder).content;
+  if (content.childCount === 0) return { ok: false, reason: "empty" };
+  // a page that ends with an empty line (the caret's line) keeps it as its last line: the answer goes in front of it
+  const last = state.doc.lastChild;
+  const pos = last && last.type.name === "paragraph" && last.content.size === 0 ? state.doc.content.size - last.nodeSize : state.doc.content.size;
+  const tr = state.tr.insert(pos, content);
+  return { ok: true, tr: tr.setSelection(TextSelection.near(tr.doc.resolve(pos + content.size), -1)).scrollIntoView() };
 }
 
 // ---------------------------------------------------------------- quick actions

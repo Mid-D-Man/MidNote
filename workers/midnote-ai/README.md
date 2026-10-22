@@ -38,6 +38,14 @@ Request bodies (the server owns the prompts):
 { "task": "chat",      "note": "...the note...", "messages": [{"role":"user","content":"when is it?"}] }
 ```
 
+`create` with `"titled": true` returns a NOTE: a short title on the first line, an empty line, then the body (plain
+paragraphs, `- ` bullets, `1. ` numbers, `**bold**`); the app turns that into real formatting. A code fence or a
+"Here is your note:" line around it is removed. `chat` answers a question about one note: `note` is the whole note
+(pages marked `--- Page 2 ---`, up to 16,000 characters) and `messages` the conversation so far, the last one
+the person's. The Worker keeps the newest turns that fit 40% of the input budget (older ones are forgotten) and
+gives the note the rest, cutting the middle of a too-long note (`[…]`) so the estimated input stays under 7,600
+tokens. Chat answers are shown as plain text, so `**bold**` markers are removed.
+
 A transform with a `mode` is a **selection task** (the note editor's AI button): `edit` returns a replacement
 for the selection, `continue` returns text that follows it, `ask` answers a question about it. `before` and
 `after` (each up to 16,000 characters) are the rest of the note, sent only so the model understands it; the

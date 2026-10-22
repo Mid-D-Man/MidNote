@@ -17,7 +17,8 @@ export const AI_LIMITS = { prompt: 4000, instruction: 600, text: 16000, context:
 export type AiEditMode = "edit" | "continue" | "ask";
 
 export type AiRequest =
-  | { task: "create"; prompt: string; maxTokens?: number }
+  // `titled`: the answer is a NOTE (its first line is the title, then the body in light Markdown)
+  | { task: "create"; prompt: string; titled?: boolean; maxTokens?: number }
   // `mode` makes it a SELECTION task: `text` is the selection and `before`/`after` the rest of the note around it
   | { task: "transform"; instruction: string; text: string; mode?: AiEditMode; before?: string; after?: string; maxTokens?: number }
   | { task: "chat"; note: string; messages: { role: "user" | "assistant"; content: string }[]; maxTokens?: number };
@@ -173,8 +174,10 @@ export class AiClient {
     const problem = checkRequest(req);
     if (problem) throw problem;
     const body: Record<string, unknown> = { task: req.task };
-    if (req.task === "create") body.prompt = req.prompt;
-    else if (req.task === "transform") {
+    if (req.task === "create") {
+      body.prompt = req.prompt;
+      if (req.titled !== undefined) body.titled = req.titled;
+    } else if (req.task === "transform") {
       body.instruction = req.instruction;
       body.text = req.text;
       if (req.mode !== undefined) body.mode = req.mode;
