@@ -5,6 +5,7 @@
   //   /settings/appearance   theme, fonts (sub-page), note lines
   //   /settings/fonts        default note font + imported fonts   (Back -> Appearance)
   //   /settings/read-aloud   voice, speed, pitch, sample
+  //   /settings/tags         the built-in (system) tags and your own (round H)
   //   /settings/trash        what's in Trash, and how long it stays
   //   /settings/backup       back up everything to a file / restore from one
   //   /settings/account      sign in / out (round B)
@@ -23,6 +24,7 @@
   import BackupPanel from "$lib/components/settings/BackupPanel.svelte";
   import AccountPanel from "$lib/components/settings/AccountPanel.svelte";
   import AiPanel from "$lib/components/settings/AiPanel.svelte";
+  import TagsPanel from "$lib/components/settings/TagsPanel.svelte";
   import { findSection } from "$lib/components/settings/settingsSections";
   import TrashSheet from "$lib/components/layout/TrashSheet/TrashSheet.svelte";
   import { getTrashed } from "$lib/stores/entries.svelte";
@@ -82,6 +84,8 @@
       <FontsPanel />
     {:else if section.slug === "read-aloud"}
       <ReadAloudPanel />
+    {:else if section.slug === "tags"}
+      <TagsPanel />
     {:else if section.slug === "trash"}
       <SettingsRow
         label="Trash"

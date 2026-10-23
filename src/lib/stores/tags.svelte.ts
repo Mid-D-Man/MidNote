@@ -4,6 +4,7 @@
 // between the two stores to happen to land tags after entries.
 import * as storage from "$lib/storage";
 import type { TagScope } from "$lib/storage";
+import { isSystemTag, withSystemTags } from "$lib/utils/systemTags";
 import { untrack } from "svelte";
 
 export const noteTags = $state<string[]>([]);
@@ -18,9 +19,10 @@ export function sync() {
   // means it stays safe even if a future effect calls it.
   untrack(() => {
     const known = storage.loadKnownTags();
-    noteTags.splice(0, noteTags.length, ...known.notes);
-    todoTags.splice(0, todoTags.length, ...known.todos);
-    boardTags.splice(0, boardTags.length, ...known.boards);
+    // the built-in tags (utils/systemTags.ts) are merged in here, ahead of the person's own: they are always listed
+    noteTags.splice(0, noteTags.length, ...withSystemTags("notes", known.notes));
+    todoTags.splice(0, todoTags.length, ...withSystemTags("todos", known.todos));
+    boardTags.splice(0, boardTags.length, ...withSystemTags("boards", known.boards));
   });
 }
 
@@ -30,6 +32,8 @@ export function registerTag(kind: TagScope, tag: string) {
 }
 
 export function unregisterTag(kind: TagScope, tag: string) {
+  // a built-in tag can't be taken off the list (an entry can still lose it: that is a different action)
+  if (isSystemTag(tag, kind)) return;
   storage.removeKnownTag(kind, tag);
   sync();
 }

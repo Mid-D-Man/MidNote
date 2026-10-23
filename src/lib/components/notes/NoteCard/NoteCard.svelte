@@ -271,6 +271,10 @@
     padding: var(--space-4);
     display: flex;
     flex-direction: column;
+    /* never wider than the column it sits in, whatever the note's text is */
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
   }
   :global(.note-card.selected) {
     border-color: var(--accent);
@@ -415,6 +419,8 @@
     font-size: 13px;
     color: var(--text-lo);
     margin: 0 0 var(--space-3);
+    /* a line of "=====" or a long URL has no break opportunity: let it break anywhere instead of widening the card */
+    overflow-wrap: anywhere;
     min-height: 2.6em;
     display: -webkit-box;
     -webkit-line-clamp: 2;

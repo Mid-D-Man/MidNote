@@ -18,6 +18,7 @@
   import { entries, saveEntry, removeEntry, toggleBookmark, toggleStrikethrough, togglePinned } from "$lib/stores/entries.svelte";
   import type { Note, Todo, Board, Entry } from "$lib/types/entry";
   import { noteTags, todoTags, boardTags, registerTag, unregisterTag } from "$lib/stores/tags.svelte";
+  import { isSystemTag } from "$lib/utils/systemTags";
   import { createNote, type TagScope } from "$lib/storage";
   import { stripHtml, plainTextToHtml } from "$lib/utils/richText";
   import { createLongPressHandlers } from "$lib/utils/longPress";
@@ -253,8 +254,11 @@
     if (name && activeView !== "folders") registerTag(activeView, name);
   }
 
+  // built-in tags (AI Generated, Example) have no × on the chip: they can't be removed from the list
+  const isBuiltIn = (tag: string) => activeView !== "folders" && isSystemTag(tag, activeView);
+
   function handleRemoveTag(tag: string) {
-    if (activeView !== "folders") unregisterTag(activeView, tag);
+    if (activeView !== "folders" && !isBuiltIn(tag)) unregisterTag(activeView, tag);
     if (selectedTag === tag) selectedTag = null;
   }
 
@@ -575,7 +579,9 @@
             {#each tagList as tag (tag)}
               <div class="chip" class:selected={selectedTag === tag}>
                 <button onclick={() => (selectedTag = selectedTag === tag ? null : tag)}>{tag}</button>
-                <button class="remove" onclick={() => handleRemoveTag(tag)} aria-label="Remove {tag}">×</button>
+                {#if !isBuiltIn(tag)}
+                  <button class="remove" onclick={() => handleRemoveTag(tag)} aria-label="Remove {tag}">×</button>
+                {/if}
               </div>
             {/each}
             {#each inheritedChipTags as tag (tag)}
@@ -1115,11 +1121,18 @@
     grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
     gap: var(--space-4);
   }
+  /* A grid item's minimum width is its content's minimum width, and a "1fr" track is really "minmax(auto, 1fr)":
+     one long unbreakable string in ANY card (a "=====" divider line in a note, a long URL) made the whole column wider
+     than the screen and every card ran off the right edge. min-width: 0 on the items and minmax(0, 1fr) on the tracks
+     below let a card be as narrow as its column and wrap or clip its own text instead. */
+  .grid > :global(*) {
+    min-width: 0;
+  }
   /* Round 33. "list" is one card per row at every width; "grid" is compact
      cards, two per row on a phone (the 480px media block below) and as many
      as fit on a wider screen. */
   .grid.view-list {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
   .grid.view-grid {
     grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
@@ -1359,7 +1372,7 @@
       padding-right: var(--space-3);
     }
     .grid {
-      grid-template-columns: 1fr;
+      grid-template-columns: minmax(0, 1fr);
     }
     .grid.view-grid {
       grid-template-columns: repeat(2, minmax(0, 1fr));

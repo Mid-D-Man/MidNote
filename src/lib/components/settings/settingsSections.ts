@@ -19,6 +19,7 @@ export type SettingsSection = {
 export const SETTINGS_SECTIONS: SettingsSection[] = [
   { slug: "appearance", title: "Appearance", desc: "Theme, fonts and note lines.", parent: "/settings", main: true },
   { slug: "read-aloud", title: "Read aloud", desc: "Voice, speed and pitch.", parent: "/settings", main: true },
+  { slug: "tags", title: "Tags", desc: "Built-in tags, and the tags you've made.", parent: "/settings", main: true },
   { slug: "trash", title: "Trash", desc: "Deleted notes, todos and boards.", parent: "/settings", main: true },
   { slug: "backup", title: "Backup & restore", desc: "Save everything to a file, or restore from one.", parent: "/settings", main: true },
   { slug: "account", title: "Account", desc: "Sign in to use sync and AI.", parent: "/settings", main: true },
