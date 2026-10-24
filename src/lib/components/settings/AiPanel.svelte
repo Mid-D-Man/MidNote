@@ -192,7 +192,7 @@
         </section>
       {/if}
     </section>
-    <p class="fine">Only the text you type here is sent, to MidManStudio's AI server, to be answered. It isn't stored there.</p>
+    <p class="fine">Only the text you type here is sent, to MidManStudio's AI server, which doesn't keep it. It is answered by Cloudflare or, if Cloudflare is out of free capacity, by a backup provider (Groq or Mistral) under its own privacy terms.</p>
     <p class="fine">In a note, select some text and tap the sparkle button to edit it with AI. The AI reads the rest of the page to understand it, and you approve its answer before anything changes.</p>
   {/if}
 </div>

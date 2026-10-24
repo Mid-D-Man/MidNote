@@ -8,7 +8,6 @@
 //   5. SETTLE to real usage      (or RELEASE on failure; a timeout is left to expire, never released)
 // If step 1 or 3 cannot be completed, step 4 never happens (fail closed).
 import {
-  classifyAiError,
   estimateTokens,
   extractText,
   extractUsage,
@@ -20,9 +19,9 @@ import {
 } from "./budget";
 import { configProblem, isUuid, LedgerError, rpc, verifyUser, type FetchFn, type LedgerEnv } from "./ledger";
 import { buildMessages, cleanReply, LIMITS, parseRun, temperatureFor } from "./prompts";
+import { candidatesFor, classifyProviderError, isProviderId, providerReady, runProvider, type ProviderEnv, type ProviderId } from "./providers";
 
-export interface Env extends LedgerEnv {
-  AI: { run(model: string, input: unknown): Promise<unknown> };
+export interface Env extends LedgerEnv, ProviderEnv {
   ALLOWED_ORIGINS?: string;
   AI_ENABLED?: string;
 }
@@ -89,6 +88,21 @@ const REASON_TO_ERROR: Record<string, string> = {
   "daily-cap": "daily-cap",
   "pool-exhausted": "pool-exhausted",
 };
+
+/**
+ * Refusals that are about ONE provider (its pool is used up today, it or its model is switched off), so the next
+ * provider may still answer. Everything else (no credits, daily cap, busy, rate-limited, too long, kill switch)
+ * is about the PERSON or the whole service and is the same whoever would answer: it ends the request.
+ */
+const FALL_THROUGH = new Set(["pool-exhausted", "provider-off", "no-model"]);
+
+async function releaseQuietly(env: Env, f: FetchFn, requestId: string, exhausted: boolean): Promise<void> {
+  try {
+    await rpc(env, f, "midnote_ai_release", { p_request: requestId, p_exhausted: exhausted });
+  } catch {
+    /* the hold expires on its own */
+  }
+}
 
 function corsFor(origin: string | null, env: Env): Record<string, string> {
   const allowed = (env.ALLOWED_ORIGINS ?? "")
@@ -207,46 +221,70 @@ export async function handle(req: Request, env: Env, deps: Deps): Promise<Respon
     const messages = buildMessages(parsed.value);
     const inTokens = estimateTokens(messages);
 
-    // 3. RESERVE
-    const r = await rpc(env, deps.fetch, "midnote_ai_reserve", {
-      p_user: userId,
-      p_feature: parsed.value.task,
-      p_in_tokens: inTokens,
-      p_max_out: parsed.value.maxTokens,
-      p_model: null,
-    });
-    if (!r || typeof r !== "object" || typeof r.ok !== "boolean") throw new LedgerError("bad reserve reply");
-    if (!r.ok) {
-      const code = REASON_TO_ERROR[String(r.reason)];
-      if (!code) throw new LedgerError("unknown refusal");
-      return fail(code, cors, deps, typeof r.balance === "number" ? { balance: r.balance } : {});
-    }
-    if (!isUuid(r.request_id) || typeof r.model !== "string" || !Number.isInteger(r.max_out) || r.max_out < 1) {
-      throw new LedgerError("bad reserve grant");
-    }
-    const requestId: string = r.request_id;
-
-    // 4. run the model
-    let result: unknown;
-    try {
-      result = await withTimeout(
-        env.AI.run(r.model, { messages, max_tokens: r.max_out, temperature: temperatureFor(parsed.value) }),
-        deps.aiTimeoutMs ?? 45000,
-      );
-    } catch (e) {
-      if (e instanceof TimeoutError) {
-        // The model may still be running and spending neurons: do NOT release. The hold expires,
-        // the pool books it as spent, the person gets their credits back.
-        return fail("timeout", cors, deps);
+    // 3 + 4. RESERVE then RUN, once per candidate: the primary first, then each configured backup (see providers.ts).
+    // A refusal that is about one provider, or a failed / out-of-capacity run, moves on to the next candidate.
+    // A refusal about the PERSON ends the request. A TIMEOUT also ends it, and is never released: the model may
+    // still be running and spending, so the hold expires, the person gets their credits back, the pool keeps it spent.
+    const tried = new Set<string>();
+    let sawExhausted = false;
+    let sawFailure = false;
+    let grant: { requestId: string; model: string; provider: ProviderId; maxOut: number } | null = null;
+    let result: unknown = null;
+    for (const cand of candidatesFor(env)) {
+      const r = await rpc(env, deps.fetch, "midnote_ai_reserve", {
+        p_user: userId,
+        p_feature: parsed.value.task,
+        p_in_tokens: inTokens,
+        p_max_out: parsed.value.maxTokens,
+        p_model: cand.model,
+      });
+      if (!r || typeof r !== "object" || typeof r.ok !== "boolean") throw new LedgerError("bad reserve reply");
+      if (!r.ok) {
+        const reason = String(r.reason);
+        if (FALL_THROUGH.has(reason)) {
+          if (reason === "pool-exhausted") sawExhausted = true;
+          continue;
+        }
+        const code = REASON_TO_ERROR[reason];
+        if (!code) throw new LedgerError("unknown refusal");
+        return fail(code, cors, deps, typeof r.balance === "number" ? { balance: r.balance } : {});
       }
-      const kind = classifyAiError(e);
+      if (!isUuid(r.request_id) || typeof r.model !== "string" || !Number.isInteger(r.max_out) || r.max_out < 1) {
+        throw new LedgerError("bad reserve grant");
+      }
+      const requestId: string = r.request_id;
+      // an old ledger reply without a provider means the primary
+      const provider: unknown = typeof r.provider === "string" ? r.provider : cand.model === null ? "cf" : "";
+      // The grant must be something this Worker can really run: a known provider (with its key), exactly the model
+      // that was asked for, and not one already tried. Anything else is put back untouched and skipped.
+      if (
+        !isProviderId(provider) ||
+        !providerReady(provider, env) ||
+        (cand.model !== null && (r.model !== cand.model || provider !== cand.provider)) ||
+        tried.has(r.model)
+      ) {
+        await releaseQuietly(env, deps.fetch, requestId, false);
+        continue;
+      }
+      tried.add(r.model);
       try {
-        await rpc(env, deps.fetch, "midnote_ai_release", { p_request: requestId, p_exhausted: kind === "exhausted" });
-      } catch {
-        /* the hold expires on its own */
+        result = await withTimeout(
+          runProvider(provider, r.model, { messages, max_tokens: r.max_out, temperature: temperatureFor(parsed.value) }, env, deps.fetch),
+          deps.aiTimeoutMs ?? 45000,
+        );
+      } catch (e) {
+        if (e instanceof TimeoutError) return fail("timeout", cors, deps);
+        const kind = classifyProviderError(provider, e);
+        await releaseQuietly(env, deps.fetch, requestId, kind === "exhausted");
+        if (kind === "exhausted") sawExhausted = true;
+        else sawFailure = true;
+        continue;
       }
-      return fail(kind === "exhausted" ? "pool-exhausted" : "ai-failed", cors, deps);
+      grant = { requestId, model: r.model, provider, maxOut: r.max_out };
+      break;
     }
+    if (!grant) return fail(sawFailure ? "ai-failed" : sawExhausted ? "pool-exhausted" : "ai-unavailable", cors, deps);
+    const requestId = grant.requestId;
 
     // 5. SETTLE to the real usage (retry: this is the step that keeps the books honest)
     const text = cleanReply(parsed.value, stripThinking(extractText(result)));
@@ -270,12 +308,13 @@ export async function handle(req: Request, env: Env, deps: Deps): Promise<Respon
     // rewrite replace a selection, so it is told. Without real counts the output is estimated at 3 bytes a token
     // (English is ~4, so this errs towards "cut off").
     const outTokens = usage ? usage.outTokens : Math.ceil(utf8Bytes(text) / 3);
-    const truncated = outTokens >= r.max_out;
+    const truncated = outTokens >= grant.maxOut;
     return reply(
       200,
       {
         text,
-        model: r.model,
+        model: grant.model,
+        provider: grant.provider,
         credits_charged: settled ? Number(settled.charged) : null,
         balance: settled ? Number(settled.balance) : null,
         ...(truncated ? { truncated: true } : {}),

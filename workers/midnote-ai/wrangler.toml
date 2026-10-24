@@ -15,6 +15,8 @@ enabled = false
 
 # Secrets (set by the deploy workflow, never in this file):
 #   SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, SUPABASE_SECRET_KEY
+#   GROQ_API_KEY, MISTRAL_API_KEY      (optional: only if you turned that backup provider on)
 # Optional plain variables:
 #   AI_ENABLED = "off"                -> instant kill switch (also: update midnote_ai_settings set enabled=false)
+#   AI_BACKUPS = "groq:<model>,mistral:<model>" -> backup order (default groq then mistral; "off" = none)
 #   ALLOWED_ORIGINS = "a,b"           -> browser origins allowed by CORS (default: the Tauri webview origins)

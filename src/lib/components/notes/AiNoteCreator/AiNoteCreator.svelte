@@ -2,7 +2,7 @@
   // Round G — "Create with AI" on the notes list. Describe a note, the AI writes it, and you see it FIRST: nothing is
   // created until you tap Create note. It becomes a normal note (tagged "AI Generated") with real bullets and bold.
   // It replaces the earlier honest stub. Only what you type here is sent, to MidManStudio's AI server, to be
-  // answered; it isn't stored there. State is written from handlers only (docs/svelte5-effect-safety.md).
+  // answered (it isn't kept there; a backup provider may answer). State is written from handlers only (docs/svelte5-effect-safety.md).
   import { goto } from "$app/navigation";
   import Card from "$lib/components/ui/Card/Card.svelte";
   import Input from "$lib/components/ui/Input/Input.svelte";
@@ -114,7 +114,7 @@
       {#if loading}<Spinner />{/if}
       {loading ? "Generating..." : "Generate Note"}
     </Button>
-    <p class="fine">Your description is sent to MidManStudio's AI server to be answered. It isn't stored there. You see the note before anything is created.</p>
+    <p class="fine">Your description is sent to MidManStudio's AI server, which doesn't keep it, and is answered by Cloudflare or, if Cloudflare is out of free capacity, by a backup provider (Groq or Mistral) under its own privacy terms. You see the note before anything is created.</p>
 
     {#if notice}
       <p class="notice error" role="alert">{notice}</p>

@@ -8,7 +8,7 @@
   //
   // NOTHING changes in the note until a button is tapped, and Replace is one undo step. An answer that used the
   // model's whole output allowance is probably cut off: Replace is then switched off (it would delete text).
-  // The first time, a notice explains that the note text goes to the AI server (and is not stored there).
+  // The first time, a notice explains that the note text goes to the AI server (which doesn't keep it).
   // utils/aiSelection.ts holds the rules; this file is the screen. State is written from handlers only
   // (docs/svelte5-effect-safety.md): there is no $effect here.
   import { tick } from "svelte";
@@ -190,7 +190,7 @@
       {#if !noticeSeen}
         <section class="card" aria-label="About sending your note">
           <h3>Before you use AI</h3>
-          <p class="fine">To understand what you selected, the AI is sent the selection and the rest of this page of the note. It goes to MidManStudio's AI server, is answered, and isn't stored there. Nothing changes in your note until you tap Replace or Insert.</p>
+          <p class="fine">To understand what you selected, the AI is sent the selection and the rest of this page of the note. It goes to MidManStudio's AI server, which doesn't keep it, and is answered by Cloudflare or, if Cloudflare is out of free capacity, by a backup provider (Groq or Mistral) under its own privacy terms. Nothing changes in your note until you tap Replace or Insert.</p>
           <div class="actions">
             <Button variant="default" onclick={ackNotice} aria-label="Understood, use AI">Got it</Button>
           </div>

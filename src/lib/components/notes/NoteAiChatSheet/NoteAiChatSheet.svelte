@@ -153,7 +153,7 @@
       {#if !noticeSeen}
         <section class="card" aria-label="About sending your note">
           <h3>Before you use AI</h3>
-          <p class="fine">To answer, the AI is sent this whole note (all its pages) with your question. It goes to MidManStudio's AI server, is answered, and isn't stored there. Nothing changes in your note until you tap Add to page.</p>
+          <p class="fine">To answer, the AI is sent this whole note (all its pages) with your question. It goes to MidManStudio's AI server, which doesn't keep it, and is answered by Cloudflare or, if Cloudflare is out of free capacity, by a backup provider (Groq or Mistral) under its own privacy terms. Nothing changes in your note until you tap Add to page.</p>
           <div class="actions">
             <Button variant="default" onclick={ackNotice} aria-label="Understood, use AI">Got it</Button>
           </div>

@@ -1595,7 +1595,7 @@ const SCENARIOS = [
       { click: "Ask AI about selection" },
       { wait: 300 },
       { expectText: "Before you use AI" },
-      { expectText: "isn't stored there" },
+      { expectText: "doesn't keep it" },
       { expectSelector: '[aria-label="AI: Shorter"][disabled]' },
       { expectSelector: '[aria-label="Send to AI"][disabled]' },
       { expectGlobalCount: { name: "__aiCalls", substring: "/v1/ai/run", count: 0 } },
