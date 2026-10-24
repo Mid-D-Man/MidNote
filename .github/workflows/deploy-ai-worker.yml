@@ -12,6 +12,12 @@
 #   SUPABASE_SECRET_KEY         Supabase -> Project Settings -> API Keys -> the SECRET key (sb_secret_...)
 #                               It lives ONLY in the Worker. It is never put in the APK.
 #
+# OPTIONAL repo secrets (backup providers - add one only when you have turned that provider on in Supabase;
+# leave it out and that provider simply is not used):
+#   GROQ_API_KEY                console.groq.com -> API Keys (starts with gsk_). Turn ON Zero Data Retention first.
+#   MISTRAL_API_KEY             console.mistral.ai -> API keys. Turn OFF "improve models with my data" first.
+# Removing a secret here does not remove it from the Worker: use Cloudflare -> midnote-ai -> Settings -> Variables.
+#
 # NEVER add a payment card to this Cloudflare account and never switch it to Workers Paid: on the free
 # plan Workers AI stops with an error at 10,000 neurons/day instead of billing. That is the guarantee.
 name: Deploy AI Worker
@@ -47,6 +53,8 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
         run: |
           python3 - <<'PY'
           import os, sys, json, base64
@@ -75,8 +83,35 @@ jobs:
                   err("SUPABASE_SECRET_KEY is a legacy key but not the service_role one (it looks like the anon key).")
           elif not sec.startswith("sb_secret_"):
               err("SUPABASE_SECRET_KEY should start with sb_secret_ (or be the legacy service_role key).")
+          groq = os.environ.get("GROQ_API_KEY", "").strip()
+          mistral = os.environ.get("MISTRAL_API_KEY", "").strip()
+          if groq and not groq.startswith("gsk_"):
+              err("GROQ_API_KEY does not look like a Groq key (they start with gsk_).")
+          for name, v in (("GROQ_API_KEY", groq), ("MISTRAL_API_KEY", mistral)):
+              if v and (len(v) < 20 or any(c.isspace() for c in v)):
+                  err(name + " looks wrong (too short, or it has a space or a line break in it).")
+          if groq == mistral and groq:
+              err("GROQ_API_KEY and MISTRAL_API_KEY are the same value.")
+          print("Backup providers configured: " + (", ".join(n for n, v in (("groq", groq), ("mistral", mistral)) if v) or "none"))
           print("Settings look fine.")
           PY
+
+      # Only the secrets that really exist are sent to the Worker (an empty one would be stored as an empty key).
+      - name: Pick the secrets to send
+        id: sec
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+        run: |
+          {
+            echo "list<<SECRETS_EOF"
+            echo "SUPABASE_URL"
+            echo "SUPABASE_PUBLISHABLE_KEY"
+            echo "SUPABASE_SECRET_KEY"
+            if [ -n "$(printf '%s' "$GROQ_API_KEY" | tr -d '[:space:]')" ]; then echo "GROQ_API_KEY"; fi
+            if [ -n "$(printf '%s' "$MISTRAL_API_KEY" | tr -d '[:space:]')" ]; then echo "MISTRAL_API_KEY"; fi
+            echo "SECRETS_EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Deploy the Worker
         id: deploy
@@ -85,14 +120,13 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: workers/midnote-ai
-          secrets: |
-            SUPABASE_URL
-            SUPABASE_PUBLISHABLE_KEY
-            SUPABASE_SECRET_KEY
+          secrets: ${{ steps.sec.outputs.list }}
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
 
       # Proves the three front doors really are shut to strangers, and tells you the URL to use in the app.
       - name: Smoke test and show the URL
