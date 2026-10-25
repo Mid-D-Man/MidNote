@@ -205,6 +205,17 @@ const SEL_AFTER = " jumps over the lazy dog.\nClosing line.";
 const aiBody = (instruction, mode, text = "quick brown fox", before = SEL_BEFORE, after = SEL_AFTER) =>
   "POST /v1/ai/run auth=user " + JSON.stringify({ task: "transform", instruction, text, mode, before, after });
 const AI_SPARKLE = '[aria-label="Ask AI about selection"]';
+// Select-by-pattern + word count (Actions sheet). Paragraphs are <p> when seeded and <div> once the editor writes them back.
+const RANGE_NOTE_ID = "smoke-test-range-note-0001";
+const rangeNote = (html, extra = {}) => ({ id: RANGE_NOTE_ID, type: "regular", title: "Range note", content: html, tags: [], lastModified: now, isBookmarked: false, encrypted: false, ...extra });
+const RANGE_NOTE = rangeNote("<p>Intro line.</p><p>START here</p><p>the middle part</p><p>END here</p><p>Outro line.</p>");
+const RANGE_DOC = "<div>Intro line.</div><div>START here</div><div>the middle part</div><div>END here</div><div>Outro line.</div>";
+const RANGE_TWO = rangeNote("<p>S one</p><p>E one</p><p>gap</p><p>S two</p><p>E two</p>");
+const RANGE_LOCKED = rangeNote("", { encrypted: true, lockKeyMode: "app", lockedPayload: "x" });
+const WC_NOTE = rangeNote("<p>One two three.</p><p>Four five\u2014six</p>", { pages: [{ id: "page-2", name: "Second", content: "<p>Seven eight</p>" }] });
+const WC_CHECKLIST = rangeNote('<ul data-type="taskList"><li data-checked="true" data-type="taskItem"><label><input type="checkbox" checked="checked"><span></span></label><div><p>buy milk</p></div></li></ul>');
+const SELECT_ROW = [{ click: "More" }, { click: "Select text between two texts" }, { expectSelector: '[aria-label="Select from"]' }];
+const fillRange = (from, to) => [{ type: { label: "Select from", value: from } }, { type: { label: "Select to", value: to } }, { wait: 500 }];
 const SUBMIT = 'form button[type="submit"]';
 const SIGNUP_TAB = ".tabs button:nth-child(2)";
 const A_USER = { email: "a@verified.test", password: "correct-horse" };
@@ -853,6 +864,233 @@ const SCENARIOS = [
       { click: "Close find and replace" },
       { expectSelector: '[aria-label="Undo"]' },
     ],
+  },
+  // Select text… (Actions sheet): pick a selection by typing where it starts and where it ends. A real Tiptap editor, the
+  // real bar, the real Actions sheet. The selection is checked in the editor itself (expectSelection), never inferred.
+  {
+    name: "select text — from one text to another becomes the real selection",
+    path: `/note/${RANGE_NOTE_ID}`,
+    seed: [RANGE_NOTE],
+    steps: [
+      ...SELECT_ROW,
+      ...fillRange("START", "END"),
+      { expectSelector: ".range-preview" },
+      { expectText: "1 of 1" },
+      { expectNoSelector: AI_SPARKLE },
+      { expectSelection: null },
+      { click: "Select this range" },
+      { wait: 300 },
+      { expectSelection: "START here\nthe middle part\nEND" },
+      { expectNoSelector: '[aria-label="Select from"]' },
+      { expectNoSelector: ".range-preview" },
+      { expectSelector: AI_SPARKLE },
+      { expectEditorHtml: RANGE_DOC },
+    ],
+  },
+  {
+    name: "select text — a regex, and without the start and end text themselves",
+    path: `/note/${RANGE_NOTE_ID}`,
+    seed: [RANGE_NOTE],
+    steps: [
+      ...SELECT_ROW,
+      { click: "Use regular expression" },
+      ...fillRange("^START", "^END"),
+      { click: "Include the start and end text" },
+      { wait: 300 },
+      // the PREVIEW already excludes the two texts (its first highlighted piece is " here", not "START here")
+      { expectSelectorText: { selector: ".range-preview", text: "here" } },
+      { click: "Select this range" },
+      { wait: 300 },
+      { expectSelection: " here\nthe middle part\n" },
+    ],
+  },
+  {
+    name: "select text — an empty start means the start of the page, an empty end the end",
+    path: `/note/${RANGE_NOTE_ID}`,
+    seed: [RANGE_NOTE],
+    steps: [
+      ...SELECT_ROW,
+      ...fillRange("", "END"),
+      { click: "Select this range" },
+      { wait: 300 },
+      { expectSelection: "Intro line.\nSTART here\nthe middle part\nEND" },
+      ...SELECT_ROW,
+      ...fillRange("START", ""),
+      { click: "Select this range" },
+      { wait: 300 },
+      { expectSelection: "START here\nthe middle part\nEND here\nOutro line." },
+    ],
+  },
+  {
+    name: "select text — an end that is not there is said plainly and nothing can be selected",
+    path: `/note/${RANGE_NOTE_ID}`,
+    seed: [RANGE_NOTE],
+    steps: [
+      ...SELECT_ROW,
+      ...fillRange("START", "NOPE"),
+      { expectText: "End text not found" },
+      { expectSelector: '[aria-label="Select this range"][disabled]' },
+      { expectNoSelector: ".range-preview" },
+      ...fillRange("NOPE", "END"),
+      { expectText: "Start text not found" },
+    ],
+  },
+  {
+    name: "select text — a pattern that is not valid is explained and nothing is selected",
+    path: `/note/${RANGE_NOTE_ID}`,
+    seed: [RANGE_NOTE],
+    steps: [
+      ...SELECT_ROW,
+      { click: "Use regular expression" },
+      ...fillRange("(", "END"),
+      { expectText: "Start text:" },
+      { expectSelector: '[aria-label="Select this range"][disabled]' },
+      ...fillRange("START", "["),
+      { expectText: "End text:" },
+      { expectSelection: null },
+    ],
+  },
+  {
+    name: "select text — several ranges: Next shows the other one, Select takes the one shown",
+    path: `/note/${RANGE_NOTE_ID}`,
+    seed: [RANGE_TWO],
+    steps: [
+      ...SELECT_ROW,
+      ...fillRange("S ", "E "),
+      { expectText: "1 of 2" },
+      { click: "Next range" },
+      { expectText: "2 of 2" },
+      { click: "Select this range" },
+      { wait: 300 },
+      { expectSelection: "S two\nE " },
+    ],
+  },
+  {
+    name: "select text — typing in the note while the bar is open never selects stale text",
+    path: `/note/${RANGE_NOTE_ID}`,
+    seed: [RANGE_NOTE],
+    steps: [
+      ...SELECT_ROW,
+      ...fillRange("START", "END"),
+      { editorInsert: "zzz " },
+      { click: "Select this range" },
+      { wait: 300 },
+      { expectSelection: "START here\nthe middle part\nEND" },
+    ],
+  },
+  {
+    name: "select text — a selection you already have fills in the start text",
+    path: `/note/${RANGE_NOTE_ID}`,
+    seed: [RANGE_NOTE],
+    steps: [{ selectText: { from: "START" } }, ...SELECT_ROW, { expectValue: { label: "Select from", value: "START" } }],
+  },
+  {
+    name: "select text — closing the bar without selecting leaves the note and its selection alone",
+    path: `/note/${RANGE_NOTE_ID}`,
+    seed: [RANGE_NOTE],
+    steps: [
+      ...SELECT_ROW,
+      ...fillRange("START", "END"),
+      { expectSelector: ".range-preview" },
+      { click: "Close select text" },
+      { expectNoSelector: '[aria-label="Select from"]' },
+      { expectNoSelector: ".range-preview" },
+      { expectSelection: null },
+      { expectSelector: '[aria-label="Undo"]' },
+      { expectEditorHtml: RANGE_DOC },
+    ],
+  },
+  {
+    name: "select text — shares the find bar's place: opening one closes the other",
+    path: `/note/${RANGE_NOTE_ID}`,
+    seed: [RANGE_NOTE],
+    steps: [
+      { click: "More" },
+      { click: "Find and replace" },
+      { expectSelector: '[aria-label="Find"]' },
+      { click: "More" },
+      { click: "Select text between two texts" },
+      { expectSelector: '[aria-label="Select from"]' },
+      { expectNoSelector: '[aria-label="Find"]' },
+      { click: "More" },
+      { click: "Find and replace" },
+      { expectSelector: '[aria-label="Find"]' },
+      { expectNoSelector: '[aria-label="Select from"]' },
+      // and closing find must not bring the other bar back from behind it
+      { click: "Close find and replace" },
+      { expectNoSelector: '[aria-label="Select from"]' },
+      { expectNoSelector: '[aria-label="Find"]' },
+      { expectSelector: '[aria-label="Undo"]' },
+    ],
+  },
+  {
+    name: "select text — Enter in a field selects, Escape closes the bar",
+    path: `/note/${RANGE_NOTE_ID}`,
+    seed: [RANGE_NOTE],
+    steps: [
+      ...SELECT_ROW,
+      ...fillRange("START", "END"),
+      { press: { selector: '[aria-label="Select to"]', key: "Enter" } },
+      { wait: 300 },
+      { expectSelection: "START here\nthe middle part\nEND" },
+      { expectNoSelector: '[aria-label="Select from"]' },
+      ...SELECT_ROW,
+      { press: { selector: '[aria-label="Select from"]', key: "Escape" } },
+      { expectNoSelector: '[aria-label="Select from"]' },
+    ],
+  },
+  {
+    name: "select text — a locked note refuses, like find does",
+    path: `/note/${RANGE_NOTE_ID}`,
+    seed: [RANGE_LOCKED],
+    steps: [{ click: "More" }, { click: "Select text between two texts" }, { expectText: "Unlock first" }, { expectNoSelector: '[aria-label="Select from"]' }],
+  },
+  // Word count (Actions sheet): the whole note and each page, plus the text selected right now.
+  {
+    name: "word count — the whole note, each page, and the selected text",
+    path: `/note/${RANGE_NOTE_ID}`,
+    seed: [WC_NOTE],
+    steps: [
+      { click: "More" },
+      { click: "Word count" },
+      { wait: 300 },
+      { expectSelectorText: { selector: '[aria-label="Words"]', text: "8" } },
+      { expectSelectorText: { selector: '[aria-label="Characters"]', text: "38" } },
+      { expectText: "By page" },
+      { expectText: "6 words" },
+      { expectText: "2 words" },
+      { expectText: "Second" },
+      { expectText: "< 1 min" },
+      { expectNoSelector: '[aria-label="Selected text"]' },
+      { wait: 350 },
+      { clickSelector: ".scrim" },
+      { wait: 400 },
+      { selectText: { from: "One", to: "six" } },
+      { click: "More" },
+      { click: "Word count" },
+      { wait: 300 },
+      { expectSelector: '[aria-label="Selected text"]' },
+      { expectSelectorText: { selector: '[aria-label="Selected text"] dd', text: "6" } },
+      { expectSelectorText: { selector: '[aria-label="Words"]', text: "8" } },
+    ],
+  },
+  {
+    name: "word count — an empty note counts zero, and a checklist's boxes are not words",
+    path: `/note/${RANGE_NOTE_ID}`,
+    seed: [rangeNote("")],
+    steps: [{ click: "More" }, { click: "Word count" }, { wait: 300 }, { expectSelectorText: { selector: '[aria-label="Words"]', text: "0" } }, { expectSelectorText: { selector: '[aria-label="Characters"]', text: "0" } }, { expectNoSelector: '[aria-label="By page"]' }],
+  },
+  {
+    name: "word count — a checked checklist item counts its words, not its box",
+    path: `/note/${RANGE_NOTE_ID}`,
+    seed: [WC_CHECKLIST],
+    steps: [{ click: "More" }, { click: "Word count" }, { wait: 300 }, { expectSelectorText: { selector: '[aria-label="Words"]', text: "2" } }],
+  },
+  {
+    name: "word count — a locked note refuses instead of showing a confident zero",
+    path: `/note/${RANGE_NOTE_ID}`,
+    seed: [RANGE_LOCKED],
+    steps: [{ click: "More" }, { click: "Word count" }, { expectText: "Unlock first" }, { expectNoSelector: '[aria-label="Words"]' }],
   },
   // Round 27: a paste through the real built editor. Asserts the handler
   // is actually wired (the event is cancelled), the pasted lines land in

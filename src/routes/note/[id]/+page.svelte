@@ -21,6 +21,7 @@
   import NoteContent from "$lib/components/notes/NoteContent/NoteContent.svelte";
   import FormattingToolbar from "$lib/components/notes/FormattingToolbar/FormattingToolbar.svelte";
   import FindReplaceBar from "$lib/components/notes/FindReplaceBar/FindReplaceBar.svelte";
+  import SelectRangeBar from "$lib/components/notes/SelectRangeBar/SelectRangeBar.svelte";
   import AiEditSheet from "$lib/components/notes/AiEditSheet/AiEditSheet.svelte";
   import { captureSelection, planAppend, type AiSelection } from "$lib/utils/aiSelection";
   import { pushToast } from "$lib/stores/toast.svelte";
@@ -71,11 +72,24 @@
   // the bar is open it takes FormattingToolbar's bottom slot.
   let findOpen = $state(false);
   let findBarHeight = $state(0);
+  // "Select text…" (Actions sheet): pick a selection by typing where it starts and where it ends. Docked like the find
+  // bar and sharing its slot (so the two are never open together); its fields live here so they survive closing and
+  // reopening within this note.
+  let selectOpen = $state(false);
+  let selectBarHeight = $state(0);
+  let selectOpts = $state<{ from: string; to: string; regex: boolean; caseSensitive: boolean; includeMarkers: boolean; endAt: "first" | "last" }>({
+    from: "",
+    to: "",
+    regex: false,
+    caseSensitive: false,
+    includeMarkers: true,
+    endAt: "first",
+  });
   // Round 38: height of the formatting toolbar (with any open popup). Together
   // with the find bar's height it tells the "Reading…" bar how far up to ride.
   let toolbarHeight = $state(0);
   $effect(() => {
-    readBarLift.px = (findOpen ? findBarHeight : toolbarHeight) + 8;
+    readBarLift.px = (findOpen ? findBarHeight : selectOpen ? selectBarHeight : toolbarHeight) + 8;
     return () => {
       readBarLift.px = 0;
     };
@@ -139,11 +153,41 @@
         }
       }
     }
+    selectOpen = false;
     findOpen = true;
   }
   function closeFind() {
     breadcrumb("note page: find & replace closed");
     findOpen = false;
+  }
+
+  // Select text… (Actions sheet). A single-line selection (up to 200 characters) prefills the start text, the same
+  // convenience find has; the bar takes the formatting toolbar's slot, so the find bar closes first.
+  function openSelectRange() {
+    breadcrumb("note page: select text opened");
+    const ed = editor;
+    if (ed && !ed.isDestroyed) {
+      const { from, to, empty } = ed.state.selection;
+      if (!empty) {
+        const picked = ed.state.doc.textBetween(from, to, "\n", "\n");
+        if (picked && !picked.includes("\n") && picked.length <= 200) {
+          selectOpts.from = selectOpts.regex ? escapeRegExp(picked) : picked;
+        }
+      }
+    }
+    findOpen = false;
+    selectOpen = true;
+  }
+  function closeSelectRange() {
+    breadcrumb("note page: select text closed");
+    selectOpen = false;
+  }
+  // The text selected right now (for Word count's "Selected text"), lines separated by line breaks.
+  function getSelectedText(): string {
+    const ed = editor;
+    if (!ed || ed.isDestroyed) return "";
+    const { from, to, empty } = ed.state.selection;
+    return empty ? "" : ed.state.doc.textBetween(from, to, "\n", "\n");
   }
 
   onMount(() => {
@@ -212,6 +256,7 @@
       loadError = null;
       currentPageIndex = 0;
       findOpen = false; // a different note: never carry an open find bar (or its stale query) across
+      selectOpen = false;
       if (!id || id === "new") {
         // Round 47: opened from inside a folder (?folder=...): file the new entry there. Untracked on
         // purpose - this effect must not re-run (and reset the editor) every time an entry changes.
@@ -454,6 +499,8 @@
       onDeletePage={deletePage}
       onRenamePage={renamePage}
       onFindReplace={openFind}
+      onSelectRange={openSelectRange}
+      {getSelectedText}
       onInsertAnswer={insertAiAnswer}
     />
 
@@ -474,7 +521,7 @@
         </button>
       </div>
     {:else}
-      <div class="scroll-area" class:find-open={findOpen} style="--find-pad: {findBarHeight + getKeyboardInset()}px; {bodyStyle}">
+      <div class="scroll-area" class:find-open={findOpen || selectOpen} style="--find-pad: {(findOpen ? findBarHeight : selectBarHeight) + getKeyboardInset()}px; {bodyStyle}">
         <div class="inner">
           <NoteTitle bind:value={note.title} />
           {#if currentPageIndex === 0}
@@ -487,6 +534,8 @@
 
       {#if findOpen}
         <FindReplaceBar {editor} {tick} bind:opts={findOpts} bind:height={findBarHeight} onClose={closeFind} />
+      {:else if selectOpen}
+        <SelectRangeBar {editor} {tick} bind:opts={selectOpts} bind:height={selectBarHeight} onClose={closeSelectRange} onSelected={closeSelectRange} />
       {:else}
         <FormattingToolbar {editor} {tick} {hasSelection} entryId={note.id} bind:height={toolbarHeight} onAskAi={openAi} />
       {/if}

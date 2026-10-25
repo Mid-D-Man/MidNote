@@ -22,6 +22,7 @@
   import { entryToPlainText, buildExportFiles, buildEncryptedBackupFile, downloadFiles } from "$lib/utils/selectionActions";
   import ThemeSectionsSheet from "$lib/components/shared/ThemeSectionsSheet/ThemeSectionsSheet.svelte";
   import PagesPanel from "$lib/components/notes/PagesPanel/PagesPanel.svelte";
+  import WordCountSheet from "$lib/components/notes/WordCountSheet/WordCountSheet.svelte";
   import NoteAiChatSheet from "$lib/components/notes/NoteAiChatSheet/NoteAiChatSheet.svelte";
   import { resolveTheme, hexToRgba, getImageTextColorVars } from "$lib/utils/themePalette";
   import { customThemes } from "$lib/stores/customThemes.svelte";
@@ -47,6 +48,8 @@
     onDeletePage,
     onRenamePage,
     onFindReplace,
+    onSelectRange,
+    getSelectedText,
     onInsertAnswer,
   }: {
     note: Note;
@@ -69,6 +72,11 @@
     // sees it) — so, like page switching above, the header only
     // surfaces the entry point and hands the tap up.
     onFindReplace?: () => void;
+    // Opens the docked "Select text…" bar (select from one text to another). Like find, it needs the live editor,
+    // which the route page owns, so the header only hands the tap up.
+    onSelectRange?: () => void;
+    // The text selected in the editor right now, read when Word count opens (so the sheet can count the selection too).
+    getSelectedText?: () => string;
     // Round G: adds an AI answer to the end of the page being edited. The editor belongs to the route page (like the
     // find bar above), so the chat sheet hands the text to this callback; it returns false if it couldn't.
     onInsertAnswer?: (text: string) => boolean;
@@ -83,6 +91,8 @@
   let themeSheetOpen = $state(false);
   let aiChatOpen = $state(false);
   let pagesOpen = $state(false);
+  let wordCountOpen = $state(false);
+  let wordCountSelection = $state("");
 
   // Same resolveTheme() as the card preview — a visible (but
   // deliberately contained, see ThemeSectionsSheet's callsite below)
@@ -147,6 +157,30 @@
       return;
     }
     onFindReplace?.();
+  }
+
+  // Select text… : same lock gate as Find (a locked note has no editor to select in), Actions sheet closes first.
+  function handleSelectRange() {
+    breadcrumb(`note header: Select text tapped (encrypted=${note.encrypted})`);
+    moreOpen = false;
+    if (note.encrypted) {
+      pushToast({ title: "Unlock first", description: "Unlock this note before selecting text in it.", variant: "destructive" });
+      return;
+    }
+    onSelectRange?.();
+  }
+
+  // Word count: counts what the note holds, so a locked note (content cleared until it is unlocked) is refused with
+  // the same toast as the rows above rather than showing a confident zero.
+  function handleOpenWordCount() {
+    breadcrumb(`note header: Word count tapped (encrypted=${note.encrypted})`);
+    moreOpen = false;
+    if (note.encrypted) {
+      pushToast({ title: "Unlock first", description: "Unlock this note before counting its words.", variant: "destructive" });
+      return;
+    }
+    wordCountSelection = getSelectedText?.() ?? "";
+    wordCountOpen = true;
   }
 
   function handleOpenPages() {
@@ -496,6 +530,18 @@
       </svg>
       <span>Find &amp; replace</span>
     </button>
+    <button class="action-row" onclick={handleSelectRange} aria-label="Select text between two texts">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M4 7V5h3M17 5h3v2M20 17v2h-3M7 19H4v-2" /><line x1="8" y1="12" x2="16" y2="12" /><polyline points="13 9 16 12 13 15" />
+      </svg>
+      <span>Select text…</span>
+    </button>
+    <button class="action-row" onclick={handleOpenWordCount} aria-label="Word count">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M4 7h16M4 12h10M4 17h13" /><path d="M18 14l2 2 3-4" />
+      </svg>
+      <span>Word count</span>
+    </button>
     <button class="action-row" onclick={handleAskAi} aria-label="Ask AI">
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M18 6l-2.5 2.5M8.5 15.5 6 18" />
@@ -545,6 +591,7 @@
 </Sheet>
 
 <NoteAiChatSheet bind:open={aiChatOpen} {note} onInsert={onInsertAnswer} />
+<WordCountSheet bind:open={wordCountOpen} {note} selectedText={wordCountSelection} />
 <PagesPanel bind:open={pagesOpen} {note} {currentPageIndex} {onSwitchPage} {onAddPage} {onDeletePage} {onRenamePage} />
 
 <ThemeSectionsSheet

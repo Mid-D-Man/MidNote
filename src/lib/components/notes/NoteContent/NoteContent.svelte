@@ -56,6 +56,7 @@
   import { Placeholder } from "@tiptap/extensions";
   import { PersistentMarks } from "$lib/utils/persistentMarksExtension";
   import { FindReplace } from "$lib/utils/findReplaceExtension";
+  import { SelectRange } from "$lib/utils/selectRangeExtension";
   import { PlainTextPaste } from "$lib/utils/plainTextPasteExtension";
   import { sliceToPlainText } from "$lib/utils/clipboardText";
   import { breadcrumb } from "$lib/debug/log.svelte";
@@ -177,6 +178,9 @@
         // findReplaceExtension.ts's exported functions, never through
         // editor commands. See that file's header comment.
         FindReplace,
+        // Select-by-pattern ("Select text…" in the Actions sheet): only the plugin (state + a highlight of the previewed
+        // range). Inert until the select bar sets a query; see selectRangeExtension.ts.
+        SelectRange,
         // Round 27: plain-text paste, replacing round 25's inline
         // handlePaste. See plainTextPasteExtension.ts's header for why
         // (handlePaste runs AFTER ProseMirror's own clipboard pre-parse,
@@ -422,5 +426,14 @@
   }
   .note-content :global(.ProseMirror .find-caret-current) {
     border-left: 3px solid rgba(249, 115, 22, 1);
+  }
+
+  /* The range the select bar is previewing (selectRangeExtension.ts): a cooler colour than find's yellow/orange so the
+     two are never confused. Background only, like the find highlights. */
+  .note-content :global(.ProseMirror .range-preview) {
+    background: rgba(56, 189, 248, 0.34);
+    border-radius: 2px;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
   }
 </style>

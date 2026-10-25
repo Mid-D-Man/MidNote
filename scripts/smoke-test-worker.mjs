@@ -859,6 +859,43 @@ if (STEPS.length > 0 && errors.length === 0) {
         errors.push(new Error(`${where}: editor HTML is\n  ${html}\nbut should be\n  ${step.expectEditorHtml}`));
         break;
       }
+    } else if (step.expectSelection !== undefined) {
+      // Select-by-pattern round: the editor's REAL selection, as text (lines separated by "\n"). null = nothing selected.
+      const el = target.querySelector(".ProseMirror");
+      const ed = el && el.editor;
+      if (!ed) {
+        errors.push(new Error(`${where}: no editor on the page.`));
+        break;
+      }
+      const { from, to, empty } = ed.state.selection;
+      const got = empty ? null : ed.state.doc.textBetween(from, to, "\n", "\n");
+      if (got !== step.expectSelection) {
+        errors.push(new Error(`${where}: the selection is ${JSON.stringify(got)} but should be ${JSON.stringify(step.expectSelection)}`));
+        break;
+      }
+    } else if (step.expectValue) {
+      // The value of an input found by aria-label (expectText only reads text nodes, never input values).
+      const el = target.querySelector(`[aria-label="${step.expectValue.label}"]`);
+      if (!el) {
+        errors.push(new Error(`${where}: no input with aria-label="${step.expectValue.label}".`));
+        break;
+      }
+      if (el.value !== step.expectValue.value) {
+        errors.push(new Error(`${where}: "${step.expectValue.label}" holds ${JSON.stringify(el.value)} but should hold ${JSON.stringify(step.expectValue.value)}`));
+        break;
+      }
+    } else if (step.expectSelectorText) {
+      // The EXACT trimmed text of the first element matching a selector (expectText is only a substring check).
+      const el = target.querySelector(step.expectSelectorText.selector);
+      if (!el) {
+        errors.push(new Error(`${where}: nothing matched ${step.expectSelectorText.selector}.`));
+        break;
+      }
+      const got = (el.textContent ?? "").trim();
+      if (got !== step.expectSelectorText.text) {
+        errors.push(new Error(`${where}: ${step.expectSelectorText.selector} reads ${JSON.stringify(got)} but should read ${JSON.stringify(step.expectSelectorText.text)}`));
+        break;
+      }
     } else if (step.press) {
       // Round 38: a keyboard shortcut on an element — e.g. Ctrl+A inside the editor
       // to make a real selection (ProseMirror handles it through its own keymap).
