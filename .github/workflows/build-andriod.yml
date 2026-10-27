@@ -264,6 +264,54 @@ jobs:
           print(f"Added {alarm_added} exact-alarm <uses-permission> entr{'y' if alarm_added == 1 else 'ies'} ({len(alarm_perms) - alarm_added} already present)")
           PY
 
+      # Round K: "Open with MidNote". Android only lists an app under "Open with" for a file when the app's
+      # manifest says it can view that kind of file, so this adds ONE intent-filter to the app's activity:
+      #   action VIEW + category DEFAULT (deliberately NOT BROWSABLE: a web page cannot start the app with it)
+      #   data scheme "content" (what Files, Downloads, Drive and other apps hand over) for ANY MIME type
+      # Any type, because Android types code files unreliably (.ts shows up as video, .rs as octet-stream). The
+      # app itself decides what a file is (text, Word document, MidNote backup), refuses the rest with a message,
+      # and only ever READS the file: nothing in it is run. The deep-link plugin separately lists the scheme
+      # "content" in tauri.conf.json so the app RECEIVES the address; the filter it writes has no MIME type, which
+      # is not enough for Android to offer MidNote for typed files, hence this one. Runs after the patch above and
+      # before the build; the plugin's own filters are added to the same activity during the build, outside this
+      # one. ET.indent keeps each element on its own line, because the plugin inserts its block line by line.
+      - name: Patch AndroidManifest to appear in Open with
+        run: |
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+
+          path = "src-tauri/gen/android/app/src/main/AndroidManifest.xml"
+          ns = "http://schemas.android.com/apk/res/android"
+          ET.register_namespace("android", ns)
+          ET.register_namespace("tools", "http://schemas.android.com/tools")
+          A = lambda n: f"{{{ns}}}{n}"
+
+          tree = ET.parse(path)
+          root = tree.getroot()
+          activities = root.findall(".//activity")
+          if not activities:
+              raise SystemExit(f"No <activity> element found in {path}")
+          activity = activities[0]  # Tauri's MainActivity is the app's only activity
+
+          present = False
+          for f in activity.findall("intent-filter"):
+              datas = f.findall("data")
+              if "*/*" in [d.get(A("mimeType")) for d in datas] and "content" in [d.get(A("scheme")) for d in datas]:
+                  present = True
+          if present:
+              print("Open-with intent-filter already present")
+          else:
+              f = ET.SubElement(activity, "intent-filter")
+              ET.SubElement(f, "action").set(A("name"), "android.intent.action.VIEW")
+              ET.SubElement(f, "category").set(A("name"), "android.intent.category.DEFAULT")
+              ET.SubElement(f, "data").set(A("scheme"), "content")
+              ET.SubElement(f, "data").set(A("mimeType"), "*/*")
+              print("Added the Open-with intent-filter (VIEW, DEFAULT, content, */*)")
+
+          ET.indent(tree, space="    ")
+          tree.write(path, encoding="utf-8", xml_declaration=True)
+          PY
+
       # --target restricts this to the one ABI that's actually needed. The
       # Galaxy A13's chip is 64-bit capable, but Samsung ships this model
       # with a 32-bit OS, so it only reports armeabi-v7a as installable —
@@ -367,6 +415,18 @@ jobs:
             grep -n -B1 -A1 'android:scheme="midnote"' "$MANIFEST"
           else
             echo "::warning::The midnote:// deep link is NOT in the generated AndroidManifest.xml. Google sign-in will open the browser but cannot come back to the app."
+          fi
+
+      # Round K: the filter that makes Android offer MidNote under "Open with" (added above before the build).
+      # A warning, not a failure: if it is missing the app still works, it just isn't offered for files.
+      - name: Check Open with filter in manifest
+        run: |
+          MANIFEST=src-tauri/gen/android/app/src/main/AndroidManifest.xml
+          if grep -q 'android:mimeType="\*/\*"' "$MANIFEST" && grep -q 'android:scheme="content"' "$MANIFEST"; then
+            echo "Open with present: content:// for any file type"
+            grep -n -B4 -A1 'android:mimeType' "$MANIFEST"
+          else
+            echo "::warning::The Open-with filter is NOT in the generated AndroidManifest.xml. MidNote will not be offered when you open a file."
           fi
 
       - name: List built APKs
