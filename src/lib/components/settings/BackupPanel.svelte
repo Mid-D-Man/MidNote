@@ -14,6 +14,7 @@
   // <input type="file" multiple> with NO accept filter (Android's picker hides unknown extensions that
   // way, same lesson as the font picker); an encrypted backup and its key file are picked together, and
   // files are recognised by their content, not their names.
+  import { onMount } from "svelte";
   import SettingsRow from "./SettingsRow.svelte";
   import Button from "$lib/components/ui/Button/Button.svelte";
   import Switch from "$lib/components/ui/Switch/Switch.svelte";
@@ -25,6 +26,7 @@
   import { customIcons, restoreCustomIcon } from "$lib/stores/customIcons.svelte";
   import { customFonts, exportCustomFonts, restoreCustomFont } from "$lib/stores/customFonts.svelte";
   import { pushToast } from "$lib/stores/toast.svelte";
+  import { registerBackupSink, takeStashedBackup } from "$lib/stores/openWith.svelte";
   import { breadcrumb } from "$lib/debug/log.svelte";
   import * as storage from "$lib/storage";
   import { downloadFiles } from "$lib/utils/selectionActions";
@@ -260,6 +262,35 @@
       busy = null;
     }
   }
+
+  /** Round K: a backup file opened with MidNote from the phone's "Open with" list. Same path as picking it here. */
+  async function receiveFromOpenWith(files: PickedFile[]) {
+    if (busy) {
+      notice = { kind: "info", text: "Finish what's running first, then open that file again." };
+      return;
+    }
+    breadcrumb(`backup: opened from the phone's Open with (${files.length} file${files.length === 1 ? "" : "s"})`);
+    busy = "reading";
+    notice = null;
+    report = null;
+    pending = null;
+    waiting = null;
+    try {
+      await openFiles(files);
+    } catch (err) {
+      breadcrumb(`backup: couldn't read the opened file (${err instanceof Error ? err.message : String(err)})`);
+      notice = { kind: "error", text: "Couldn't read that file." };
+    } finally {
+      busy = null;
+    }
+  }
+
+  // A backup that arrived before this screen was showing is waiting; one that arrives while it shows comes through the sink.
+  onMount(() => {
+    const stash = takeStashedBackup();
+    if (stash) void receiveFromOpenWith(stash);
+    return registerBackupSink((files) => void receiveFromOpenWith(files));
+  });
 
   async function handleKeyPicked(e: Event) {
     const input = e.currentTarget as HTMLInputElement;

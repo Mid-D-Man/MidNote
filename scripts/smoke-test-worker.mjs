@@ -503,6 +503,42 @@ if (process.env.SMOKE_ONLINE) {
   };
 }
 
+// Round K ("Open with MidNote"): a stand-in for the phone side. SMOKE_OPEN_WITH = { cold?: [url], files?: { [url]: file },
+// delayMs? }; a file is { text } | { b64 } | { hex } | { repeat: { count, byte? } } | { fail: true }. read() stops at
+// max + 1 bytes like the real reader. Every url read is recorded in globalThis.__openWithReads. The steps `openUrl`
+// (a link arriving while the app runs) and `expectOpenReads` use this.
+if (process.env.SMOKE_OPEN_WITH) {
+  const spec = JSON.parse(process.env.SMOKE_OPEN_WITH);
+  const reads = (globalThis.__openWithReads = []);
+  const listeners = [];
+  globalThis.__openWithEmit = (url) => {
+    for (const cb of [...listeners]) cb(url);
+  };
+  const bytesOf = (f) => {
+    if (f.b64 !== undefined) return new Uint8Array(Buffer.from(f.b64, "base64"));
+    if (f.hex !== undefined) return new Uint8Array(Buffer.from(f.hex, "hex"));
+    if (f.repeat) return new Uint8Array(f.repeat.count).fill(f.repeat.byte ?? 97);
+    return new TextEncoder().encode(f.text ?? "");
+  };
+  globalThis.__midnoteOpenWith = {
+    getCurrent: async () => spec.cold ?? [],
+    onUrl: async (cb) => {
+      listeners.push(cb);
+      return () => {
+        const i = listeners.indexOf(cb);
+        if (i >= 0) listeners.splice(i, 1);
+      };
+    },
+    read: async (url, max) => {
+      reads.push(url);
+      if (spec.delayMs) await new Promise((r) => setTimeout(r, spec.delayMs));
+      const f = spec.files?.[url];
+      if (!f || f.fail) throw new Error("cannot open that file");
+      return bytesOf(f).slice(0, max + 1);
+    },
+  };
+}
+
 // Bare-identifier browser globals the SvelteKit client runtime and app
 // code touch directly (the way real browser globals work — `window`
 // properties are implicitly global). Extend this list if a new scenario
@@ -909,6 +945,16 @@ if (STEPS.length > 0 && errors.length === 0) {
         el.dispatchEvent(new w.KeyboardEvent(type, { key: step.press.key, ctrlKey: !!step.press.ctrl, bubbles: true, cancelable: true }));
       }
       await new Promise((r) => setTimeout(r, step.press.settleMs ?? 150));
+    } else if (step.openUrl !== undefined) {
+      // Round K: a link arrives while the app is running (the phone's "Open with" -> MidNote, or the sign-in link).
+      globalThis.__openWithEmit(step.openUrl);
+      await new Promise((r) => setTimeout(r, step.settleMs ?? 400));
+    } else if (step.expectOpenReads !== undefined) {
+      const n = (globalThis.__openWithReads ?? []).length;
+      if (n !== step.expectOpenReads) {
+        errors.push(new Error(`${where}: the file reader was used ${n} time(s) but should have been used ${step.expectOpenReads}: ${JSON.stringify(globalThis.__openWithReads)}`));
+        break;
+      }
     } else if (step.expectNoSelector) {
       // Round 36: the inverse of expectSelector — something must NOT be on the page.
       if (target.querySelector(step.expectNoSelector)) {

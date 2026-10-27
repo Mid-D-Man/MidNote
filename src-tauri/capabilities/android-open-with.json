@@ -1,0 +1,15 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "android-open-with",
+  "description": "Lets the app read a file that was opened with MidNote from the phone's \"Open with\" list (a content:// address). fs:allow-open + fs:allow-read only: NO path scope is granted, and for a content:// address the fs plugin does not use one, so ordinary file paths stay unreadable. Android only: the file is handed over by the deep-link plugin, which is a mobile-only dependency.",
+  "windows": [
+    "main"
+  ],
+  "platforms": [
+    "android"
+  ],
+  "permissions": [
+    "fs:allow-open",
+    "fs:allow-read"
+  ]
+}

@@ -823,6 +823,12 @@ function accountScenarios() {
   ];
 }
 
+// Round K: "Open with MidNote". The links the phone hands over, and a tiny real .docx (a zip with word/document.xml).
+const OW = (name) => `content://com.android.externalstorage.documents/document/primary%3ADownload%2F${encodeURIComponent(name)}`;
+const OW_DOCX_B64 = "UEsDBBQAAAAIACUpW13HHBc8CgAAAAgAAAATAAAAW0NvbnRlbnRfVHlwZXNdLnhtbLMJqSxILda3AwBQSwMEFAAAAAgAJSlbXTWdWLHJAAAARQEAABEAAAB3b3JkL2RvY3VtZW50LnhtbG2QwU7DMAyGXyXKYbctBSSEura77bQDSPAAITVrpMSObI/St6cZB6Rpl8/y79+/LHeHn5zMN7BEwt4+7BprAAONEc+9/Xg/bl+sEfU4+kQIvV1A7GHo5nakcMmAatYAlHbu7aRaWuckTJC97KgArrMv4ux1bfnsZuKxMAUQWfNzco9N8+yyj2hr5CeNS62lgit0eLt4VuC0GCQF6VwVK/nKcus/RpnMxueyN2GKRcwm6f7p/pq7XT550btWgaCv7K7C35Xu/wPDL1BLAQIUAxQAAAAIACUpW13HHBc8CgAAAAgAAAATAAAAAAAAAAAAAACAAQAAAABbQ29udGVudF9UeXBlc10ueG1sUEsBAhQDFAAAAAgAJSlbXTWdWLHJAAAARQEAABEAAAAAAAAAAAAAAIABOwAAAHdvcmQvZG9jdW1lbnQueG1sUEsFBgAAAAACAAIAgAAAADMBAAAAAA==";
+const OW_DOCX_BLANK_B64 = "UEsDBBQAAAAIACIqW13HHBc8CgAAAAgAAAATAAAAW0NvbnRlbnRfVHlwZXNdLnhtbLMJqSxILda3AwBQSwMEFAAAAAgAIipbXePC+XyRAAAAuQAAABEAAAB3b3JkL2RvY3VtZW50LnhtbEWNPQ7CMAyFr1J5py4MCFVN2ZgZ4AAhMW2lxo7iQOntSQfE8n70pO9150+YqzclnYQN7OsGKmInfuLBwP122Z2g0mzZ21mYDKykcO67pfXiXoE4VwXA2i4Gxpxji6hupGC1lkhctqekYHOpacBFko9JHKkWfpjx0DRHDHZi2JAP8evmETdVcvmaSsTfgv/X/gtQSwECFAMUAAAACAAiKltdxxwXPAoAAAAIAAAAEwAAAAAAAAAAAAAAgAEAAAAAW0NvbnRlbnRfVHlwZXNdLnhtbFBLAQIUAxQAAAAIACIqW13jwvl8kQAAALkAAAARAAAAAAAAAAAAAACAATsAAAB3b3JkL2RvY3VtZW50LnhtbFBLBQYAAAAAAgACAIAAAAD7AAAAAAA=";
+const OW_SHEET_NAME = '[aria-label="File name"]';
+
 const SCENARIOS = [
   { name: "home / list page", path: "/", seed: SEED_ENTRIES },
   { name: "note — new", path: "/note/new", seed: SEED_ENTRIES },
@@ -3665,6 +3671,244 @@ const SCENARIOS = [
 
   // ---- Round B: accounts (sign up / sign in / sign out) against a fake Supabase (scenario.online) ----
   ...accountScenarios(),
+  // ---- Round K: "Open with MidNote". The phone's side (the content:// link and the file's bytes) is a stand-in
+  // (SMOKE_OPEN_WITH in the worker); everything from there to the note is the real app.
+  {
+    name: "open with — a text file shows a preview, and nothing is created until Create note",
+    path: "/",
+    seed: SEED_ENTRIES,
+    openWith: { cold: [OW("chapter-one.txt")], files: { [OW("chapter-one.txt")]: { text: "First line\n  indented <b>tag</b> & more\n\nLast line\n" } } },
+    steps: [
+      { wait: 600 },
+      { expectText: "Open file" },
+      { expectSelectorText: { selector: OW_SHEET_NAME, text: "chapter-one.txt" } },
+      { expectText: "Text file · 7 words" },
+      { expectText: "indented <b>tag</b> & more" },
+      { expectNotStored: "chapter-one" },
+      { click: "Create note" },
+      { wait: 900 },
+      { expectStored: "chapter-one" },
+      { expectEditorHtml: "<div>First line</div><div>&nbsp;&nbsp;indented &lt;b&gt;tag&lt;/b&gt; &amp; more</div><div></div><div>Last line</div>" },
+    ],
+  },
+  {
+    name: "open with — a file that arrives while the app is running, and Cancel creates nothing",
+    path: "/",
+    seed: SEED_ENTRIES,
+    openWith: { files: { [OW("notes.md")]: { text: "# Heading\nbody" } } },
+    steps: [
+      { wait: 400 },
+      { expectNoSelector: OW_SHEET_NAME },
+      { openUrl: OW("notes.md") },
+      { expectSelectorText: { selector: OW_SHEET_NAME, text: "notes.md" } },
+      { click: "Cancel" },
+      { wait: 600 },
+      { expectNoSelector: OW_SHEET_NAME },
+      { expectNotStored: "notes" },
+    ],
+  },
+  {
+    name: "open with — an HTML file becomes inert text, never markup",
+    path: "/",
+    seed: SEED_ENTRIES,
+    openWith: { cold: [OW("page.html")], files: { [OW("page.html")]: { text: "<script>window.__pwned=1</script>\n<img src=x onerror=\"window.__pwned=1\">" } } },
+    steps: [
+      { wait: 600 },
+      { click: "Create note" },
+      { wait: 900 },
+      { expectEditorHtml: "<div>&lt;script&gt;window.__pwned=1&lt;/script&gt;</div><div>&lt;img src=x onerror=\"window.__pwned=1\"&gt;</div>" },
+      { expectNoSelector: ".ProseMirror script, .ProseMirror img" },
+    ],
+  },
+  {
+    name: "open with — a link with no file name uses the first line as the title",
+    path: "/",
+    seed: SEED_ENTRIES,
+    openWith: { cold: ["content://media/external/downloads/1234"], files: { "content://media/external/downloads/1234": { text: "# My Story\nonce upon a time" } } },
+    steps: [{ wait: 600 }, { expectText: "Unnamed file" }, { click: "Create note" }, { wait: 900 }, { expectStored: '"title":"My Story"' }],
+  },
+  {
+    name: "open with — a picture is refused with a reason and offers no note",
+    path: "/",
+    seed: SEED_ENTRIES,
+    openWith: { cold: [OW("photo.png")], files: { [OW("photo.png")]: { hex: "89504e470d0a1a0a0000000d49484452" } } },
+    steps: [
+      { wait: 600 },
+      { expectText: "That isn't a text file" },
+      { expectNoSelector: '[aria-label="Create note"]' },
+      { click: "Close" },
+      { wait: 600 },
+      { expectNoSelector: OW_SHEET_NAME },
+    ],
+  },
+  {
+    name: "open with — an app file (zip) and an empty file are refused",
+    path: "/",
+    seed: SEED_ENTRIES,
+    openWith: { files: { [OW("app.apk")]: { hex: "504b030400000000000000000000" }, [OW("empty.txt")]: { text: "" } } },
+    steps: [
+      { wait: 300 },
+      { openUrl: OW("app.apk") },
+      { expectText: "compressed file" },
+      { expectNoSelector: '[aria-label="Create note"]' },
+      { click: "Close" },
+      { wait: 600 },
+      { openUrl: OW("empty.txt") },
+      { expectText: "That file is empty" },
+    ],
+  },
+  {
+    name: "open with — a file over the size limit is refused without being read in full",
+    path: "/",
+    seed: SEED_ENTRIES,
+    openWith: { cold: [OW("huge.txt")], files: { [OW("huge.txt")]: { repeat: { count: 9000000 } } } },
+    steps: [{ wait: 800 }, { expectText: "too big to open" }, { expectNoSelector: '[aria-label="Create note"]' }],
+  },
+  {
+    name: "open with — a very long text file is cut for the note and says so",
+    path: "/",
+    seed: SEED_ENTRIES,
+    openWith: { cold: [OW("novel.txt")], files: { [OW("novel.txt")]: { repeat: { count: 400000 } } } },
+    steps: [{ wait: 800 }, { expectText: "This file is very long" }, { expectText: "300,000 characters" }, { expectSelector: '[aria-label="Create note"]' }],
+  },
+  {
+    name: "open with — a Word document becomes a note with its text",
+    path: "/",
+    seed: SEED_ENTRIES,
+    openWith: { cold: [OW("report.docx")], files: { [OW("report.docx")]: { b64: OW_DOCX_B64 } } },
+    steps: [
+      { wait: 600 },
+      { expectText: "Word document · 6 words" },
+      { click: "Create note" },
+      { wait: 900 },
+      { expectStored: '"title":"report"' },
+      { expectEditorHtml: "<div>Quarterly notes</div><div>Fish &amp; chips &lt;3</div><div></div><div>Last</div>" },
+    ],
+  },
+  {
+    name: "open with — a plain MidNote backup goes to Backup & restore and shows its preview first",
+    path: "/",
+    seed: SEED_ENTRIES,
+    openWith: { cold: [OW("midnote-backup-2026-10-01-1000.mdix")], files: { [OW("midnote-backup-2026-10-01-1000.mdix")]: { text: RESTORE_BACKUP_MDIX } } },
+    steps: [
+      { wait: 600 },
+      { expectText: "This is a MidNote backup" },
+      { expectNoSelector: '[aria-label="Create note"]' },
+      { click: "Open in Backup and restore" },
+      { wait: 1000 },
+      { expectText: "Restore this backup?" },
+      { expectText: "1 to add" },
+      { expectNotStored: "Restored note from backup" },
+    ],
+  },
+  {
+    name: "open with — a backup that arrives while Backup & restore is already showing",
+    path: "/settings/backup",
+    seed: SEED_ENTRIES,
+    openWith: { files: { [OW("midnote-backup-2026-10-01-1000.mdix")]: { text: RESTORE_BACKUP_MDIX } } },
+    steps: [
+      { wait: 400 },
+      { openUrl: OW("midnote-backup-2026-10-01-1000.mdix") },
+      { expectText: "This is a MidNote backup" },
+      { click: "Open in Backup and restore" },
+      { wait: 1000 },
+      { expectText: "Restore this backup?" },
+      { expectText: "1 to update" },
+    ],
+  },
+  {
+    name: "open with — a password-protected backup asks for its key file; a key file alone only explains",
+    path: "/",
+    seed: SEED_ENTRIES,
+    openWith: { files: { [OW("midnote-backup-1.mdix.enc")]: { hex: "8081fd00feff90a1b2c3d4e5f60718293a4b5c6d" }, [OW("midnote-backup-1.mdix.key")]: { text: "// DixScript Key File\nkey_type = 1\n" } } },
+    steps: [
+      { wait: 400 },
+      { openUrl: OW("midnote-backup-1.mdix.key") },
+      { expectText: "key file of a password-protected" },
+      { expectNoSelector: '[aria-label="Open in Backup and restore"]' },
+      { click: "Close" },
+      { wait: 600 },
+      { openUrl: OW("midnote-backup-1.mdix.enc") },
+      { expectText: "password-protected MidNote backup" },
+      { click: "Open in Backup and restore" },
+      { wait: 1000 },
+      { expectText: "Key file needed" },
+    ],
+  },
+  {
+    name: "open with — the sign-in link and file:// addresses are ignored and never read",
+    path: "/",
+    seed: SEED_ENTRIES,
+    openWith: { files: {} },
+    steps: [
+      { wait: 400 },
+      { openUrl: "midnote://auth?code=abc" },
+      { openUrl: "file:///data/data/com.midmanstudio.midnote/files/secret.txt" },
+      { openUrl: "https://example.com/a.txt" },
+      { expectNoSelector: OW_SHEET_NAME },
+      { expectOpenReads: 0 },
+    ],
+  },
+  {
+    name: "open with — a .docx that is not a readable Word document, and a Word file with no text, are refused",
+    path: "/",
+    seed: SEED_ENTRIES,
+    openWith: { files: { [OW("broken.docx")]: { hex: "504b030400000000000000000000000000000000" }, [OW("blank.docx")]: { b64: OW_DOCX_BLANK_B64 } } },
+    steps: [
+      { wait: 300 },
+      { openUrl: OW("broken.docx") },
+      { expectText: "isn't a Word document that MidNote can read" },
+      { expectNoSelector: '[aria-label="Create note"]' },
+      { click: "Close" },
+      { wait: 600 },
+      { openUrl: OW("blank.docx") },
+      { expectText: "That document has no text in it" },
+      { expectNoSelector: '[aria-label="Create note"]' },
+    ],
+  },
+  {
+    name: "open with — a file that can't be read says so",
+    path: "/",
+    seed: SEED_ENTRIES,
+    openWith: { cold: [OW("gone.txt")], files: {} },
+    steps: [{ wait: 600 }, { expectText: "couldn't read that file" }, { click: "Close" }, { wait: 600 }, { expectNoSelector: OW_SHEET_NAME }],
+  },
+  {
+    name: "open with — when two files arrive, the newest one is shown",
+    path: "/",
+    seed: SEED_ENTRIES,
+    openWith: { delayMs: 500, files: { [OW("first.txt")]: { text: "one" }, [OW("second.txt")]: { text: "two" } } },
+    steps: [
+      { wait: 300 },
+      { openUrl: OW("first.txt"), settleMs: 100 },
+      { openUrl: OW("second.txt"), settleMs: 1500 },
+      { expectSelectorText: { selector: OW_SHEET_NAME, text: "second.txt" } },
+      { expectOpenReads: 2 },
+    ],
+  },
+  {
+    name: "open with — closing the sheet while a file is still being read shows nothing afterwards",
+    path: "/",
+    seed: SEED_ENTRIES,
+    // (every step also sleeps 250 ms after itself; the read takes 2.5 s, so the click lands mid-read and well past the
+    // sheet's 300 ms tap guard)
+    openWith: { delayMs: 2500, files: { [OW("slow.txt")]: { text: "slow" } } },
+    steps: [
+      { wait: 300 },
+      { openUrl: OW("slow.txt"), settleMs: 450 },
+      { expectText: "Reading the file" },
+      { clickSelector: ".scrim" },
+      { wait: 2800 },
+      { expectNoSelector: OW_SHEET_NAME },
+    ],
+  },
+  {
+    name: "open with — the file that started the app is read once even if the plugin lists it twice",
+    path: "/",
+    seed: SEED_ENTRIES,
+    openWith: { cold: [OW("twice.txt"), OW("twice.txt")], files: { [OW("twice.txt")]: { text: "x" } } },
+    steps: [{ wait: 700 }, { expectSelectorText: { selector: OW_SHEET_NAME, text: "twice.txt" } }, { expectOpenReads: 1 }],
+  },
 ];
 
 // steps (round 26): an ordered script of interactions, run after the
@@ -3700,6 +3944,7 @@ function runScenario(scenario) {
         ...(scenario.copy ? { SMOKE_COPY: "fake" } : {}),
         ...(scenario.online ? { SMOKE_ONLINE: JSON.stringify(scenario.online) } : {}),
         ...(scenario.backupCrypto ? { SMOKE_BACKUP_CRYPTO: "1" } : {}),
+        ...(scenario.openWith ? { SMOKE_OPEN_WITH: JSON.stringify(scenario.openWith) } : {}),
         ...(scenario.tts ? { SMOKE_TTS: scenario.tts === "noevents" ? "fake-noevents" : "fake" } : {}),
         SMOKE_BUILD_DIR: BUILD_DIR,
         SMOKE_ROUTE_PATH: scenario.path,

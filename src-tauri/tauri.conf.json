@@ -28,6 +28,10 @@
           "scheme": ["midnote"],
           "host": "auth",
           "appLink": false
+        },
+        {
+          "scheme": ["content"],
+          "appLink": false
         }
       ]
     }

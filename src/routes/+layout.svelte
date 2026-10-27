@@ -17,6 +17,8 @@
   import { initCustomIcons } from "$lib/stores/customIcons.svelte";
   import { initAccount } from "$lib/stores/account.svelte";
   import ReadAloudBar from "$lib/components/shared/ReadAloudBar/ReadAloudBar.svelte";
+  import OpenFileSheet from "$lib/components/shared/OpenFileSheet/OpenFileSheet.svelte";
+  import { startOpenWith } from "$lib/stores/openWith.svelte";
   import type { Snippet } from "svelte";
 
   let { children }: { children: Snippet } = $props();
@@ -90,6 +92,9 @@
       // No-op outside the Android app. The returned unsubscribe isn't kept:
       // the root layout lives for the whole session.
       void installReminderTapHandler((path) => goto(path));
+      // Round K: a file opened with MidNote from the phone's "Open with" list (its sheet is below).
+      // No-op outside the Android app. Never throws.
+      void startOpenWith();
       topUpRepeating(true);
     })();
 
@@ -103,6 +108,7 @@
   {@render children()}
 {/if}
 <ReadAloudBar />
+<OpenFileSheet />
 <Toast />
 <LockPrompt />
 <LoadingOverlay />
