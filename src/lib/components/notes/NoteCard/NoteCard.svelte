@@ -9,6 +9,8 @@
   import { noteTags, registerTag, unregisterTag } from "$lib/stores/tags.svelte";
   import { saveEntry } from "$lib/stores/entries.svelte";
   import { copyEntryContent } from "$lib/utils/copyText";
+  import { shareEntryFromMenu } from "$lib/utils/share";
+  import { breadcrumb } from "$lib/debug/log.svelte";
   import { pushToast } from "$lib/stores/toast.svelte";
   import { stripHtml } from "$lib/utils/richText";
   import { createLongPressHandlers } from "$lib/utils/longPress";
@@ -170,6 +172,12 @@
   async function handleCopyContent() {
     pushToast(await copyEntryContent(note));
   }
+
+  // Round L: "Share" in the ⋮ menu — the note's text through the phone's share sheet (download when there is none).
+  async function handleShare() {
+    const toast = await shareEntryFromMenu(note, "note", () => onDownload(note.id), breadcrumb);
+    if (toast) pushToast(toast);
+  }
 </script>
 
 <Card class="note-card {selected ? 'selected' : ''} {compact ? 'compact' : ''} {resolved.kind === 'image' ? 'has-image-theme' : ''}" style={cardStyle} onclick={handleClick} {...pressHandlers}>
@@ -195,6 +203,7 @@
         onDelete={() => onDelete(note.id)}
         onDownload={() => onDownload(note.id)}
         onCopy={handleCopyContent}
+        onShare={handleShare}
         onToggleStrikethrough={() => onToggleStrikethrough(note.id)}
         onTogglePin={() => onTogglePin(note.id)}
         onToggleLock={handleToggleLock}

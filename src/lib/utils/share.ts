@@ -126,3 +126,31 @@ export function entriesToShareText(entries: Entry[]): { text: string; skippedLoc
     skippedLocked: entries.length - open.length,
   };
 }
+
+export type ShareToast = { title: string; description?: string; variant?: "destructive" };
+
+/**
+ * "Share" in a card's ⋮ menu: ONE entry's text through the phone's share sheet. Returns the toast to show, or null.
+ *   - a locked entry is refused (its content is cleared while locked), like Copy content
+ *   - an empty entry has nothing to share
+ *   - too long for a share sheet, or no share sheet: `download` runs instead and the toast says so
+ * `label` is "note" / "todo" / "board" (only used in wording).
+ */
+export async function shareEntryFromMenu(
+  entry: Entry,
+  label: string,
+  download: () => unknown,
+  log?: (msg: string) => void,
+  deps?: ShareDeps,
+): Promise<ShareToast | null> {
+  if (entry.encrypted) return { title: "Unlock first", description: `Unlock this ${label} before sharing it.`, variant: "destructive" };
+  const text = entryToPlainText(entry);
+  if (text.trim() === "") return { title: "Nothing to share", description: `This ${label} is empty.` };
+  const result = await shareText(text, { title: entry.title || "MidNote", log }, deps);
+  log?.(`share: card menu ${label} -> ${result}`);
+  if (result === "unsupported" || result === "toolarge") {
+    await download();
+    return { title: result === "toolarge" ? "Too long to share as text" : "Sharing isn't available here", description: "Downloaded instead." };
+  }
+  return shareOutcomeToast(result);
+}

@@ -21,6 +21,6 @@
   } = $props();
 </script>
 
-<Sheet bind:open side="bottom" title="Tags">
+<Sheet bind:open side="bottom" title="Tags" lift>
   <TagSelector selectedTags={tags} {availableTags} {onAddTag} {onRemoveTag} />
 </Sheet>

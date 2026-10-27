@@ -13,6 +13,7 @@
     onDelete,
     onDownload,
     onCopy,
+    onShare,
     onMove,
     onToggleStrikethrough,
     onTogglePin,
@@ -31,6 +32,8 @@
     // shows where the caller supplies it. A locked entry is refused by the caller
     // (its content is cleared while locked).
     onCopy?: () => void;
+    // Round L: send the entry's text through the phone's share sheet. Optional; locked entries are refused by the caller.
+    onShare?: () => void;
     // Round 47: file this entry into a folder (opens the folder picker). Optional.
     onMove?: () => void;
     onToggleStrikethrough: () => void;
@@ -139,7 +142,7 @@
     {/if}
   </button>
 
-  <Sheet bind:open side="bottom" title="Options">
+  <Sheet bind:open side="bottom" title="Options" lift>
     <div class="menu-list">
       <button class="menu-item" onclick={() => pick(onTogglePin, "pin")}>
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
@@ -149,7 +152,7 @@
         <span>{pinned ? "Unpin" : "Pin to top"}</span>
       </button>
       {#if !encrypted}
-        <button class="menu-item" onclick={() => pick(onOpenTags, "tags")}>
+        <button class="menu-item" aria-label="Tags" onclick={() => pick(onOpenTags, "tags")}>
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M20.59 13.41 11 3.83A2 2 0 0 0 9.59 3.24L3 3v6.59a2 2 0 0 0 .59 1.41l9.59 9.59a2 2 0 0 0 2.82 0l4.59-4.59a2 2 0 0 0 0-2.82z" />
             <circle cx="7.5" cy="7.5" r="1" fill="currentColor" />
@@ -191,6 +194,15 @@
             <rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
           </svg>
           <span>Copy content</span>
+        </button>
+      {/if}
+      {#if onShare}
+        <button class="menu-item" aria-label="Share" onclick={() => pick(onShare, "share")}>
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" />
+            <line x1="8.6" y1="13.5" x2="15.4" y2="17.5" /><line x1="15.4" y1="6.5" x2="8.6" y2="10.5" />
+          </svg>
+          <span>Share</span>
         </button>
       {/if}
       <button class="menu-item" onclick={() => pick(onDownload, "download")}>

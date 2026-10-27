@@ -61,7 +61,7 @@
   }
 </script>
 
-<Sheet bind:open side="bottom" title="Move to folder">
+<Sheet bind:open side="bottom" title="Move to folder" lift>
   <ul class="rows">
     {#each rows as row (row.id ?? "top")}
       <li>

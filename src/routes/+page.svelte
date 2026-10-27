@@ -25,7 +25,7 @@
   import { createSwipeHandlers } from "$lib/utils/swipe";
   import { progressLabel, countDone } from "$lib/utils/todoEdits";
   import { mergeNotes, mergeTodos, buildExportFiles, buildEncryptedBackupFile, downloadFiles, type ExportFormat } from "$lib/utils/selectionActions";
-  import { shareText, shareOutcomeToast, entriesToShareText } from "$lib/utils/share";
+  import { shareText, shareOutcomeToast, entriesToShareText, shareEntryFromMenu } from "$lib/utils/share";
   import { copyEntryContent, copyEntriesContent } from "$lib/utils/copyText";
   import { pushToast } from "$lib/stores/toast.svelte";
   import { breadcrumb } from "$lib/debug/log.svelte";
@@ -686,6 +686,10 @@
                         onDelete={() => handleDeleteSingle(item.id)}
                         onDownload={() => handleDownloadSingle(item.id)}
                         onCopy={async () => pushToast(await copyEntryContent(item))}
+                        onShare={async () => {
+                          const toast = await shareEntryFromMenu(item, "board", () => downloadFiles(buildExportFiles([item], "separate")), breadcrumb);
+                          if (toast) pushToast(toast);
+                        }}
                         onToggleStrikethrough={() => toggleStrikethrough(item.id)}
                         onTogglePin={() => togglePinned(item.id)}
                         onToggleLock={() => handleToggleLock(item)}
@@ -792,6 +796,10 @@
                         onDelete={() => handleDeleteSingle(item.id)}
                         onDownload={() => handleDownloadSingle(item.id)}
                         onCopy={async () => pushToast(await copyEntryContent(item))}
+                        onShare={async () => {
+                          const toast = await shareEntryFromMenu(item, "todo", () => downloadFiles(buildExportFiles([item], "separate")), breadcrumb);
+                          if (toast) pushToast(toast);
+                        }}
                         onToggleStrikethrough={() => toggleStrikethrough(item.id)}
                         onTogglePin={() => togglePinned(item.id)}
                         onToggleLock={() => handleToggleLock(item)}

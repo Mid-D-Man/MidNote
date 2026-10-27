@@ -6,6 +6,7 @@
     side = "left",
     title = "",
     onBack,
+    lift = false,
     children,
   }: {
     open?: boolean;
@@ -15,6 +16,10 @@
     // caller decides where "back" goes — usually closing this sheet and
     // reopening the one it was opened from).
     onBack?: () => void;
+    // Round L: a bottom sheet that floats ABOVE the bottom edge (a gap of --sheet-lift, default 64px, plus side margins and
+    // rounded corners all round) instead of sitting on it. For menus whose last rows were hard to hit down at the edge of
+    // the screen (where the phone's navigation bar / gesture area is). Bottom sheets only; others ignore it.
+    lift?: boolean;
     children: Snippet;
   } = $props();
 
@@ -110,7 +115,7 @@
 
 {#if open}
   <div class="scrim" onclick={handleScrimClick} role="presentation"></div>
-  <div class="sheet {side}" class:dragging bind:this={sheetEl} style="transform: {dragTransform}">
+  <div class="sheet {side}" class:dragging class:lifted={lift && side === "bottom"} bind:this={sheetEl} style="transform: {dragTransform}">
     {#if side === "bottom"}
       <div
         class="drag-handle-wrap"
@@ -216,6 +221,19 @@
     border-top: 1px solid var(--hairline);
     padding-bottom: env(safe-area-inset-bottom);
     animation: rise 0.18s ease-out;
+  }
+  /* Round L: a bottom sheet lifted off the bottom edge (see the `lift` prop). The gap is at least the safe-area inset and
+     --sheet-lift (64px unless a parent sets another), so the last row clears the phone's navigation bar; the height budget
+     shrinks by the same gap so a tall list still fits above the status bar. */
+  .sheet.bottom.lifted {
+    --lift-gap: max(var(--sheet-lift, 64px), env(safe-area-inset-bottom));
+    left: var(--space-3);
+    right: var(--space-3);
+    bottom: var(--lift-gap);
+    max-height: calc(80dvh - var(--lift-gap));
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-md);
+    padding-bottom: 0;
   }
   @keyframes rise {
     from {
