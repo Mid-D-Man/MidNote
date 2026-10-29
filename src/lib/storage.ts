@@ -74,6 +74,31 @@ function clone<T>(value: T): T {
 let _entries: Entry[] = [];
 let _entriesInitialized = false;
 
+// Round C (sync): the sync store listens for "an entry was saved" and "an entry was deleted
+// for good" instead of every caller having to tell it. Listeners run synchronously inside the
+// call, so a caller that is itself part of sync can mute them for the duration of its call.
+// A listener's own bug never breaks saving.
+type SavedListener = (id: string, type: string) => void;
+const _savedListeners = new Set<SavedListener>();
+const _purgedListeners = new Set<SavedListener>();
+export function onEntrySaved(fn: SavedListener): () => void {
+  _savedListeners.add(fn);
+  return () => _savedListeners.delete(fn);
+}
+export function onEntryPurged(fn: SavedListener): () => void {
+  _purgedListeners.add(fn);
+  return () => _purgedListeners.delete(fn);
+}
+function notify(set: Set<SavedListener>, id: string, type: string) {
+  for (const fn of [...set]) {
+    try {
+      fn(id, type);
+    } catch (err) {
+      console.error("storage: a change listener threw:", err);
+    }
+  }
+}
+
 // Defensive per-entry validation — factored out of the old loadEntries()
 // so both the real-backend path and the localStorage fallback path run
 // it, since either can hand back an entry saved under an older shape (a
@@ -276,6 +301,7 @@ export function upsertEntry(entry: Entry, opts: { touch?: boolean } = {}): Promi
   const i = _entries.findIndex((e) => e.id === entry.id);
   if (i === -1) _entries.push(stored);
   else _entries[i] = stored;
+  notify(_savedListeners, stored.id, stored.type);
 
   if (dix.isTauriRuntime()) {
     // Fire-and-persist: the in-memory cache above (the UI's actual
@@ -323,7 +349,9 @@ export function upsertEntry(entry: Entry, opts: { touch?: boolean } = {}): Promi
 // backing all of those before Trash existed, so nothing about ITS OWN
 // behavior needed to change; only what calls it did.
 export function deleteEntry(id: string) {
+  const gone = _entries.find((e) => e.id === id);
   _entries = _entries.filter((e) => e.id !== id);
+  if (gone) notify(_purgedListeners, id, gone.type);
   if (dix.isTauriRuntime()) {
     dix.deleteEntry(id).catch((err) => {
       console.error(`storage: failed to delete entry ${id} from the real backend:`, err);

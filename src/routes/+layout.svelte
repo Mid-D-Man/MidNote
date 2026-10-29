@@ -16,6 +16,7 @@
   import { initCustomThemes } from "$lib/stores/customThemes.svelte";
   import { initCustomIcons } from "$lib/stores/customIcons.svelte";
   import { initAccount } from "$lib/stores/account.svelte";
+  import { initSync, startSync } from "$lib/stores/sync.svelte";
   import ReadAloudBar from "$lib/components/shared/ReadAloudBar/ReadAloudBar.svelte";
   import OpenFileSheet from "$lib/components/shared/OpenFileSheet/OpenFileSheet.svelte";
   import { startOpenWith } from "$lib/stores/openWith.svelte";
@@ -67,6 +68,9 @@
     // Round B: restore the signed-in session (if any) before the header first paints.
     // Local only, no network wait; never throws.
     initAccount();
+    // Round C: sync listens for changes from the very start (so even the boot-time clean-up of
+    // old Trash is seen); its first run waits until storage is ready, below.
+    initSync();
 
     // Round 33: register imported fonts with the browser. Independent of
     // entry loading (a note just paints in its fallback face for the moment
@@ -96,6 +100,8 @@
       // No-op outside the Android app. Never throws.
       void startOpenWith();
       topUpRepeating(true);
+      // Round C: the first sync of the session (no-op when signed out). Never throws.
+      startSync();
     })();
 
     return () => document.removeEventListener("visibilitychange", onVisible);

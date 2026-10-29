@@ -5,7 +5,7 @@
   import SettingsSheet from "$lib/components/layout/SettingsSheet/SettingsSheet.svelte";
   import TrashSheet from "$lib/components/layout/TrashSheet/TrashSheet.svelte";
   import { goto } from "$app/navigation";
-  import { pushToast } from "$lib/stores/toast.svelte";
+  import { syncNow, syncStatus } from "$lib/stores/sync.svelte";
   import { account } from "$lib/stores/account.svelte";
   import { appHeaderTheme } from "$lib/stores/settings.svelte";
   import { resolveTheme, hexToRgba, getImageTextColorVars } from "$lib/utils/themePalette";
@@ -46,17 +46,13 @@
         : "",
   );
 
-  // The cloud button. Signed out it opens sign-in; signed in it says so honestly, because
-  // the sync itself is the next round and a button that pretends to sync would be a lie.
+  // The cloud button. Signed out it opens sign-in; signed in it syncs now and says how it went.
   function handleSync() {
     if (!account.signedIn) {
       openAuth("signin");
       return;
     }
-    pushToast({
-      title: "Signed in",
-      description: "Sync isn't built yet. Your notes are safe on this phone.",
-    });
+    void syncNow({ toast: true });
   }
 </script>
 
@@ -71,7 +67,7 @@
 
   <h1><img src="/midnote-logo.svg" alt="" class="logo-mark" /> MidNote</h1>
 
-  <Button variant="ghost" size="icon" aria-label="Cloud sync" onclick={handleSync}>
+  <Button variant="ghost" size="icon" aria-label="Cloud sync" aria-busy={syncStatus.running} onclick={handleSync}>
     <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
       <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />
     </svg>

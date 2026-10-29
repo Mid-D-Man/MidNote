@@ -347,6 +347,14 @@ if (process.env.SMOKE_BACKUP_CRYPTO) {
 //   coldStart        {verifier,email?}: the app was CLOSED while in the browser and is opened by
 //                    the returning link (pair it with storage midnote:oauth-pending)
 //   strayLink        the app is opened by a midnote://auth link nobody asked for
+//   sync             Round C: the sync tables. { rows?, status? } rows = entries already on the server, each
+//                    { id, type, title?, lastModified, purged?, extra? } (the worker wraps them in the
+//                    payload envelope); status = { push?: http status, pull?: http status } forces that answer.
+//                    GET /rest/v1/midnote_entries is paged by (updated_at, id) exactly like the real server
+//                    (the "or" filter is parsed, so a wrong encoding or quoting fails the scenario) and
+//                    POST /rest/v1/rpc/midnote_push_entries applies a row only when it is STRICTLY newer.
+//                    The server's rows are mirrored, one line each, in globalThis.__syncRows as
+//                    "id|live-or-purged|title|lastModified". delayMs makes every sync answer that slow.
 // The stand-in server checks PKCE for real: the code only trades for a session when
 // base64url(sha256(code_verifier)) equals the challenge the app sent, so a wrong hash,
 // encoding or verifier fails the scenario.
@@ -383,6 +391,71 @@ if (process.env.SMOKE_ONLINE) {
   const aiCalls = (globalThis.__aiCalls = []);
   let aiRun = 0;
   const AI_STATUS = { enabled: true, has_account: true, balance: 2996, daily_cap: 400, daily_left: 396, next_topup_at: "2026-11-17T10:00:00.000Z", pool_open: true, resets_in: 21600 };
+  // Round C: the sync tables.
+  const syncRows = (globalThis.__syncRows = []);
+  const sync = spec.sync ? { rows: new Map(), us: Date.UTC(2026, 9, 28, 10, 0, 0) * 1000 } : null;
+  const syncTick = () => (sync.us += 1000);
+  const syncFmt = (us) => {
+    const ms = Math.floor(us / 1000);
+    return `${new Date(ms).toISOString().slice(0, 19)}.${String(ms % 1000).padStart(3, "0")}${String(us % 1000).padStart(3, "0")}+00:00`;
+  };
+  const syncMirror = () => {
+    syncRows.splice(0, syncRows.length, ...[...sync.rows.values()].sort((a, b) => (a.id < b.id ? -1 : 1)).map((r) => `${r.id}|${r.purged ? "purged" : "live"}|${r.payload?.entry?.title ?? ""}|${r.last_modified}`));
+  };
+  if (sync) {
+    for (const r of spec.sync.rows ?? []) {
+      sync.rows.set(r.id, {
+        id: r.id,
+        type: r.type,
+        payload: r.purged ? {} : { v: 1, enc: "none", entry: { id: r.id, type: r.type, title: r.title ?? r.id, tags: [], lastModified: r.lastModified, isBookmarked: false, encrypted: false, ...(r.type === "regular" ? { content: "", pages: [] } : {}), ...(r.extra ?? {}) } },
+        last_modified: new Date(r.lastModified).toISOString(),
+        purged: r.purged === true,
+        updated_at: syncTick(),
+      });
+    }
+    syncMirror();
+  }
+  const syncTime = (t) => {
+    const m = /^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)\.(\d{6})/.exec(t);
+    return Date.parse(m[1] + "Z") * 1000 + Number(m[2]);
+  };
+  const syncHandle = async (u, init) => {
+    if (spec.sync.delayMs) await new Promise((r) => setTimeout(r, spec.sync.delayMs));
+    if (u.pathname === "/rest/v1/rpc/midnote_push_entries" && init.method === "POST") {
+      if (spec.sync.status?.push) return json(spec.sync.status.push, { message: "fake server trouble" });
+      const batch = JSON.parse(init.body).p_entries;
+      const tx = syncTick();
+      const out = [];
+      for (const r of batch) {
+        const cur = sync.rows.get(r.id);
+        const lm = Date.parse(r.last_modified);
+        if (Number.isNaN(lm)) return json(400, { code: "22007", message: "invalid input syntax for type timestamp with time zone" });
+        const applied = !cur || Date.parse(cur.last_modified) < lm;
+        if (applied) sync.rows.set(r.id, { id: r.id, type: r.type, payload: r.purged ? {} : r.payload, last_modified: new Date(lm).toISOString(), purged: r.purged === true, updated_at: tx });
+        out.push({ entry_id: r.id, applied });
+      }
+      syncMirror();
+      return json(200, out);
+    }
+    if (u.pathname === "/rest/v1/midnote_entries" && init.method === "GET") {
+      if (spec.sync.status?.pull) return json(spec.sync.status.pull, { message: "fake server trouble" });
+      let after = null;
+      const orp = u.searchParams.get("or");
+      if (orp) {
+        const m = /^\(updated_at\.gt\."([^"]+)"(?:,and\(updated_at\.eq\."[^"]+",id\.gt\."((?:[^"\\]|\\.)*)"\))?\)$/.exec(orp);
+        if (!m || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}(Z|[+-]\d\d:\d\d)$/.test(m[1])) return json(400, { code: "PGRST100", message: "failed to parse logic tree: " + orp });
+        after = { us: syncTime(m[1]), id: m[2] === undefined ? null : m[2].replace(/\\(.)/g, "$1") };
+      }
+      const limit = Number(u.searchParams.get("limit") ?? "1000");
+      const list = [...sync.rows.values()]
+        .sort((a, b) => a.updated_at - b.updated_at || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+        .filter((r) => !after || r.updated_at > after.us || (after.id !== null && r.updated_at === after.us && r.id > after.id))
+        .slice(0, limit)
+        .map((r) => ({ ...r, updated_at: syncFmt(r.updated_at) }));
+      return json(200, list);
+    }
+    return null;
+  };
   globalThis.__midnoteOnline = {
     config: spec.config ?? { url: "https://smoke.supabase.co", key: "sb_publishable_smoke" },
     emailFlows: spec.emailFlows === true,
@@ -454,6 +527,10 @@ if (process.env.SMOKE_ONLINE) {
       if (u.pathname.startsWith("/rest/v1/")) {
         const bearer = String(init.headers.Authorization || "").replace("Bearer ", "");
         if (!validAccess.has(bearer)) return json(401, { message: "JWT expired" });
+        if (sync) {
+          const answered = await syncHandle(u, init);
+          if (answered) return answered;
+        }
         if (u.pathname === "/rest/v1/services") return json(200, [{ id: "svc-1" }]);
         if (u.pathname === "/rest/v1/service_subscriptions") return init.method === "POST" ? json(spec.enrolPost ?? 201, {}) : json(200, []);
       }

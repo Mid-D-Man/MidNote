@@ -9,6 +9,7 @@
   //
   // Signing out only ends the session on this phone. Notes, todos and boards stay here.
   import SettingsRow from "./SettingsRow.svelte";
+  import SyncPanel from "./SyncPanel.svelte";
   import Button from "$lib/components/ui/Button/Button.svelte";
   import AuthDialog, { type AuthMode } from "$lib/components/layout/AuthDialog/AuthDialog.svelte";
   import { account, openPortal, setPassword, signOutNow } from "$lib/stores/account.svelte";
@@ -129,6 +130,7 @@
         <Button variant="default" onclick={savePassword} disabled={busy !== null} aria-label="Save password">{busy === "password" ? "Saving…" : "Save password"}</Button>
       </div>
     {/if}
+    <SyncPanel />
     <SettingsRow label="Manage on MidManStudio" desc="Profile and your other studio apps." aria-label="Manage on MidManStudio" onclick={openPortal} chevron />
     {#if notice}
       <p class="notice" class:error={notice.kind === "error"} role={notice.kind === "error" ? "alert" : "status"}>{notice.text}</p>
@@ -139,7 +141,7 @@
     <p class="fine">Signing out only ends the session on this phone. Your notes, todos and boards stay here.</p>
   {:else}
     <p class="lead">You're not signed in.</p>
-    <p class="fine">MidNote keeps everything on this phone. An account is only needed for the online parts that are coming: sync between devices and AI. It's your MidManStudio account, the same one the studio's other apps use.</p>
+    <p class="fine">MidNote keeps everything on this phone. An account is only needed for the online parts: sync between devices and AI. It's your MidManStudio account, the same one the studio's other apps use.</p>
     <div class="actions">
       <Button variant="default" onclick={() => openDialog("signin")} aria-label="Sign in">Sign in</Button>
       {#if account.emailFlows}

@@ -226,6 +226,218 @@ const fillSignIn = (email, password) => [
   { wait: 400 },
 ];
 
+// Round C: sync. A signed-in phone against the stand-in server (see smoke-test-worker.mjs, spec.sync).
+const T_OLD = "2026-10-01T10:00:00.000Z";
+const T_MID = "2026-10-02T10:00:00.000Z";
+const T_NEW = "2026-10-03T10:00:00.000Z";
+const syncNote = (id, title, lastModified, extra = {}) => ({ id, type: "regular", title, content: "x", tags: [], lastModified, isBookmarked: false, encrypted: false, ...extra });
+const SYNC_STORAGE = { "midnote:session": SESSION_VALID };
+const syncOnline = (sync) => ({ users: [SEED_USER], validAccess: ["AT-seed"], sync });
+const PUSH_CALL = "POST /rest/v1/rpc/midnote_push_entries";
+const PULL_CALL = "GET /rest/v1/midnote_entries";
+
+function syncScenarios() {
+  return [
+    {
+      name: "sync — signed in at startup: this phone's notes go up, the server's come down",
+      path: "/",
+      seed: [syncNote("n-local", "Phone only note", T_MID)],
+      storage: SYNC_STORAGE,
+      online: syncOnline({ rows: [{ id: "n-remote", type: "regular", title: "From the other phone", lastModified: T_MID, extra: { tags: ["Fresh tag"] } }] }),
+      steps: [
+        { wait: 1200 },
+        { expectText: "From the other phone" },
+        { expectStored: '"notes":["Fresh tag"' }, // its tag is now in the known-tags list too
+        { expectText: "Phone only note" },
+        { expectGlobalIncludes: { name: "__syncRows", substring: "n-local|live|Phone only note" } },
+        { expectGlobalCount: { name: "__onlineCalls", substring: PUSH_CALL, count: 1 } },
+        { expectStored: "n-remote" },
+        // the cloud button now says it is all in sync, and sends nothing again
+        { click: "Cloud sync" },
+        { wait: 600 },
+        { expectText: "Everything is already in sync" },
+        { expectGlobalCount: { name: "__onlineCalls", substring: PUSH_CALL, count: 1 } },
+      ],
+    },
+    {
+      name: "sync — the newer copy wins in both directions",
+      path: "/",
+      seed: [syncNote("n1", "Local old", T_OLD), syncNote("n2", "Local newer", T_NEW)],
+      storage: SYNC_STORAGE,
+      online: syncOnline({
+        rows: [
+          { id: "n1", type: "regular", title: "Server newer", lastModified: T_MID },
+          { id: "n2", type: "regular", title: "Server older", lastModified: T_MID },
+        ],
+      }),
+      steps: [
+        { wait: 1200 },
+        { expectText: "Server newer" },
+        { expectNoText: "Local old" },
+        { expectText: "Local newer" },
+        { expectNoText: "Server older" },
+        { expectGlobalIncludes: { name: "__syncRows", substring: "n2|live|Local newer" } },
+        { expectGlobalIncludes: { name: "__syncRows", substring: "n1|live|Server newer" } },
+      ],
+    },
+    {
+      name: "sync — a deletion made on another phone removes the note here",
+      path: "/",
+      seed: [syncNote("n1", "Doomed note", T_OLD), syncNote("n2", "Kept note", T_OLD)],
+      storage: SYNC_STORAGE,
+      online: syncOnline({ rows: [{ id: "n1", type: "regular", lastModified: T_NEW, purged: true }] }),
+      steps: [{ wait: 1200 }, { expectNoText: "Doomed note" }, { expectText: "Kept note" }, { expectNotStored: "Doomed note" }],
+    },
+    {
+      name: "sync — 'Delete forever' is told to the server after the pause",
+      path: "/settings/trash",
+      seed: [syncNote("n-gone", "Trashed note", T_MID, { deletedAt: T_MID })],
+      storage: SYNC_STORAGE,
+      online: syncOnline({}),
+      steps: [
+        { wait: 1200 },
+        { expectGlobalIncludes: { name: "__syncRows", substring: "n-gone|live|Trashed note" } },
+        { click: "Open trash" },
+        { wait: 400 },
+        { click: "Delete forever" },
+        { wait: 300 },
+        { clickSelector: ".confirm" },
+        { wait: 21000 },
+        { expectGlobalIncludes: { name: "__syncRows", substring: "n-gone|purged|" } },
+        { expectGlobalCount: { name: "__onlineCalls", substring: PUSH_CALL, count: 2 } },
+      ],
+    },
+    {
+      name: "sync — an edit is sent about twenty seconds after it, as one push",
+      path: "/",
+      seed: [syncNote("n1", "Star me", T_MID)],
+      storage: SYNC_STORAGE,
+      online: syncOnline({}),
+      steps: [
+        { wait: 1200 },
+        { expectGlobalCount: { name: "__onlineCalls", substring: PUSH_CALL, count: 1 } },
+        { click: "Toggle bookmark" },
+        { wait: 3000 },
+        { expectGlobalCount: { name: "__onlineCalls", substring: PUSH_CALL, count: 1 } },
+        { wait: 18500 },
+        { expectGlobalCount: { name: "__onlineCalls", substring: PUSH_CALL, count: 2 } },
+      ],
+    },
+    {
+      name: "sync — more than one page of server notes arrives (the second page uses the cursor)",
+      path: "/",
+      seed: [],
+      storage: { ...SYNC_STORAGE, "midnote:samples-decided": "examples-decided" }, // no starter examples to send up
+      online: syncOnline({ rows: Array.from({ length: 130 }, (_, i) => ({ id: `bulk-${String(i).padStart(3, "0")}`, type: "regular", title: `Bulk ${i}`, lastModified: T_MID })) }),
+      steps: [
+        { wait: 2500 },
+        { expectStored: "bulk-000" },
+        { expectStored: "bulk-099" },
+        { expectStored: "bulk-129" },
+        { expectGlobalCount: { name: "__onlineCalls", substring: PULL_CALL, count: 2 } },
+        { expectGlobalCount: { name: "__onlineCalls", substring: PUSH_CALL, count: 0 } },
+      ],
+    },
+    {
+      name: "sync — a locked note arrives still locked",
+      path: "/",
+      seed: [],
+      storage: SYNC_STORAGE,
+      online: syncOnline({ rows: [{ id: "n-locked", type: "regular", title: "Secret", lastModified: T_MID, extra: { encrypted: true, lockKeyMode: "app", lockedPayload: "QUJD" } }] }),
+      steps: [
+        { wait: 1200 },
+        { expectStored: '"lockedPayload":"QUJD"' },
+        { expectStored: '"encrypted":true' },
+        // what arrived is not "an edit made here": no follow-up sync is started for it
+        { wait: 21500 },
+        { expectGlobalCount: { name: "__onlineCalls", substring: PULL_CALL, count: 1 } },
+      ],
+    },
+    {
+      name: "sync — notes synced with another account are not merged on their own",
+      path: "/settings/account",
+      seed: [syncNote("n-theirs", "Other account note", T_MID)],
+      storage: { ...SYNC_STORAGE, "midnote:sync-state": JSON.stringify({ v: 1, userId: "someone-else", cursor: null, marks: {}, purges: {}, rejected: {}, lastSyncAt: null }) },
+      online: syncOnline({}),
+      steps: [
+        { wait: 1200 },
+        { expectText: "synced with a different account" },
+        { expectGlobalCount: { name: "__syncRows", substring: "", count: 0 } },
+        { expectGlobalCount: { name: "__onlineCalls", substring: "midnote_", count: 0 } },
+        { click: "Add this phone's notes to this account" },
+        { wait: 800 },
+        { expectGlobalIncludes: { name: "__syncRows", substring: "n-theirs|live|Other account note" } },
+        { expectNoText: "synced with a different account" },
+        { expectText: "Last synced" },
+      ],
+    },
+    {
+      name: "sync — server trouble: quiet at startup, a clear message on tap, the notes stay",
+      path: "/",
+      seed: [syncNote("n1", "Still here", T_MID)],
+      storage: SYNC_STORAGE,
+      online: syncOnline({ status: { pull: 503 } }),
+      steps: [
+        { wait: 1200 },
+        { expectNoText: "Couldn't sync" },
+        { expectText: "Still here" },
+        { click: "Cloud sync" },
+        { wait: 600 },
+        { expectText: "Couldn't sync" },
+        { expectText: "The server had a problem" },
+        { expectText: "Still here" },
+      ],
+    },
+    {
+      name: "sync — a server that was never set up says so plainly",
+      path: "/",
+      seed: [],
+      storage: SYNC_STORAGE,
+      online: { users: [SEED_USER], validAccess: ["AT-seed"] },
+      steps: [{ wait: 1000 }, { click: "Cloud sync" }, { wait: 600 }, { expectText: "Couldn't sync" }, { expectText: "isn't set up on the server" }],
+    },
+    {
+      name: "sync — Settings → Account shows the status and syncs on request",
+      path: "/settings/account",
+      seed: [syncNote("n1", "A note", T_MID)],
+      storage: SYNC_STORAGE,
+      online: syncOnline({}),
+      steps: [
+        { wait: 1200 },
+        { expectText: "Last synced" },
+        { expectText: "Nothing waiting to be sent" },
+        { click: "Sync now" },
+        { wait: 600 },
+        { expectText: "Everything is already in sync" },
+      ],
+    },
+    {
+      name: "sync — a tap while the app's own sync is still running is answered when it finishes",
+      path: "/",
+      seed: [],
+      storage: { "midnote:samples-decided": "examples-decided" },
+      online: { users: [A_USER], sync: { delayMs: 3000 } },
+      steps: [
+        { click: "Cloud sync" },
+        { expectSelector: 'input[aria-label="Email"]' },
+        ...fillSignIn(A_USER.email, A_USER.password),
+        { wait: 1700 }, // the sign-in sync starts about 1.5 s after sign-in and then takes 3 s
+        { click: "Cloud sync" },
+        { expectNoText: "Everything is already in sync" },
+        { wait: 3000 },
+        { expectText: "Everything is already in sync" },
+      ],
+    },
+    {
+      name: "sync — signed out: nothing is asked of the server",
+      path: "/",
+      seed: [syncNote("n1", "Offline note", T_MID)],
+      online: syncOnline({}),
+      steps: [{ wait: 1200 }, { expectText: "Offline note" }, { expectGlobalCount: { name: "__onlineCalls", substring: "midnote_", count: 0 } }],
+    },
+  ];
+}
+
 function accountScenarios() {
   return [
     {
@@ -596,16 +808,18 @@ function accountScenarios() {
       steps: [{ wait: 500 }, { expectGlobalCount: { name: "__onlineCalls", substring: "/rest/v1/services", count: 1 } }, { expectGlobalIncludes: { name: "__onlineCalls", substring: `"user_id":"${SEED_UID}"` } }],
     },
     {
-      name: "account — the cloud button signed out opens sign-in; signed in it is honest about sync",
+      name: "account — the cloud button signed out opens sign-in; signed in it syncs",
       path: "/",
       seed: [],
-      online: { users: [A_USER] },
+      online: { users: [A_USER], sync: {} },
       steps: [
         { click: "Cloud sync" },
         { expectSelector: 'input[aria-label="Email"]' },
         ...fillSignIn(A_USER.email, A_USER.password),
         { click: "Cloud sync" },
-        { expectText: "Sync isn't built yet" },
+        { wait: 800 },
+        { expectText: "Synced" }, // the starter examples on a fresh install go up
+        { expectText: "Sent" },
       ],
     },
 
@@ -3671,6 +3885,7 @@ const SCENARIOS = [
 
   // ---- Round B: accounts (sign up / sign in / sign out) against a fake Supabase (scenario.online) ----
   ...accountScenarios(),
+  ...syncScenarios(),
   // ---- Round K: "Open with MidNote". The phone's side (the content:// link and the file's bytes) is a stand-in
   // (SMOKE_OPEN_WITH in the worker); everything from there to the note is the real app.
   {
