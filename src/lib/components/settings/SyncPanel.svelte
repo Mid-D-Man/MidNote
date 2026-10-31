@@ -3,10 +3,14 @@
   //
   //   status        "Syncing…" / "Last synced 5 min ago" / "Not synced yet", plus what is waiting
   //   Sync now      the same thing the cloud button in the header does
+  //   Sync automatically   OFF by default: sync runs only when the person asks. ON: it also runs when the app
+  //                 opens, when they come back to it, and shortly after they edit.
   //   other account this phone's notes were synced with a different account: the person decides
   //                 (never merged automatically)
   import Button from "$lib/components/ui/Button/Button.svelte";
-  import { syncStatus, syncNow, adoptThisAccount, refreshWaiting } from "$lib/stores/sync.svelte";
+  import Switch from "$lib/components/ui/Switch/Switch.svelte";
+  import SettingsRow from "$lib/components/settings/SettingsRow.svelte";
+  import { syncStatus, syncPrefs, syncNow, adoptThisAccount, refreshWaiting, setAutoSync } from "$lib/stores/sync.svelte";
   import { formatWhen } from "$lib/online/syncMessages";
   import { onMount } from "svelte";
 
@@ -15,7 +19,11 @@
   });
 
   const statusLine = $derived(syncStatus.running ? "Syncing…" : syncStatus.lastSyncAt ? `Last synced ${formatWhen(syncStatus.lastSyncAt)}` : "Not synced yet");
-  const waitingLine = $derived(syncStatus.waiting === 0 ? "Nothing waiting to be sent" : `${syncStatus.waiting} ${syncStatus.waiting === 1 ? "change" : "changes"} waiting to be sent`);
+  const waitingLine = $derived(
+    syncStatus.waiting === 0
+      ? "Nothing waiting to be sent"
+      : `${syncStatus.waiting} ${syncStatus.waiting === 1 ? "change" : "changes"} waiting to be sent${syncPrefs.auto ? "" : ". Tap Sync now to send them."}`,
+  );
   const problem = $derived(syncStatus.outcome === "failed" || syncStatus.outcome === "partial" ? syncStatus.message : null);
 </script>
 
@@ -35,6 +43,9 @@
   {#if problem}
     <p class="notice" class:error={syncStatus.outcome === "failed"} role="status">{problem}</p>
   {/if}
+  <SettingsRow label="Sync automatically" desc={syncPrefs.auto ? "On: syncs when the app opens, when you come back to it, and shortly after you edit." : "Off: your notes only sync when you tap the cloud button or Sync now."}>
+    <Switch checked={syncPrefs.auto} aria-label="Sync automatically" onCheckedChange={(v) => setAutoSync(v)} />
+  </SettingsRow>
   <div class="actions">
     <Button variant="outline" onclick={() => void syncNow({ toast: true })} disabled={syncStatus.running} aria-label="Sync now">{syncStatus.running ? "Syncing…" : "Sync now"}</Button>
   </div>

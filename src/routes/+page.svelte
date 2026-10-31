@@ -17,7 +17,7 @@
   import { effectiveTags } from "$lib/utils/folders";
   import { entries, saveEntry, removeEntry, toggleBookmark, toggleStrikethrough, togglePinned } from "$lib/stores/entries.svelte";
   import type { Note, Todo, Board, Entry } from "$lib/types/entry";
-  import { noteTags, todoTags, boardTags, registerTag, unregisterTag } from "$lib/stores/tags.svelte";
+  import { noteTags, todoTags, boardTags, registerTag, unregisterTag, isSharedTag } from "$lib/stores/tags.svelte";
   import { isSystemTag } from "$lib/utils/systemTags";
   import { createNote, type TagScope } from "$lib/storage";
   import { stripHtml, plainTextToHtml } from "$lib/utils/richText";
@@ -254,8 +254,9 @@
     if (name && activeView !== "folders") registerTag(activeView, name);
   }
 
-  // built-in tags (AI Generated, Example) have no × on the chip: they can't be removed from the list
-  const isBuiltIn = (tag: string) => activeView !== "folders" && isSystemTag(tag, activeView);
+  // built-in tags (AI Generated, Example) have no × on the chip: they can't be removed from the list. Neither do shared
+  // tags (Settings -> Tags): a × here would quietly turn one into a one-list tag, so they are removed in Settings.
+  const isBuiltIn = (tag: string) => activeView !== "folders" && (isSystemTag(tag, activeView) || isSharedTag(tag));
 
   function handleRemoveTag(tag: string) {
     if (activeView !== "folders" && !isBuiltIn(tag)) unregisterTag(activeView, tag);
@@ -1036,10 +1037,21 @@
   .body-has-image .tags-header h3 {
     color: var(--theme-text-hi);
   }
+  /* The tag list is a window of fixed height (about two rows of chips), not a block that grows: adding tags used to push
+     the whole list down. More tags scroll inside it (a third row peeks out so it is clear there is more), the scroll stays
+     in the box (overscroll-behavior), and it never paints over the header or the cards below. */
   .tag-chips {
     display: flex;
     flex-wrap: wrap;
+    align-content: flex-start;
     gap: var(--space-2);
+    max-height: var(--tag-strip-height, 80px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    position: relative;
+    z-index: 0;
+    isolation: isolate;
   }
   .chip {
     display: flex;

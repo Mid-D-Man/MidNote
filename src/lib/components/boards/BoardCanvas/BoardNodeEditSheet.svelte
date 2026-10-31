@@ -197,14 +197,10 @@
     gap: var(--space-2);
   }
   .dup-btn {
-    min-height: 44px;
-    padding: 0 var(--space-4);
     background: transparent;
     border: 1px solid var(--hairline);
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius-md);
     color: var(--text-hi);
-    font-size: 14px;
-    cursor: pointer;
   }
   .edit-form {
     display: flex;
@@ -289,20 +285,42 @@
       transform: rotate(360deg);
     }
   }
+  /* BUGFIX: the three buttons used to share the row as flex:1 boxes of different kinds (one with a 44px minimum height,
+     two without), so on a phone "Delete node" was squeezed to ~100px, wrapped onto two lines and spilled out of its own
+     box. Now all three are the same height, never wrap their label, and keep the width their label needs; "Done" takes
+     whatever is left (and drops to a row of its own on a very narrow screen rather than squeezing the others). */
   .button-row {
     display: flex;
+    flex-wrap: wrap;
     gap: var(--space-2);
     margin-top: var(--space-2);
   }
+  .dup-btn,
   .delete-btn,
   .save-btn {
-    flex: 1;
-    padding: var(--space-3);
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    padding: 0 var(--space-4);
     border-radius: var(--radius-md);
     font-size: 14px;
     font-weight: 500;
+    line-height: 1.2;
+    white-space: nowrap;
     cursor: pointer;
     border: 1px solid transparent;
+  }
+  .dup-btn,
+  .delete-btn {
+    flex: 0 0 auto;
+  }
+  .dup-btn {
+    border-color: var(--hairline);
+  }
+  .save-btn {
+    flex: 1 1 96px;
   }
   .delete-btn {
     background: var(--danger-wash);

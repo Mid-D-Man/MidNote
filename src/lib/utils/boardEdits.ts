@@ -147,3 +147,62 @@ export function describeEdge(fromName: string, toName: string, label: string | n
   const verb = directed ? "points to" : "connects to";
   return `${fromName} ${verb} ${toName}${l ? `, ${l}` : ""}`;
 }
+
+// ---- Dropping a dragged line on empty space ----
+// Drag from a node's handle and let go on empty canvas: the board offers to make a text or an image node right there,
+// already joined to the node the line came from. These are the decisions behind that, kept pure so they are tested.
+
+/** Rough size of a node on the board (px at zoom 1), to centre a dropped node on the finger and to put it on the right side of it. */
+export const DROP_NODE_SIZE = { text: { w: 150, h: 56 }, image: { w: 130, h: 120 } } as const;
+
+/** A point on the screen -> the same point on the board, given the canvas's top-left corner and the current pan/zoom. */
+export function screenToBoard(client: XY, canvasTopLeft: XY, vp: { x: number; y: number; zoom: number }): XY {
+  const zoom = vp.zoom > 0 ? vp.zoom : 1;
+  return { x: (client.x - canvasTopLeft.x - vp.x) / zoom, y: (client.y - canvasTopLeft.y - vp.y) / zoom };
+}
+
+/**
+ * Where the little menu goes (top-left, in canvas pixels): centred on the point and ABOVE it so a finger doesn't cover it,
+ * or just below when there's no room above, and always fully inside the canvas.
+ */
+export function menuPlacement(point: XY, menu: { w: number; h: number }, bounds: { w: number; h: number }, gap = 16, margin = 8): XY {
+  const maxLeft = Math.max(margin, bounds.w - menu.w - margin);
+  const left = Math.min(Math.max(point.x - menu.w / 2, margin), maxLeft);
+  const above = point.y - gap - menu.h;
+  const maxTop = Math.max(margin, bounds.h - menu.h - margin);
+  const top = above >= margin ? above : Math.min(point.y + gap, maxTop);
+  return { x: Math.round(left), y: Math.round(top) };
+}
+
+/**
+ * The node (and the line to it) for a drop at board position `at`. `fromIsSource` is whether the line was dragged out of the
+ * node's source (bottom) handle: then the new node hangs below the drop point and the line runs from the old node to the new
+ * one. Dragged out of a target (top) handle it is the other way round: the new node sits above the drop point and the line
+ * runs from it into the old node. Either way the new node is centred on the drop point, and the line is plain.
+ */
+export function droppedNode(
+  kind: "text" | "image",
+  at: XY,
+  fromNodeId: string,
+  fromIsSource: boolean,
+  ids: { node: string; edge: string },
+): { node: BoardNode; edge: BoardEdge } {
+  const size = DROP_NODE_SIZE[kind];
+  const node: BoardNode = {
+    id: ids.node,
+    kind,
+    x: Math.round(at.x - size.w / 2),
+    y: Math.round(fromIsSource ? at.y : at.y - size.h),
+    label: kind === "text" ? "New node" : "Image",
+    body: null,
+    customIconId: null,
+  };
+  const edge: BoardEdge = {
+    id: ids.edge,
+    source: fromIsSource ? fromNodeId : ids.node,
+    target: fromIsSource ? ids.node : fromNodeId,
+    label: null,
+    directed: false,
+  };
+  return { node, edge };
+}

@@ -30,6 +30,9 @@
     removeEdge,
     restoreEdge,
     connectionsOf,
+    screenToBoard,
+    menuPlacement,
+    droppedNode,
   } from "$lib/utils/boardEdits";
   import type { BoardNode, BoardEdge, BoardViewport } from "$lib/types/entry";
 
@@ -156,6 +159,68 @@
     if (next === flowEdges) return; // xyflow refuses a duplicate of an existing line
     flowEdges = next;
     emit();
+  }
+
+  // Drag a line out of a node's handle and let go on EMPTY canvas: a small menu offers a text or an image node right there,
+  // already joined to the node the line came from. Letting go on a handle is an ordinary connection (xyflow reports it as
+  // valid and onconnect handles it), and letting go on a node's body or a control does nothing.
+  const DROP_MENU = { w: 184, h: 112 };
+  // A finger that lifts also produces a click on whatever is under it; the menu appears right there, so it ignores
+  // taps for a moment (the same guard Sheet uses for its scrim).
+  const DROP_MENU_GUARD_MS = 350;
+  let dropMenu = $state<{ left: number; top: number; at: { x: number; y: number }; fromId: string; fromIsSource: boolean; readyAt: number } | null>(null);
+
+  type DropEndState = { isValid: boolean | null; fromNode: { id: string } | null; fromHandle: { type: string } | null };
+
+  function pointerOf(event: MouseEvent | TouchEvent): { x: number; y: number } | null {
+    if ("changedTouches" in event) {
+      const t = event.changedTouches[0];
+      return t ? { x: t.clientX, y: t.clientY } : null;
+    }
+    return { x: event.clientX, y: event.clientY };
+  }
+
+  function handleConnectEnd(event: MouseEvent | TouchEvent, state: DropEndState) {
+    // Connected (true), or over a handle it can't join (false): not an empty-space drop. null = no handle near.
+    if (state.isValid !== null || !state.fromNode || !state.fromHandle) return;
+    const p = pointerOf(event);
+    const rect = canvasEl?.getBoundingClientRect();
+    if (!p || !rect) return;
+    const under = typeof document === "undefined" ? null : document.elementFromPoint(p.x, p.y);
+    if (!under || !canvasEl?.contains(under)) return;
+    // Over a node, a line, a control or the menu itself: not empty space (the line being dragged is not in the way).
+    if (under.closest(".svelte-flow__node, .svelte-flow__edge, .svelte-flow__controls, .svelte-flow__panel, .drop-menu") && !under.closest(".svelte-flow__connectionline")) return;
+    const vp = currentViewport ?? { x: 0, y: 0, zoom: 1 };
+    const spot = menuPlacement({ x: p.x - rect.left, y: p.y - rect.top }, DROP_MENU, { w: rect.width, h: rect.height });
+    dropMenu = {
+      left: spot.x,
+      top: spot.y,
+      at: screenToBoard(p, { x: rect.left, y: rect.top }, vp),
+      fromId: state.fromNode.id,
+      fromIsSource: state.fromHandle.type === "source",
+      readyAt: performance.now() + DROP_MENU_GUARD_MS,
+    };
+  }
+
+  function closeDropMenu() {
+    if (dropMenu && performance.now() < dropMenu.readyAt) return;
+    dropMenu = null;
+  }
+
+  function chooseDropKind(kind: "text" | "image") {
+    const m = dropMenu;
+    if (!m || performance.now() < m.readyAt) return;
+    dropMenu = null;
+    // The node it was dragged from may have been deleted in the meantime (it cannot be today, but a stale menu must never
+    // leave a line to nowhere).
+    if (!flowNodes.some((n) => n.id === m.fromId)) return;
+    const { node, edge } = droppedNode(kind, m.at, m.fromId, m.fromIsSource, { node: crypto.randomUUID(), edge: crypto.randomUUID() });
+    flowNodes = [...flowNodes, ...toFlowNodes([node])];
+    flowEdges = [...flowEdges, ...toFlowEdges([edge])];
+    emit();
+    // Open it straight away so its text (or its picture) can be filled in.
+    editingNodeId = node.id;
+    editSheetOpen = true;
   }
 
   // Node tap opens the edit sheet rather than xyflow's own selection
@@ -314,6 +379,7 @@
     bind:viewport={currentViewport}
     {nodeTypes}
     onconnect={handleConnect}
+    onconnectend={handleConnectEnd}
     onnodeclick={handleNodeClick}
     onedgeclick={handleEdgeClick}
     ondelete={handleXyflowDelete}
@@ -329,6 +395,13 @@
     <Background variant={BackgroundVariant.Dots} gap={24} />
     <Controls showLock={false} />
   </SvelteFlow>
+  {#if dropMenu}
+    <div class="drop-backdrop" role="presentation" onpointerdown={closeDropMenu}></div>
+    <div class="drop-menu" role="menu" aria-label="Add a node here" style="left: {dropMenu.left}px; top: {dropMenu.top}px; width: {DROP_MENU.w}px">
+      <button type="button" role="menuitem" class="drop-item" aria-label="Add text node here" onclick={() => chooseDropKind("text")}>Text node</button>
+      <button type="button" role="menuitem" class="drop-item" aria-label="Add image node here" onclick={() => chooseDropKind("image")}>Image node</button>
+    </div>
+  {/if}
 </div>
 
 <!-- The "Svelte Flow" badge was the library's own attribution, not
@@ -359,9 +432,43 @@
 
 <style>
   .canvas-wrap {
+    position: relative;
     width: 100%;
     height: 100%;
     min-height: 0;
+  }
+  /* The "text or image?" menu that appears where a dragged line was let go (above the flow, below any sheet). */
+  .drop-backdrop {
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+  }
+  .drop-menu {
+    position: absolute;
+    z-index: 21;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    padding: var(--space-1);
+    background: var(--surface-raised);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-md);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  }
+  .drop-item {
+    min-height: 48px;
+    padding: 0 var(--space-4);
+    text-align: left;
+    font-size: 15px;
+    font-family: inherit;
+    color: var(--text-hi);
+    background: none;
+    border: none;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+  }
+  .drop-item:active {
+    background: var(--accent-wash);
   }
   .canvas-wrap :global(.svelte-flow) {
     width: 100%;

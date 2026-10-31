@@ -37,3 +37,32 @@ export function unregisterTag(kind: TagScope, tag: string) {
   storage.removeKnownTag(kind, tag);
   sync();
 }
+
+// ---- Shared tags ----
+// A shared tag is simply one that is in ALL THREE lists (Notes, Todos, Boards), so Settings -> Tags can add or remove it
+// once for every list. Nothing new is stored: it is the same per-list registry (storage.ts known tags), so backup, restore
+// and the phone's own files need no change. The built-in tags are not "shared" in this sense (they are merged in).
+const SCOPES: readonly TagScope[] = ["notes", "todos", "boards"];
+
+/** Is `tag` (not built in) in every list? Reads the reactive lists, so it is live inside templates and $derived. */
+export function isSharedTag(tag: string): boolean {
+  return !isSystemTag(tag) && noteTags.includes(tag) && todoTags.includes(tag) && boardTags.includes(tag);
+}
+
+/** Add `tag` to all three lists. Returns "added" (new), "completed" (it was in some lists: now in all), "exists" (already
+ *  shared) or "built-in" (that name is a built-in tag, which is already in the lists it belongs in: nothing is added). */
+export function registerSharedTag(tag: string): "added" | "completed" | "exists" | "built-in" {
+  if (isSystemTag(tag)) return "built-in";
+  const before = SCOPES.filter((s) => storage.loadKnownTags()[s].includes(tag)).length;
+  if (before === SCOPES.length) return "exists";
+  for (const s of SCOPES) storage.addKnownTag(s, tag);
+  sync();
+  return before === 0 ? "added" : "completed";
+}
+
+/** Take `tag` off all three lists (items that already carry it keep it). */
+export function unregisterSharedTag(tag: string): void {
+  if (isSystemTag(tag)) return;
+  for (const s of SCOPES) storage.removeKnownTag(s, tag);
+  sync();
+}

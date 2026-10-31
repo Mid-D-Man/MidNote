@@ -2,12 +2,16 @@
 //
 // A thin runes wrapper around online/syncEngine.ts (which holds all the rules) and
 // online/syncRemote.ts (the server calls). This file owns the WHEN:
-//   - when the app opens (once storage is ready) and when it comes back to the foreground
-//   - shortly after the person signs in
-//   - about 20 seconds after the last edit, so a burst of typing is one push
-//   - when the person taps the cloud button / "Sync now"
+//   - always: when the person taps the cloud button / "Sync now"
+//   - only with "Sync automatically" switched ON (Settings -> Account, OFF by default, so sync is
+//     manual unless the person opts in):
+//       - when the app opens (once storage is ready) and when it comes back to the foreground
+//       - shortly after the person signs in
+//       - about 20 seconds after the last edit, so a burst of typing is one push
 // Automatic attempts back off with jitter after a failure; a tap always tries. There is no
 // polling. Writes `syncStatus` only from handlers, timers and callbacks, never from an $effect.
+// Even with auto sync off, deleting something forever is still RECORDED (so the next manual sync
+// can tell the server); only the starting of a sync is manual.
 import * as storage from "$lib/storage";
 import { accountClient } from "$lib/stores/account.svelte";
 import { refresh as refreshEntries } from "$lib/stores/entries.svelte";
@@ -20,6 +24,7 @@ import { RestSyncRemote } from "$lib/online/syncRemote";
 import { describeResult } from "$lib/online/syncMessages";
 
 const STATE_KEY = "midnote:sync-state";
+const AUTO_KEY = "midnote:sync-auto";
 const CHANGE_DEBOUNCE_MS = 20_000;
 const MIN_AUTO_GAP_MS = 60_000;
 const SIGN_IN_DELAY_MS = 1_500;
@@ -36,6 +41,33 @@ export const syncStatus = $state({
   /** Changes made here that haven't gone up yet. */
   waiting: 0,
 });
+
+/** The person's choice: sync by itself (on open, on return, after edits) or only when asked. Off by default. */
+export const syncPrefs = $state({ auto: false });
+
+function loadAuto(): boolean {
+  try {
+    return typeof localStorage !== "undefined" && localStorage.getItem(AUTO_KEY) === "on";
+  } catch {
+    return false;
+  }
+}
+
+/** Switch automatic sync on or off. Switching it on runs one sync now (when signed in); off drops anything waiting. */
+export function setAutoSync(on: boolean): void {
+  syncPrefs.auto = on;
+  try {
+    if (typeof localStorage !== "undefined") localStorage.setItem(AUTO_KEY, on ? "on" : "off");
+  } catch {
+    /* blocked or full: the choice holds until the app closes */
+  }
+  breadcrumb(`sync: automatic sync ${on ? "on" : "off"}`);
+  if (!on) {
+    stopSyncTimers();
+    return;
+  }
+  if (signedInUser() && !running) void syncNow({ auto: true, force: true });
+}
 
 export type SyncOutcome = { status: "signed-out" | "skipped" | SyncResult["status"]; result?: SyncResult };
 
@@ -93,6 +125,7 @@ function scheduleAuto(ms: number): void {
 
 function onSaved(): void {
   if (applying) return;
+  if (!syncPrefs.auto) return;
   if (!signedInUser()) return;
   scheduleAuto(CHANGE_DEBOUNCE_MS);
 }
@@ -105,11 +138,12 @@ function onPurged(id: string, type: string): void {
     delete state.marks[id];
     saveState(state);
   }
-  if (signedInUser()) scheduleAuto(CHANGE_DEBOUNCE_MS);
+  if (syncPrefs.auto && signedInUser()) scheduleAuto(CHANGE_DEBOUNCE_MS);
 }
 
 function onVisible(): void {
   if (typeof document === "undefined" || document.visibilityState !== "visible") return;
+  if (!syncPrefs.auto) return;
   if (!signedInUser() || running) return;
   if (Date.now() - lastAttemptAt < MIN_AUTO_GAP_MS) return;
   void syncNow({ auto: true });
@@ -121,6 +155,7 @@ export function initSync(): void {
   if (hooked) return;
   hooked = true;
   state = loadState();
+  syncPrefs.auto = loadAuto();
   syncStatus.lastSyncAt = state.lastSyncAt;
   storage.onEntrySaved(onSaved);
   storage.onEntryPurged(onPurged);
@@ -130,7 +165,7 @@ export function initSync(): void {
     const now = signedInUser();
     if (now === lastSeenUser) return;
     lastSeenUser = now;
-    if (!now) return;
+    if (!now || !syncPrefs.auto) return;
     if (signInTimer) clearTimeout(signInTimer);
     signInTimer = setTimeout(() => {
       signInTimer = null;
@@ -145,7 +180,7 @@ export function startSync(): void {
   started = true;
   if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisible);
   refreshWaiting();
-  if (signedInUser()) void syncNow({ auto: true, force: true });
+  if (syncPrefs.auto && signedInUser()) void syncNow({ auto: true, force: true });
 }
 
 function scopeOf(type: string): "notes" | "todos" | "boards" | null {
@@ -191,6 +226,8 @@ export function syncNow(opts: SyncNowOptions = {}): Promise<SyncOutcome> {
   const client = accountClient();
   const session = client?.current() ?? null;
   if (!client || !session) return Promise.resolve({ status: "signed-out" });
+  // An automatic start only ever happens with the switch on (a timer set before it went off must not fire).
+  if (opts.auto && !syncPrefs.auto) return Promise.resolve({ status: "skipped" });
   if (opts.auto && !opts.force && Date.now() < nextAutoAt) return Promise.resolve({ status: "skipped" });
   if (opts.auto && state.userId && state.userId !== session.user.id && !opts.adopt) {
     // Never merge another account's notes automatically: wait for the person.

@@ -50,7 +50,7 @@ export function classifyHttp(status: number, text: string): SyncError {
   if (status === 429) return new SyncError("rate-limited", "Too many requests");
   if (status === 404 || code === "PGRST202" || code === "42P01") return new SyncError("server", "Sync isn't set up on the server yet");
   if (status === 408 || status >= 500) return new SyncError("server", short || `Server error ${status}`);
-  if (code === "54000" && /storage limit|row limit|too many rows/i.test(message)) return new SyncError("quota", short || "Storage limit reached");
+  if (code === "54000" && /storage limit|row limit|entry limit|too many rows/i.test(message)) return new SyncError("quota", short || "Storage limit reached");
   if (status >= 400) return new SyncError("rejected", short || `Refused (${status})`);
   return new SyncError("server", `Unexpected answer ${status}`);
 }
