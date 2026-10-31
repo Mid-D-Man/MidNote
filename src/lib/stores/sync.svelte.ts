@@ -21,7 +21,7 @@ import { breadcrumb } from "$lib/debug/log.svelte";
 import { cancelReminderSilently, syncReminderSilently } from "$lib/utils/reminders";
 import { countPending, emptyState, nextAutoTime, parseState, runSync, type SyncDeps, type SyncResult, type SyncState } from "$lib/online/syncEngine";
 import { RestSyncRemote } from "$lib/online/syncRemote";
-import { describeResult } from "$lib/online/syncMessages";
+import { describeResult, describeRestore } from "$lib/online/syncMessages";
 
 const STATE_KEY = "midnote:sync-state";
 const AUTO_KEY = "midnote:sync-auto";
@@ -40,6 +40,8 @@ export const syncStatus = $state({
   mismatch: false,
   /** Changes made here that haven't gone up yet. */
   waiting: 0,
+  /** Just signed in on a phone that has never synced: ask whether to bring the account's notes down. */
+  offerRestore: false,
 });
 
 /** The person's choice: sync by itself (on open, on return, after edits) or only when asked. Off by default. */
@@ -165,7 +167,19 @@ export function initSync(): void {
     const now = signedInUser();
     if (now === lastSeenUser) return;
     lastSeenUser = now;
-    if (!now || !syncPrefs.auto) return;
+    if (!now) return;
+    if (!syncPrefs.auto) {
+      // Manual mode: nothing syncs by itself. But a phone that has NEVER synced, just signed in, is most likely a new
+      // phone (or a reinstall): offer, once, to bring the account's notes down. One tap; nothing is sent up.
+      if (state.userId === null && state.lastSyncAt === null) {
+        if (signInTimer) clearTimeout(signInTimer);
+        signInTimer = setTimeout(() => {
+          signInTimer = null;
+          if (signedInUser() === now && !running) syncStatus.offerRestore = true;
+        }, SIGN_IN_DELAY_MS);
+      }
+      return;
+    }
     if (signInTimer) clearTimeout(signInTimer);
     signInTimer = setTimeout(() => {
       signInTimer = null;
@@ -215,6 +229,10 @@ export interface SyncNowOptions {
   adopt?: boolean;
   /** Tell the person how it went with a toast. */
   toast?: boolean;
+  /** Only bring things down; send nothing (Restore from cloud). */
+  pullOnly?: boolean;
+  /** This is a Restore from cloud: it is worded as one. */
+  restore?: boolean;
 }
 
 export function syncNow(opts: SyncNowOptions = {}): Promise<SyncOutcome> {
@@ -276,13 +294,13 @@ export function syncNow(opts: SyncNowOptions = {}): Promise<SyncOutcome> {
   running = (async (): Promise<SyncOutcome> => {
     let result: SyncResult;
     try {
-      result = await runSync(deps, state, { adopt: opts.adopt });
+      result = await runSync(deps, state, { adopt: opts.adopt, pullOnly: opts.pullOnly });
     } catch (e) {
       // runSync reports its own failures; this is a bug in it. Say so, don't hang the button.
       result = { status: "failed", pushed: 0, pushedPurges: 0, pulled: 0, removed: 0, unchanged: 0, skipped: 0, heldBack: 0, rejected: [], quota: false, changedLocal: false, appliedIds: [], removedIds: [], error: { kind: "server", message: e instanceof Error ? e.message.slice(0, 80) : "error" } };
     }
     if (result.changedLocal) afterPull(result);
-    const d = describeResult(result);
+    const d = opts.restore ? describeRestore(result) : describeResult(result);
     syncStatus.title = d.title;
     syncStatus.message = d.description;
     syncStatus.mismatch = result.status === "account-mismatch";
@@ -307,6 +325,28 @@ export function syncNow(opts: SyncNowOptions = {}): Promise<SyncOutcome> {
     syncStatus.running = false;
   });
   return running;
+}
+
+/**
+ * Restore from cloud: read EVERYTHING the account has from the start (not only what is new since the last sync) and bring
+ * down whatever is missing here or newer there. Nothing is sent, and nothing on this phone is deleted or replaced by an
+ * older copy (the newer one always wins, as in a sync). Things deleted forever are gone for good: the server keeps only
+ * the latest version of each item, so this cannot go back in time.
+ */
+export function restoreFromCloud(): Promise<SyncOutcome> {
+  if (running) {
+    toastWhenDone = true;
+    return running;
+  }
+  const me = signedInUser();
+  // Only this account's own record is reset: another account's marks are never touched (a mismatch is still the person's call).
+  if (me && (state.userId === null || state.userId === me)) {
+    state.cursor = null;
+    saveState(state);
+  }
+  breadcrumb("sync: restore from cloud (full re-read, nothing sent)");
+  syncStatus.offerRestore = false;
+  return syncNow({ pullOnly: true, restore: true, toast: true });
 }
 
 /** The person chose to take this phone's notes into the account they're signed in to now. */

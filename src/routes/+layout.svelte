@@ -16,7 +16,8 @@
   import { initCustomThemes } from "$lib/stores/customThemes.svelte";
   import { initCustomIcons } from "$lib/stores/customIcons.svelte";
   import { initAccount } from "$lib/stores/account.svelte";
-  import { initSync, startSync } from "$lib/stores/sync.svelte";
+  import { initSync, startSync, syncStatus, restoreFromCloud } from "$lib/stores/sync.svelte";
+  import ConfirmDialog from "$lib/components/ui/ConfirmDialog/ConfirmDialog.svelte";
   import ReadAloudBar from "$lib/components/shared/ReadAloudBar/ReadAloudBar.svelte";
   import OpenFileSheet from "$lib/components/shared/OpenFileSheet/OpenFileSheet.svelte";
   import { startOpenWith } from "$lib/stores/openWith.svelte";
@@ -115,6 +116,13 @@
 {/if}
 <ReadAloudBar />
 <OpenFileSheet />
+<ConfirmDialog
+  bind:open={syncStatus.offerRestore}
+  title="Restore your notes?"
+  description="If this account already has notes, todos or boards in the cloud, this brings them to this phone. Nothing here is deleted and nothing is sent up."
+  confirmLabel="Restore"
+  onconfirm={() => void restoreFromCloud()}
+/>
 <Toast />
 <LockPrompt />
 <LoadingOverlay />

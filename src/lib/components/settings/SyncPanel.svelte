@@ -3,6 +3,7 @@
   //
   //   status        "Syncing…" / "Last synced 5 min ago" / "Not synced yet", plus what is waiting
   //   Sync now      the same thing the cloud button in the header does
+  //   Restore       reads everything the account has from the start and brings it down; sends nothing
   //   Sync automatically   OFF by default: sync runs only when the person asks. ON: it also runs when the app
   //                 opens, when they come back to it, and shortly after they edit.
   //   other account this phone's notes were synced with a different account: the person decides
@@ -10,7 +11,7 @@
   import Button from "$lib/components/ui/Button/Button.svelte";
   import Switch from "$lib/components/ui/Switch/Switch.svelte";
   import SettingsRow from "$lib/components/settings/SettingsRow.svelte";
-  import { syncStatus, syncPrefs, syncNow, adoptThisAccount, refreshWaiting, setAutoSync } from "$lib/stores/sync.svelte";
+  import { syncStatus, syncPrefs, syncNow, restoreFromCloud, adoptThisAccount, refreshWaiting, setAutoSync } from "$lib/stores/sync.svelte";
   import { formatWhen } from "$lib/online/syncMessages";
   import { onMount } from "svelte";
 
@@ -48,7 +49,15 @@
   </SettingsRow>
   <div class="actions">
     <Button variant="outline" onclick={() => void syncNow({ toast: true })} disabled={syncStatus.running} aria-label="Sync now">{syncStatus.running ? "Syncing…" : "Sync now"}</Button>
+    <Button variant="outline" onclick={() => void restoreFromCloud()} disabled={syncStatus.running} aria-label="Restore from cloud">Restore from cloud</Button>
   </div>
+  <p class="fine">
+    {#if syncStatus.lastSyncAt}
+      Restore brings everything in your account down to this phone again. It sends nothing and deletes nothing here. Only the latest version of each item is kept in the cloud, so it can't go back to an older one.
+    {:else}
+      This phone hasn't synced yet. If your account already has notes in the cloud, Restore brings them here without sending anything up.
+    {/if}
+  </p>
   <p class="fine">Locked notes are stored locked. Every other note, todo and board is stored on MidManStudio's server as readable text, tied to your account. Themes, icons and fonts stay on this phone.</p>
 </div>
 

@@ -279,6 +279,8 @@ export interface SyncDeps {
 export interface SyncOptions {
   /** Take this phone's notes into this account although they were synced with another one. */
   adopt?: boolean;
+  /** Only bring things down: nothing is sent (Restore from cloud). Whatever is waiting here stays waiting. */
+  pullOnly?: boolean;
 }
 
 export type SyncStatus = "ok" | "partial" | "failed" | "account-mismatch";
@@ -349,8 +351,10 @@ export async function runSync(deps: SyncDeps, state: SyncState, opts: SyncOption
 
   try {
     await pullAll(deps, state, res);
-    const needsRepull = await pushAll(deps, state, res);
-    if (needsRepull) await pullAll(deps, state, res);
+    if (!opts.pullOnly) {
+      const needsRepull = await pushAll(deps, state, res);
+      if (needsRepull) await pullAll(deps, state, res);
+    }
     state.lastSyncAt = new Date(deps.now()).toISOString();
     deps.saveState(state);
     const problems = res.quota || res.rejected.length > 0 || res.skipped > 0 || res.heldBack > 0;

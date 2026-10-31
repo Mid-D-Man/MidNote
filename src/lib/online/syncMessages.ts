@@ -59,6 +59,17 @@ export function describeResult(r: SyncResult): Described {
   return { title: "Synced", description: text.charAt(0).toUpperCase() + text.slice(1) + "." };
 }
 
+/** The words for a Restore from cloud (it only brings things down, so it never says "sent"). Problems are worded as for a sync. */
+export function describeRestore(r: SyncResult): Described {
+  if (r.status !== "ok") return describeResult(r);
+  const got = r.pulled;
+  if (got + r.removed === 0) return { title: "Nothing to restore", description: "Everything in your account is already on this phone." };
+  const parts: string[] = [];
+  if (got) parts.push(`${plural(got, "item", "items")} brought to this phone.`);
+  if (r.removed) parts.push(`${plural(r.removed, "item", "items")} you deleted forever elsewhere ${r.removed === 1 ? "was" : "were"} removed here too.`);
+  return { title: "Restored", description: parts.join(" ") };
+}
+
 /** "just now", "5 min ago", "2 h ago", or the date. */
 export function formatWhen(iso: string | null, now: number = Date.now()): string {
   if (!iso) return "never";
