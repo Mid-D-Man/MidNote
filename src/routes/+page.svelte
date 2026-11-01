@@ -3,6 +3,8 @@
   import AppHeader from "$lib/components/layout/AppHeader/AppHeader.svelte";
   import NoteCard from "$lib/components/notes/NoteCard/NoteCard.svelte";
   import AiNoteCreator from "$lib/components/notes/AiNoteCreator/AiNoteCreator.svelte";
+  import AiStructuredCreator from "$lib/components/shared/AiStructuredCreator/AiStructuredCreator.svelte";
+  import { boardParts } from "$lib/utils/aiBoardLayout";
   import Button from "$lib/components/ui/Button/Button.svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog/ConfirmDialog.svelte";
   import SelectionActionBar from "$lib/components/shared/SelectionActionBar/SelectionActionBar.svelte";
@@ -19,7 +21,7 @@
   import type { Note, Todo, Board, Entry } from "$lib/types/entry";
   import { noteTags, todoTags, boardTags, registerTag, unregisterTag, isSharedTag } from "$lib/stores/tags.svelte";
   import { isSystemTag } from "$lib/utils/systemTags";
-  import { createNote, type TagScope } from "$lib/storage";
+  import { createNote, createTodo, createBoard, generateId, type TagScope } from "$lib/storage";
   import { stripHtml, plainTextToHtml } from "$lib/utils/richText";
   import { createLongPressHandlers } from "$lib/utils/longPress";
   import { createSwipeHandlers } from "$lib/utils/swipe";
@@ -274,6 +276,31 @@
     saveEntry(n);
     registerTag("notes", "AI Generated");
     return n.id;
+  }
+
+  // "Create with AI" on the Todos and Boards tabs: the creator shows the AI's answer first and calls these when you tap
+  // Create. Both come out as ordinary entries tagged "AI Generated".
+  function handleAiTodoCreated(d: { title: string; categories: string[]; steps: { category: string; title: string; content: string }[] }): string {
+    const t = createTodo();
+    t.title = d.title;
+    t.categories = d.categories.length > 0 ? [...d.categories] : ["Steps"];
+    t.steps = d.steps.map((s) => ({ id: generateId(), category: s.category, title: s.title, content: s.content, done: false }));
+    t.tags = ["AI Generated"];
+    saveEntry(t);
+    registerTag("todos", "AI Generated");
+    return t.id;
+  }
+
+  function handleAiBoardCreated(d: { title: string; nodes: { key: string; label: string; body: string }[]; links: { from: string; to: string }[] }): string {
+    const b = createBoard();
+    b.title = d.title;
+    const parts = boardParts(d, generateId);
+    b.nodes = parts.nodes;
+    b.edges = parts.edges;
+    b.tags = ["AI Generated"];
+    saveEntry(b);
+    registerTag("boards", "AI Generated");
+    return b.id;
   }
 
   // --- Multi-select ---
@@ -595,6 +622,10 @@
 
         {#if activeView === "notes" && !selectMode}
           <AiNoteCreator onNoteCreated={handleAiNoteCreated} />
+        {:else if (activeView === "todos" || activeView === "boards") && !selectMode}
+          {#key activeView}
+            <AiStructuredCreator kind={activeView === "todos" ? "todo" : "board"} onTodo={handleAiTodoCreated} onBoard={handleAiBoardCreated} />
+          {/key}
         {/if}
 
         <div class="swipe-area" {...swipeAreaHandlers}>

@@ -18,7 +18,7 @@ import {
   withTimeout,
 } from "./budget";
 import { configProblem, isUuid, LedgerError, rpc, verifyUser, type FetchFn, type LedgerEnv } from "./ledger";
-import { buildMessages, cleanReply, LIMITS, parseRun, temperatureFor } from "./prompts";
+import { buildMessages, cleanReply, featureFor, LIMITS, parseRun, temperatureFor } from "./prompts";
 import { candidatesFor, classifyProviderError, isProviderId, providerReady, runProvider, type ProviderEnv, type ProviderId } from "./providers";
 
 export interface Env extends LedgerEnv, ProviderEnv {
@@ -233,7 +233,7 @@ export async function handle(req: Request, env: Env, deps: Deps): Promise<Respon
     for (const cand of candidatesFor(env)) {
       const r = await rpc(env, deps.fetch, "midnote_ai_reserve", {
         p_user: userId,
-        p_feature: parsed.value.task,
+        p_feature: featureFor(parsed.value),
         p_in_tokens: inTokens,
         p_max_out: parsed.value.maxTokens,
         p_model: cand.model,

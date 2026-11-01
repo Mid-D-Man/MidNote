@@ -1,7 +1,7 @@
 // System tags: built into MidNote, so they are always in the tag lists (the filter chips, the tag picker, Settings ->
 // Tags) whether or not anything uses them yet, and can't be removed from those lists.
 //
-//   AI Generated   put on the notes "Create with AI" files for you
+//   AI Generated   put on the notes, todos and boards "Create with AI" files for you
 //   Example        on the example folder (and, by inheritance, the example notes, todo and board) of a fresh install
 //
 // They are NOT stored: the registry the person edits (storage.ts known tags) holds only their own tags, and the system
@@ -19,7 +19,7 @@ export interface SystemTag {
 }
 
 export const SYSTEM_TAGS: readonly SystemTag[] = [
-  { name: "AI Generated", scopes: ["notes"], what: "Put on the notes that Create with AI makes for you." },
+  { name: "AI Generated", scopes: ["notes", "todos", "boards"], what: "Put on the notes, todos and boards that Create with AI makes for you." },
   { name: "Example", scopes: ["notes", "todos", "boards"], what: "On the example folder that comes with a fresh install, and so on everything inside it." },
 ];
 

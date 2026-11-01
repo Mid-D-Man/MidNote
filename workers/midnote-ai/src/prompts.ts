@@ -22,11 +22,14 @@ export const LIMITS = {
  */
 export const INPUT_TOKEN_CEILING = 7600;
 
+/** What "create" makes: a note (free text, or a titled note), or the line format of a todo list or a board (see CREATE_TODO_SYSTEM). */
+export type CreateShape = "note" | "todo" | "board";
+
 /** edit = the answer replaces the selection; continue = new text that follows it; ask = an answer about it. */
 export type TransformMode = "edit" | "continue" | "ask";
 
 export type RunRequest =
-  | { task: "create"; prompt: string; titled: boolean; maxTokens: number | null }
+  | { task: "create"; prompt: string; titled: boolean; shape: CreateShape; maxTokens: number | null }
   | { task: "transform"; instruction: string; text: string; mode: TransformMode | null; before: string; after: string; maxTokens: number | null }
   | { task: "chat"; note: string; messages: { role: "user" | "assistant"; content: string }[]; maxTokens: number | null };
 
@@ -53,7 +56,13 @@ export function parseRun(raw: unknown): ParseResult {
       if (raw.prompt.length > LIMITS.prompt) return long;
       // titled: the answer is a NOTE (a title line, then the body) rather than free text
       if (raw.titled !== undefined && typeof raw.titled !== "boolean") return bad;
-      return { ok: true, value: { task: "create", prompt: raw.prompt.trim(), titled: raw.titled === true, maxTokens } };
+      // shape: what is being created. Absent means a note (older phones never send it).
+      let shape: CreateShape = "note";
+      if (raw.shape !== undefined) {
+        if (raw.shape !== "note" && raw.shape !== "todo" && raw.shape !== "board") return bad;
+        shape = raw.shape;
+      }
+      return { ok: true, value: { task: "create", prompt: raw.prompt.trim(), titled: raw.titled === true && shape === "note", shape, maxTokens } };
     }
     case "transform": {
       if (typeof raw.instruction !== "string" || !raw.instruction.trim()) return bad;
@@ -133,6 +142,45 @@ const CONTINUE_SYSTEM =
   "Output ONLY the new text, as plain text without Markdown: do not repeat the selection or the rest of the note, " +
   "and add no preamble, no explanation and no [[SELECTION]] markers.";
 
+// The line formats below are read by the phone (src/lib/utils/aiStructured.ts), which is tolerant of what a small model
+// gets wrong but cannot guess a format it was not told: change one side and change the other.
+const CREATE_TODO_SYSTEM =
+  "You write to-do lists inside a note-taking app. Reply in exactly this line format and nothing else:\n" +
+  "TITLE: a short title\n" +
+  "## Category name\n" +
+  "- Step\n" +
+  "- Another step :: optional short detail\n" +
+  "Rules: the first line is TITLE:. Then 2 to 6 categories, each starting with a line '## Name' and holding 2 to 8 steps, one step per line starting with '- '. " +
+  "A step is a short action (at most 12 words); add ' :: ' and a short detail only when it really helps. " +
+  "Plain text only: no numbering, no checkboxes, no bold, no tables, no other Markdown. The words TITLE and the ## and - markers stay as shown; everything else is in the language of the request. " +
+  "No introduction and no closing remarks.\n" +
+  "Example:\n" +
+  "TITLE: Plan a camping weekend\n" +
+  "## Before you go\n" +
+  "- Book the campsite :: Check the check-in time\n" +
+  "- Pack the tent\n" +
+  "## At the site\n" +
+  "- Set up the tent\n" +
+  "- Cook dinner";
+
+const CREATE_BOARD_SYSTEM =
+  "You build boards (idea maps) inside a note-taking app. A board is boxes (nodes) joined by arrows (links). Reply in exactly this line format and nothing else:\n" +
+  "TITLE: a short title\n" +
+  "NODE a: Short label :: optional short detail\n" +
+  "NODE b: Another label\n" +
+  "LINK a -> b\n" +
+  "Rules: the first line is TITLE:. Then one NODE line per box, then one LINK line per arrow. Give every node a short unique key of letters and digits (a, b, c, ... or n1, n2, ...) and a label of at most 6 words; use 5 to 20 nodes. " +
+  "A LINK goes from one key to another (LINK a -> b) and means b follows from a; link every node to at least one other and use only keys you defined. " +
+  "Plain text only: no positions, no colours, no Markdown. The words TITLE, NODE and LINK and the keys stay as shown; the labels are in the language of the request. " +
+  "No introduction and no closing remarks.\n" +
+  "Example:\n" +
+  "TITLE: Story arc\n" +
+  "NODE a: Opening scene :: The hero wakes up\n" +
+  "NODE b: The call to adventure\n" +
+  "NODE c: The first trial\n" +
+  "LINK a -> b\n" +
+  "LINK b -> c";
+
 const ASK_SYSTEM =
   "You answer a question about a selected part of a note inside a note-taking app. " +
   SELECTION_NOTE +
@@ -147,7 +195,7 @@ const CHAT_SYSTEM =
 export function temperatureFor(req: RunRequest): number {
   switch (req.task) {
     case "create":
-      return 0.7;
+      return req.shape === "note" ? 0.7 : 0.4; // a format to follow wants less wandering than a story does
     case "transform":
       return req.mode === "continue" ? 0.6 : req.mode === "ask" ? 0.5 : 0.3;
     case "chat":
@@ -311,7 +359,7 @@ export function buildMessages(req: RunRequest): ChatMessage[] {
   switch (req.task) {
     case "create":
       return [
-        { role: "system", content: req.titled ? CREATE_NOTE_SYSTEM : CREATE_SYSTEM },
+        { role: "system", content: req.shape === "todo" ? CREATE_TODO_SYSTEM : req.shape === "board" ? CREATE_BOARD_SYSTEM : req.titled ? CREATE_NOTE_SYSTEM : CREATE_SYSTEM },
         { role: "user", content: req.prompt },
       ];
     case "transform": {
@@ -353,7 +401,8 @@ export function cleanReply(req: RunRequest, raw: string): string {
   let t = raw.trim();
   // a titled note keeps its Markdown (the phone turns it into real formatting); only the wrapping goes
   if (req.task === "create") {
-    if (!req.titled) return t;
+    // a todo or board answer is read by the phone line by line; only a fence around it and a lead-in line are taken off
+    if (!req.titled && req.shape === "note") return t;
     const f = FENCED.exec(t);
     if (f) t = f[1].trim();
     return t.replace(PREAMBLE, "").trim();
@@ -393,4 +442,9 @@ export function cleanReply(req: RunRequest, raw: string): string {
     if (sel && t.startsWith(sel) && t.length > sel.length) t = t.slice(sel.length).trimStart();
   }
   return t.trim();
+}
+
+/** The label the ledger keeps for a request (what the credits were spent on): the task, and what a "create" made. */
+export function featureFor(req: RunRequest): string {
+  return req.task === "create" && req.shape !== "note" ? `create-${req.shape}` : req.task;
 }

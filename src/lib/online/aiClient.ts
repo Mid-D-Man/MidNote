@@ -18,7 +18,8 @@ export type AiEditMode = "edit" | "continue" | "ask";
 
 export type AiRequest =
   // `titled`: the answer is a NOTE (its first line is the title, then the body in light Markdown)
-  | { task: "create"; prompt: string; titled?: boolean; maxTokens?: number }
+  // `shape`: "todo" / "board": the answer is the line format of a todo list / a board (utils/aiStructured.ts reads it)
+  | { task: "create"; prompt: string; titled?: boolean; shape?: "note" | "todo" | "board"; maxTokens?: number }
   // `mode` makes it a SELECTION task: `text` is the selection and `before`/`after` the rest of the note around it
   | { task: "transform"; instruction: string; text: string; mode?: AiEditMode; before?: string; after?: string; maxTokens?: number }
   | { task: "chat"; note: string; messages: { role: "user" | "assistant"; content: string }[]; maxTokens?: number };
@@ -177,6 +178,7 @@ export class AiClient {
     if (req.task === "create") {
       body.prompt = req.prompt;
       if (req.titled !== undefined) body.titled = req.titled;
+      if (req.shape !== undefined) body.shape = req.shape;
     } else if (req.task === "transform") {
       body.instruction = req.instruction;
       body.text = req.text;
