@@ -7,6 +7,7 @@
 // route is the fallback. Plain TypeScript with the browser parts injected, so it
 // runs in Node tests; `globalThis.__midnoteCopyDeps` is the jsdom smoke test's seam.
 import type { Entry } from "$lib/types/entry";
+import { cleanPlainText } from "$lib/utils/plainClean";
 import { entryToPlainText } from "$lib/utils/selectionActions";
 import { entriesToShareText } from "$lib/utils/share";
 
@@ -47,7 +48,8 @@ export function realCopyDeps(): CopyDeps {
 }
 
 /** Puts `text` on the clipboard. false = no route worked. Never throws. */
-export async function copyText(text: string, deps: CopyDeps = realCopyDeps()): Promise<boolean> {
+export async function copyText(raw: string, deps: CopyDeps = realCopyDeps()): Promise<boolean> {
+  const text = cleanPlainText(raw);
   if (deps.clipboard) {
     try {
       await deps.clipboard(text);

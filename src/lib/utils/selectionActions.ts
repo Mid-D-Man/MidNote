@@ -22,11 +22,17 @@ import { save } from "@tauri-apps/plugin-dialog";
 import { isTauri } from "@tauri-apps/api/core";
 import { createNote, createTodo, generateId } from "$lib/storage";
 import { htmlToPlainText } from "$lib/utils/richText";
+import { cleanPlainText } from "$lib/utils/plainClean";
 import { sortByTime, FIRST_PAGE } from "$lib/utils/comments";
 import { describeEdge } from "$lib/utils/boardEdits";
 import type { Entry, Note, Todo } from "$lib/types/entry";
 
+/** An entry as plain text (Copy, Share and the .txt export). Space-like and invisible characters are cleaned (utils/plainClean.ts). */
 export function entryToPlainText(entry: Entry): string {
+  return cleanPlainText(entryText(entry));
+}
+
+function entryText(entry: Entry): string {
   if (entry.type === "regular") {
     // Common case, unchanged: a plain single-page note reads exactly as
     // it always has, no "Page 1" heading nobody asked for.

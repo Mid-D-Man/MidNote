@@ -230,6 +230,8 @@ const fillSignIn = (email, password) => [
 const T_OLD = "2026-10-01T10:00:00.000Z";
 const T_MID = "2026-10-02T10:00:00.000Z";
 const T_NEW = "2026-10-03T10:00:00.000Z";
+// A note "trashed a day ago": the trash empties itself after 30 days, so a fixed date here stops working as the calendar moves on.
+const T_TRASHED = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 const syncNote = (id, title, lastModified, extra = {}) => ({ id, type: "regular", title, content: "x", tags: [], lastModified, isBookmarked: false, encrypted: false, ...extra });
 // Sync is MANUAL by default (the "Sync automatically" switch is off); these scenarios are about the automatic behaviour, so they switch it on.
 const SYNC_STORAGE = { "midnote:session": SESSION_VALID, "midnote:sync-auto": "on" };
@@ -294,7 +296,7 @@ function syncScenarios() {
     {
       name: "sync — 'Delete forever' is told to the server after the pause",
       path: "/settings/trash",
-      seed: [syncNote("n-gone", "Trashed note", T_MID, { deletedAt: T_MID })],
+      seed: [syncNote("n-gone", "Trashed note", T_MID, { deletedAt: T_TRASHED })],
       storage: SYNC_STORAGE,
       online: syncOnline({}),
       steps: [
@@ -515,7 +517,7 @@ function syncScenarios() {
     {
       name: "sync — manual: 'Delete forever' is remembered and sent by the next tap",
       path: "/settings/trash",
-      seed: [syncNote("n-gone", "Trashed note", T_MID, { deletedAt: T_MID })],
+      seed: [syncNote("n-gone", "Trashed note", T_MID, { deletedAt: T_TRASHED })],
       storage: {
         ...SYNC_STORAGE_MANUAL,
         "midnote:sync-state": JSON.stringify({ v: 1, userId: SEED_UID, cursor: null, marks: { "n-gone": T_MID }, purges: {}, rejected: {}, lastSyncAt: null }),
@@ -2825,6 +2827,51 @@ const SCENARIOS = [
     ],
   },
   {
+    name: "ai creator (board) — an answer dressed up as a chat list (bold keywords, bullets, a lead-in) is still read as a board",
+    path: "/",
+    seed: SEED_ENTRIES,
+    storage: AI_STORAGE,
+    online: aiOnline({ run: aiReply("Sure! Here is your board:\n**TITLE:** Story arc\n- **NODE a:** Opening scene :: The hero wakes up\n- **NODE b:** The call to adventure\n- **NODE c:** The first trial\n- **LINK a -> b**\n- **LINK b -> c**\nHope this helps!") }),
+    steps: [
+      { wait: 600 },
+      { clickSelector: ".view-tabs button:nth-child(3)" },
+      { wait: 300 },
+      { type: { label: "Describe the board you want", value: "The story of a hero" } },
+      { wait: 100 },
+      { click: "Generate board with AI" },
+      { wait: 600 },
+      { expectSelector: '[aria-label="AI board preview"]' },
+      { expectText: "Story arc" },
+      { expectText: "3 nodes, 2 links." },
+      { expectText: "Opening scene → The call to adventure" },
+      { expectNoText: "couldn't be turned into a board" },
+      { click: "Create AI board" },
+      { wait: 500 },
+      { expectStored: '"label":"Opening scene","body":"The hero wakes up"' },
+      { expectNotStored: '"label":"** Opening scene' },
+    ],
+  },
+  {
+    name: "ai creator (board) — an answer in no usable format shows what the AI wrote, and files nothing",
+    path: "/",
+    seed: SEED_ENTRIES,
+    storage: AI_STORAGE,
+    online: aiOnline({ run: aiReply("I am sorry, I cannot make that.\nPlease ask again.") }),
+    steps: [
+      { wait: 600 },
+      { clickSelector: ".view-tabs button:nth-child(3)" },
+      { wait: 300 },
+      { type: { label: "Describe the board you want", value: "x" } },
+      { wait: 100 },
+      { click: "Generate board with AI" },
+      { wait: 600 },
+      { expectText: "The AI's answer couldn't be turned into a board." },
+      { expectText: "What the AI wrote" },
+      { expectSelectorText: { selector: 'pre[aria-label="What the AI wrote"]', text: "I am sorry, I cannot make that.\nPlease ask again." } },
+      { expectNoSelector: '[aria-label="AI board preview"]' },
+    ],
+  },
+  {
     name: "ai creator (todo/board) — a cut-off answer is flagged; whatever whole lines arrived are still used",
     path: "/",
     seed: SEED_ENTRIES,
@@ -3351,6 +3398,22 @@ const SCENARIOS = [
       { wait: 200 },
       { expectGlobalCount: { name: "__copied", substring: "Smoke test note", count: 1 } },
       { expectText: "Copied" },
+    ],
+  },
+  {
+    name: "home — note card menu: Copy content turns no-break spaces into plain spaces and drops zero-width marks",
+    path: "/",
+    seed: SEED_ENTRIES.map((e) => (e.id === NOTE_ID ? { ...e, content: "<div>version\u00a0\u00a0\u00a0\u00a0-&gt; x\u200b</div><div>\u2060done\u202f!</div>" } : e)),
+    copy: true,
+    steps: [
+      { click: "More options" },
+      { click: "Copy content" },
+      { wait: 200 },
+      { expectGlobalIncludes: { name: "__copied", substring: "version    -> x\ndone !" } },
+      { expectGlobalCount: { name: "__copied", substring: "\u00a0", count: 0 } },
+      { expectGlobalCount: { name: "__copied", substring: "\u200b", count: 0 } },
+      { expectGlobalCount: { name: "__copied", substring: "\u2060", count: 0 } },
+      { expectGlobalCount: { name: "__copied", substring: "\u202f", count: 0 } },
     ],
   },
   {

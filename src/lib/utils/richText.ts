@@ -15,6 +15,8 @@
 // parsing, unaffected by which rich-text engine renders the editor
 // itself.
 
+import { cleanPlainText } from "$lib/utils/plainClean";
+
 export function stripHtml(html: string): string {
   if (typeof document === "undefined") {
     return html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
@@ -34,7 +36,7 @@ export function plainTextToHtml(text: string): string {
 
 export function htmlToPlainText(html: string): string {
   if (typeof document === "undefined") {
-    return html.replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]*>/g, "").trim();
+    return cleanPlainText(html.replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]*>/g, "")).trim();
   }
   const el = document.createElement("div");
   el.innerHTML = html;
@@ -51,5 +53,5 @@ export function htmlToPlainText(html: string): string {
   el.querySelectorAll("div,p,li").forEach((block) => {
     block.after("\n");
   });
-  return (el.textContent ?? "").replace(/\n{3,}/g, "\n\n").trim();
+  return cleanPlainText(el.textContent ?? "").replace(/\n{3,}/g, "\n\n").trim();
 }

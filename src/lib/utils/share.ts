@@ -25,6 +25,7 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import type { Entry } from "$lib/types/entry";
 import { entryToPlainText } from "$lib/utils/selectionActions";
+import { cleanPlainText } from "$lib/utils/plainClean";
 
 export type ShareResult = "shared" | "copied" | "cancelled" | "toolarge" | "unsupported";
 
@@ -68,11 +69,12 @@ function isCancel(err: unknown): boolean {
 }
 
 export async function shareText(
-  text: string,
+  raw: string,
   opts: { title?: string; log?: (msg: string) => void } = {},
   deps: ShareDeps = realShareDeps(),
 ): Promise<ShareResult> {
   const log = opts.log ?? (() => {});
+  const text = cleanPlainText(raw); // no-break spaces and zero-width marks must not leave the app (utils/plainClean.ts)
   if (text.length > MAX_SHARE_CHARS) return "toolarge";
 
   if (deps.native) {

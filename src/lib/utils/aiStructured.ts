@@ -52,7 +52,30 @@ function plainText(s: string): string {
     .replace(/\*\*([^*]+)\*\*/g, "$1")
     .replace(/__([^_]+)__/g, "$1")
     .replace(/`([^`]+)`/g, "$1")
+    .trim()
+    .replace(/^(?:\*\*|__|`)+|(?:\*\*|__|`)+$/g, "") // a mark with no partner (the other half was on the keyword)
     .trim();
+}
+
+/**
+ * A line with the dressing a chat model likes to add taken off the front: a quote mark, a list bullet or number, and
+ * bold / code marks. "- **NODE a:** Label" then reads like "NODE a: Label". Used for board lines, where the keyword must
+ * be the first thing on the line.
+ */
+function bare(line: string): string {
+  return line
+    .replace(/^[>\s]+/, "")
+    .replace(/^(?:[-*•–]\s+|\d{1,3}[.)]\s+)/, "")
+    .replace(/^(?:\*\*|__|\*|`)+/, "")
+    .trim();
+}
+
+/** A few lines of what the AI actually wrote, for a message when nothing in it could be used (and for the debug log). */
+export function answerExcerpt(raw: string, maxLines = 8, maxChars = 600): string {
+  const lines = raw.split(/\r\n?|\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+  const text = lines.slice(0, maxLines).map((l) => (l.length > 160 ? l.slice(0, 159) + "…" : l)).join("\n");
+  const more = lines.length > maxLines || text.length > maxChars;
+  return (text.length > maxChars ? text.slice(0, maxChars - 1) : text) + (more ? "\n…" : "");
 }
 
 /** "title :: detail" -> [title, detail]. */
@@ -141,29 +164,47 @@ export function parseAiTodo(raw: string): ParsedTodo | null {
 
 // ---------------------------------------------------------------- boards
 
-const NODE_RE = /^node\s+([A-Za-z0-9_-]{1,12})\s*[:：.)-]\s*(.*)$/i;
-const LINK_RE = /^link\s+(.*)$/i;
-const ARROW = /\s*(?:-+>|=+>|→|➔|⟶)\s*/;
+// "NODE a: Label :: detail". Tolerated: a bullet / bold / code mark in front (see bare), "NODE: a - Label", "NODE [a]: Label",
+// "NODE a = Label", "NODE 1. Label". The key is 1-12 letters, digits, _ or -.
+const NODE_RE = /^node\b\s*[:：]?\s*[[(]?([A-Za-z0-9_-]{1,12})[\])]?\s*(?:\*\*|__)?\s*[:：.)=–—-]\s*(.*)$/i;
+// "LINK a -> b" (also "LINKS", "EDGE", "CONNECTION"; a colon after the word is fine)
+const LINK_RE = /^(?:link|edge|connect(?:ion)?)s?\b\s*[:：]?\s*(.*)$/i;
+const ARROW = /\s*(?:-+>|=+>|→|➔|⟶|⇒)\s*/;
+
+/** A node key as the AI may have written it in a link: "[A]", "(a)", "`a`", "a." -> "a". */
+function normKey(k: string): string {
+  return k
+    .trim()
+    .toLowerCase()
+    .replace(/^[[("'`*_]+|[\])"'`*_.,;:]+$/g, "")
+    .trim();
+}
 
 /**
  * Reads a board. Returns null when there is not a single node. Links to a node that doesn't exist, links from a node to
  * itself and repeated links are left out; nodes keep the order they were written in.
+ *
+ * A small model does not always follow the line format to the letter, so this reads what it can: lines dressed up as list
+ * items or bold text, links that name a node by its label instead of its key, and a bare "a -> b" line. If the answer has
+ * no NODE lines at all, it falls back to reading a list (one node per bullet) or arrows between labels ("Idea -> Plan").
  */
 export function parseAiBoard(raw: string): ParsedBoard | null {
   const L = AI_BOARD_LIMITS;
   let title = "";
   const nodes: ParsedBoard["nodes"] = [];
   const seen = new Set<string>();
-  const linkLines: string[] = [];
+  const byLabel = new Map<string, string>(); // lower-case label -> key (a link may name a node by its label)
+  const linkLines: { text: string; loose: boolean }[] = [];
   let dropped = 0;
 
   for (const line of linesOf(raw)) {
-    const t = titleOf(line);
+    const core = bare(line);
+    const t = titleOf(core);
     if (t !== null) {
       if (!title) title = cut(plainText(t), L.title);
       continue;
     }
-    const n = NODE_RE.exec(line);
+    const n = NODE_RE.exec(core);
     if (n) {
       const key = n[1].toLowerCase();
       const [rawLabel, rawBody] = splitDetail(plainText(n[2]));
@@ -178,28 +219,34 @@ export function parseAiBoard(raw: string): ParsedBoard | null {
         continue;
       }
       seen.add(key);
+      if (!byLabel.has(label.toLowerCase())) byLabel.set(label.toLowerCase(), key);
       nodes.push({ key, label, body: cut(rawBody, L.body) });
       continue;
     }
-    const l = LINK_RE.exec(line);
-    if (l) linkLines.push(l[1]);
+    const l = LINK_RE.exec(core);
+    if (l) linkLines.push({ text: l[1], loose: false });
+    else if (ARROW.test(core)) linkLines.push({ text: core, loose: true }); // "a -> b" with no LINK in front
   }
 
-  if (nodes.length === 0) return null;
+  if (nodes.length === 0) return boardFromLabels(raw);
+
+  const resolve = (token: string): string | null => {
+    const k = normKey(token);
+    if (seen.has(k)) return k;
+    const byName = byLabel.get(cut(plainText(token), L.label).toLowerCase());
+    return byName ?? null;
+  };
 
   const links: ParsedBoard["links"] = [];
   const pairs = new Set<string>();
-  for (const text of linkLines) {
+  for (const { text, loose } of linkLines) {
     // "a -> b -> c" is two links; a chain with a cut-off end ("a ->") just has fewer
-    const keys = text
-      .split(ARROW)
-      .map((k) => k.trim().toLowerCase().replace(/[.,;]+$/, ""))
-      .filter((k) => k.length > 0);
-    for (let i = 0; i + 1 < keys.length; i++) {
-      const from = keys[i];
-      const to = keys[i + 1];
-      if (!seen.has(from) || !seen.has(to) || from === to) {
-        dropped++;
+    const tokens = text.split(ARROW).map((k) => k.trim()).filter((k) => k.length > 0);
+    for (let i = 0; i + 1 < tokens.length; i++) {
+      const from = resolve(tokens[i]);
+      const to = resolve(tokens[i + 1]);
+      if (from === null || to === null || from === to) {
+        if (!loose) dropped++; // an arrow in ordinary prose is not a link that went wrong
         continue;
       }
       const id = `${from}>${to}`;
@@ -215,6 +262,67 @@ export function parseAiBoard(raw: string): ParsedBoard | null {
       links.push({ from, to });
     }
   }
+  return { title, nodes, links, dropped };
+}
+
+/**
+ * The fallback for an answer with no NODE lines: each bullet or numbered line is a node, and "Idea -> Plan -> Build" makes
+ * the nodes (named by their text) and the links between them. Keys are made up (n1, n2, ...). Null when nothing is left.
+ */
+function boardFromLabels(raw: string): ParsedBoard | null {
+  const L = AI_BOARD_LIMITS;
+  let title = "";
+  const nodes: ParsedBoard["nodes"] = [];
+  const index = new Map<string, string>();
+  const links: ParsedBoard["links"] = [];
+  const pairs = new Set<string>();
+  let dropped = 0;
+
+  const nodeFor = (text: string): string | null => {
+    const [rawLabel, rawBody] = splitDetail(plainText(text));
+    const label = cut(rawLabel, L.label);
+    if (!label) return null;
+    const lower = label.toLowerCase();
+    const have = index.get(lower);
+    if (have) return have;
+    if (nodes.length >= L.nodes) {
+      dropped++;
+      return null;
+    }
+    const key = `n${nodes.length + 1}`;
+    index.set(lower, key);
+    nodes.push({ key, label, body: cut(rawBody, L.body) });
+    return key;
+  };
+
+  for (const line of linesOf(raw)) {
+    const core = bare(line);
+    const t = titleOf(core);
+    if (t !== null) {
+      if (!title) title = cut(plainText(t), L.title);
+      continue;
+    }
+    if (ARROW.test(core)) {
+      const keys = core.split(ARROW).map((k) => k.trim()).filter((k) => k.length > 0).map(nodeFor);
+      for (let i = 0; i + 1 < keys.length; i++) {
+        const from = keys[i];
+        const to = keys[i + 1];
+        if (from === null || to === null || from === to) continue;
+        const id = `${from}>${to}`;
+        if (pairs.has(id)) continue;
+        if (links.length >= L.links) {
+          dropped++;
+          continue;
+        }
+        pairs.add(id);
+        links.push({ from, to });
+      }
+      continue;
+    }
+    const b = STEP_MARK.exec(line);
+    if (b) nodeFor(b[1]);
+  }
+  if (nodes.length === 0) return null;
   return { title, nodes, links, dropped };
 }
 

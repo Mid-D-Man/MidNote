@@ -16,7 +16,9 @@
 // MidNote notes (or into an app that reads rich text) keeps bold, colour and
 // size exactly as before.
 import type { Slice } from "@tiptap/pm/model";
+import { cleanPlainText } from "$lib/utils/plainClean";
 
 export function sliceToPlainText(slice: Slice): string {
-  return slice.content.textBetween(0, slice.content.size, "\n", (leaf) => (leaf.type.name === "hardBreak" ? "\n" : ""));
+  // non-breaking spaces and zero-width marks the editor holds are plain spaces / nothing outside it (utils/plainClean.ts)
+  return cleanPlainText(slice.content.textBetween(0, slice.content.size, "\n", (leaf) => (leaf.type.name === "hardBreak" ? "\n" : "")));
 }

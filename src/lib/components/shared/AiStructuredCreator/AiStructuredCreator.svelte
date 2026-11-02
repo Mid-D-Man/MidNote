@@ -16,7 +16,7 @@
   import { account } from "$lib/stores/account.svelte";
   import { ai, initAi, runAi } from "$lib/stores/ai.svelte";
   import { configProblemMessage } from "$lib/online/authMessages";
-  import { parseAiTodo, parseAiBoard, fallbackTitle, type ParsedTodo, type ParsedBoard } from "$lib/utils/aiStructured";
+  import { parseAiTodo, parseAiBoard, fallbackTitle, answerExcerpt, type ParsedTodo, type ParsedBoard } from "$lib/utils/aiStructured";
   import { pushToast } from "$lib/stores/toast.svelte";
   import { breadcrumb } from "$lib/debug/log.svelte";
 
@@ -43,6 +43,8 @@
   let prompt = $state("");
   let loading = $state(false);
   let notice = $state<string | null>(null);
+  /** The start of an answer nothing could be made of, so you can see what the AI said (and tell us). Plain text only. */
+  let unusable = $state<string | null>(null);
   let draft = $state<Draft | null>(null);
   let dialogOpen = $state(false);
   let dialogMode = $state<AuthMode>("signin");
@@ -65,6 +67,7 @@
     if (!ready || loading) return;
     loading = true;
     notice = null;
+    unusable = null;
     draft = null;
     lastPrompt = p;
     breadcrumb(`ai ${noun} creator: requested (${p.length} chars)`);
@@ -78,7 +81,9 @@
     const board = kind === "board" ? parseAiBoard(r.result.text) : null;
     if (!todo && !board) {
       notice = `The AI's answer couldn't be turned into a ${noun}. Try again, or describe it a little differently.`;
-      breadcrumb(`ai ${noun} creator: answer not usable`);
+      const seen = answerExcerpt(r.result.text);
+      unusable = seen || "(the AI sent back nothing)";
+      breadcrumb(`ai ${noun} creator: answer not usable, it began: ${seen.replace(/\s+/g, " ").slice(0, 200)}`);
       return;
     }
     draft = {
@@ -109,6 +114,7 @@
   function discard() {
     draft = null;
     notice = null;
+    unusable = null;
   }
 
   function onKeydown(e: KeyboardEvent) {
@@ -147,6 +153,12 @@
 
     {#if notice}
       <p class="notice error" role="alert">{notice}</p>
+    {/if}
+    {#if unusable}
+      <details class="seen">
+        <summary>What the AI wrote</summary>
+        <pre aria-label="What the AI wrote">{unusable}</pre>
+      </details>
     {/if}
 
     {#if draft}
@@ -287,6 +299,31 @@
     padding: var(--space-3);
     font-size: 13px;
     line-height: 1.4;
+    border-radius: var(--radius-md);
+  }
+  .seen {
+    font-size: 13px;
+    color: var(--text-lo);
+  }
+  .seen summary {
+    cursor: pointer;
+    min-height: 32px;
+    display: flex;
+    align-items: center;
+  }
+  .seen pre {
+    margin: var(--space-1) 0 0;
+    padding: var(--space-2) var(--space-3);
+    max-height: 30vh;
+    overflow: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-family: inherit;
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--text-hi);
+    background: var(--surface-raised);
+    border: 1px solid var(--border, var(--accent-dim));
     border-radius: var(--radius-md);
   }
   .notice.error {
