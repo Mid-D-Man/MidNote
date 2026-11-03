@@ -312,6 +312,16 @@ jobs:
           tree.write(path, encoding="utf-8", xml_declaration=True)
           PY
 
+      # Round R: the home-screen widget (ONE widget, three buttons: new note / new todo / new board).
+      # gen/android is written fresh by "Init Android project" above, so the widget's Kotlin class, layout, icons and
+      # manifest entry are added here from src-tauri/android-widgets/ (install.py explains each step and checks its
+      # own work). If anything is off it removes what it copied and exits with a message, and because of
+      # continue-on-error the app is still built, just without the widget: "Check widget in the build" below says so.
+      # The tap links (midnote://new/...) are allowed by the deep-link entry in tauri.conf.json.
+      - name: Add the home-screen widget
+        continue-on-error: true
+        run: python3 src-tauri/android-widgets/install.py
+
       # --target restricts this to the one ABI that's actually needed. The
       # Galaxy A13's chip is 64-bit capable, but Samsung ships this model
       # with a 32-bit OS, so it only reports armeabi-v7a as installable —
@@ -427,6 +437,29 @@ jobs:
             grep -n -B4 -A1 'android:mimeType' "$MANIFEST"
           else
             echo "::warning::The Open-with filter is NOT in the generated AndroidManifest.xml. MidNote will not be offered when you open a file."
+          fi
+
+      # Round R: proof that the widget really is in the build: its entry in the manifest, the link host it uses, and
+      # the compiled class. Warnings, not failures: without them the app still works, it just has no widget.
+      - name: Check widget in the build
+        run: |
+          MANIFEST=src-tauri/gen/android/app/src/main/AndroidManifest.xml
+          if grep -q 'android:name=".MidNoteWidget"' "$MANIFEST"; then
+            echo "Widget present in the manifest:"
+            grep -n -A5 'android:name=".MidNoteWidget"' "$MANIFEST"
+          else
+            echo "::warning::The home-screen widget is NOT in the generated AndroidManifest.xml (see the 'Add the home-screen widget' step). MidNote was built without its widget."
+          fi
+          if grep -q 'android:host="new"' "$MANIFEST"; then
+            echo "Deep link present: midnote://new"
+          else
+            echo "::warning::The midnote://new link is NOT in the manifest: widget taps will not open the new-note screens."
+          fi
+          CLASS=$(find src-tauri/gen/android/app/build -name 'MidNoteWidget*.class' 2>/dev/null | head -1)
+          if [ -n "$CLASS" ]; then
+            echo "Widget class compiled: $CLASS"
+          else
+            echo "::warning::No compiled MidNoteWidget class was found in the build output."
           fi
 
       - name: List built APKs
