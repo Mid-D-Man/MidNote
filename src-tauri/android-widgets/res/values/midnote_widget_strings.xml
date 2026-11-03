@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Brought to u by MidManStudio -->
+<resources>
+    <string name="midnote_widget_label">MidNote quick add</string>
+    <string name="midnote_widget_description">Start a new note, todo or board in one tap</string>
+    <string name="midnote_widget_note">Note</string>
+    <string name="midnote_widget_todo">Todo</string>
+    <string name="midnote_widget_board">Board</string>
+    <string name="midnote_widget_note_description">New note</string>
+    <string name="midnote_widget_todo_description">New todo</string>
+    <string name="midnote_widget_board_description">New board</string>
+</resources>

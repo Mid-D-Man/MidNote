@@ -13,6 +13,7 @@ import { saveEntry } from "$lib/stores/entries.svelte";
 import { createNote } from "$lib/storage";
 import { realOpenWithBackend } from "$lib/utils/openWithNative";
 import { docxToText, DocxError } from "$lib/utils/docxText";
+import { widgetKind, widgetPath } from "$lib/utils/widgetLinks";
 import { MAX_READ_BYTES, classifyIncoming, clampForNote, isContentUrl, nameFromUrl, textToNoteHtml, titleFor } from "$lib/utils/openWith";
 import type { PickedFile } from "$lib/utils/backupFiles";
 
@@ -43,6 +44,7 @@ export const openWith = $state({
 });
 
 const LAST_COLD_KEY = "midnote:last-open-url";
+const LAST_WIDGET_KEY = "midnote:last-widget-url";
 let started = false;
 let seq = 0;
 
@@ -107,15 +109,42 @@ export async function openIncoming(url: string): Promise<void> {
   }
 }
 
-/** Starts listening: for files opened while the app runs, and for the file that started the app. Safe to call twice. */
-export async function startOpenWith(): Promise<void> {
+/**
+ * Starts listening: for files opened while the app runs, and for the file that started the app. Safe to call twice.
+ *
+ * The home-screen widget's buttons arrive through the same door as links (midnote://new/note | todo | board, see
+ * utils/widgetLinks.ts): `onWidget` is called with the blank-editor route to open. Nothing is created by the link itself.
+ */
+export async function startOpenWith(onWidget?: (path: string) => void | Promise<void>): Promise<void> {
   if (started) return;
   started = true;
   const backend = realOpenWithBackend();
   if (!backend) return;
+  const openWidget = (url: string, path: string) => {
+    breadcrumb(`widget: new ${widgetKind(url)}`);
+    void Promise.resolve(onWidget?.(path)).catch((e) => breadcrumb(`widget: could not open ${path} (${e instanceof Error ? e.message.slice(0, 80) : "error"})`));
+  };
   try {
-    await backend.onUrl((url) => void openIncoming(url));
+    await backend.onUrl((url) => {
+      const path = widgetPath(url);
+      if (path) openWidget(url, path);
+      else void openIncoming(url);
+    });
     for (const url of await backend.getCurrent()) {
+      const path = widgetPath(url);
+      if (path) {
+        // The plugin keeps the app's launch link for as long as the app runs: remember that this session already acted
+        // on it, so a page reload does not open another editor.
+        let seenWidget = false;
+        try {
+          seenWidget = sessionStorage.getItem(LAST_WIDGET_KEY) === url;
+          sessionStorage.setItem(LAST_WIDGET_KEY, url);
+        } catch {
+          /* no session storage: open it */
+        }
+        if (!seenWidget) openWidget(url, path);
+        continue;
+      }
       if (!isContentUrl(url)) continue;
       // The plugin keeps the app's launch link for as long as the app runs, so a page reload would offer the same
       // file again: remember which one this session already showed.

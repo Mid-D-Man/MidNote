@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Brought to u by MidManStudio -->
+<!-- The widget: three equal buttons in a row, each an icon over a word. Only views that RemoteViews supports are used
+     (LinearLayout, ImageView, TextView). The ids are used by MidNoteWidget.kt to attach each button's tap. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="horizontal"
+    android:padding="6dp"
+    android:background="@drawable/midnote_widget_bg">
+
+    <LinearLayout
+        android:id="@+id/midnote_widget_note"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:layout_margin="3dp"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:background="@drawable/midnote_widget_button_bg"
+        android:contentDescription="@string/midnote_widget_note_description">
+        <ImageView
+            android:layout_width="22dp"
+            android:layout_height="22dp"
+            android:importantForAccessibility="no"
+            android:src="@drawable/midnote_widget_icon_note" />
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:importantForAccessibility="no"
+            android:text="@string/midnote_widget_note"
+            android:textColor="#eef0fa"
+            android:textSize="11sp"
+            android:maxLines="1" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/midnote_widget_todo"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:layout_margin="3dp"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:background="@drawable/midnote_widget_button_bg"
+        android:contentDescription="@string/midnote_widget_todo_description">
+        <ImageView
+            android:layout_width="22dp"
+            android:layout_height="22dp"
+            android:importantForAccessibility="no"
+            android:src="@drawable/midnote_widget_icon_todo" />
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:importantForAccessibility="no"
+            android:text="@string/midnote_widget_todo"
+            android:textColor="#eef0fa"
+            android:textSize="11sp"
+            android:maxLines="1" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/midnote_widget_board"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:layout_margin="3dp"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:background="@drawable/midnote_widget_button_bg"
+        android:contentDescription="@string/midnote_widget_board_description">
+        <ImageView
+            android:layout_width="22dp"
+            android:layout_height="22dp"
+            android:importantForAccessibility="no"
+            android:src="@drawable/midnote_widget_icon_board" />
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:importantForAccessibility="no"
+            android:text="@string/midnote_widget_board"
+            android:textColor="#eef0fa"
+            android:textSize="11sp"
+            android:maxLines="1" />
+    </LinearLayout>
+</LinearLayout>

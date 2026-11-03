@@ -30,6 +30,11 @@
           "appLink": false
         },
         {
+          "scheme": ["midnote"],
+          "host": "new",
+          "appLink": false
+        },
+        {
           "scheme": ["content"],
           "appLink": false
         }

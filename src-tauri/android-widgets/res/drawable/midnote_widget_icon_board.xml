@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Brought to u by MidManStudio -->
+<!-- Three nodes joined by lines, like a board. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:strokeColor="#c9a24b"
+        android:strokeWidth="1.6"
+        android:pathData="M6,6 L18,8 M6,6 L10,18 M18,8 L10,18" />
+    <path
+        android:fillColor="#c9a24b"
+        android:pathData="M3,6 A3,3 0 1,0 9,6 A3,3 0 1,0 3,6 Z M15,8 A3,3 0 1,0 21,8 A3,3 0 1,0 15,8 Z M7,18 A3,3 0 1,0 13,18 A3,3 0 1,0 7,18 Z" />
+</vector>

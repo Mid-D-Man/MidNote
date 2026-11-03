@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Brought to u by MidManStudio -->
+<!-- A sheet with a folded corner and two lines of text (the lines are holes: they are drawn the other way round, so the default non-zero fill leaves them empty). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#c9a24b"
+        android:pathData="M6,3 L14,3 L19,8 L19,21 L6,21 Z M9,12 L9,13.6 L16,13.6 L16,12 Z M9,16 L9,17.6 L16,17.6 L16,16 Z" />
+</vector>

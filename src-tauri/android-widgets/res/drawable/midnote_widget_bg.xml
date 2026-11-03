@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Brought to u by MidManStudio -->
+<!-- The widget's own background: MidNote's dark surface (#10152b) with a thin royal-blue edge (#24397e). A widget cannot
+     read the app's theme, so it is always dark. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="#10152b" />
+    <stroke android:width="1dp" android:color="#24397e" />
+    <corners android:radius="20dp" />
+</shape>

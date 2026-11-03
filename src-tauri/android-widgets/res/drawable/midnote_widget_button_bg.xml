@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Brought to u by MidManStudio -->
+<!-- One button: MidNote's raised surface (#171d3a) with a light ripple while it is pressed. -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android" android:color="#44ffffff">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#171d3a" />
+            <corners android:radius="14dp" />
+        </shape>
+    </item>
+</ripple>

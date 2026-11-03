@@ -99,7 +99,13 @@
       void installReminderTapHandler((path) => goto(path));
       // Round K: a file opened with MidNote from the phone's "Open with" list (its sheet is below).
       // No-op outside the Android app. Never throws.
-      void startOpenWith();
+      // The home-screen widget's three buttons (new note / todo / board) arrive the same way, as a link: open that
+      // blank editor. When the same blank editor is already open (it may hold something typed), leave it first so
+      // a fresh one opens instead of nothing happening.
+      void startOpenWith(async (path) => {
+        if (location.pathname === path) await goto("/");
+        await goto(path);
+      });
       topUpRepeating(true);
       // Round C: the first sync of the session (no-op when signed out). Never throws.
       startSync();

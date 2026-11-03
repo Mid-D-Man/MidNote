@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Brought to u by MidManStudio -->
+<!-- The widget's size and picker entry. 4 x 1 cells by default (targetCell*, Android 12+; minWidth/minHeight is the
+     same size for older phones: a cell is about 70 dp, so n cells = 70n - 30 dp). It can be made smaller or taller.
+     updatePeriodMillis 0: the widget shows nothing that changes, so Android never needs to refresh it. -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="250dp"
+    android:minHeight="40dp"
+    android:targetCellWidth="4"
+    android:targetCellHeight="1"
+    android:minResizeWidth="180dp"
+    android:minResizeHeight="40dp"
+    android:resizeMode="horizontal|vertical"
+    android:updatePeriodMillis="0"
+    android:initialLayout="@layout/midnote_widget"
+    android:previewLayout="@layout/midnote_widget"
+    android:description="@string/midnote_widget_description"
+    android:widgetCategory="home_screen" />
