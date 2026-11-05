@@ -290,6 +290,40 @@ if (process.env.SMOKE_TTS === "fake" || process.env.SMOKE_TTS === "fake-noevents
   };
 }
 
+// Round T (background read-aloud): a stand-in for window.MidNoteReader, the Android service's door
+// (src-tauri/android-reader/kotlin/ReaderBridge.kt). SMOKE_NATIVE_READER = { state?: {...} } (JSON; `state` is what the service
+// reports when the page asks, e.g. a reading that was already going on). Every call is pushed onto globalThis.__readerCalls as
+// text ("start:<id>:<title>:<pieces>:<index>:<voice>:<rate>:<pitch>", "pause", "seek:3", ...); the pieces sent are kept in
+// globalThis.__readerPieces. The step `readerEvent: {...}` plays the service's side: it sends one state event to the page.
+if (process.env.SMOKE_NATIVE_READER) {
+  const cfg = JSON.parse(process.env.SMOKE_NATIVE_READER);
+  const calls = (globalThis.__readerCalls = []);
+  globalThis.__readerPieces = [];
+  const wire = (o) => JSON.stringify({ type: "state", status: "idle", id: null, index: 0, count: 0, message: null, ...o });
+  let last = wire(cfg.state ?? {});
+  globalThis.__readerWire = wire;
+  globalThis.__readerSetLast = (o) => {
+    last = wire(o);
+    return last;
+  };
+  globalThis.__midnoteNativeReader = {
+    available: () => "1",
+    start: (id, title, pieces, index, voiceId, rate, pitch) => {
+      globalThis.__readerPieces.push(pieces.split("\u001e"));
+      calls.push(`start:${id}:${title}:${pieces.split("\u001e").length}:${index}:${voiceId}:${rate}:${pitch}`);
+    },
+    pause: () => calls.push("pause"),
+    resume: () => calls.push("resume"),
+    replay: () => calls.push("replay"),
+    stop: () => calls.push("stop"),
+    seek: (i) => calls.push(`seek:${i}`),
+    next: () => calls.push("next"),
+    previous: () => calls.push("previous"),
+    settings: (v, r, p) => calls.push(`settings:${v}:${r}:${p}`),
+    state: () => last,
+  };
+}
+
 // Round E (backup): a stand-in for the lock_payload / unlock_payload Tauri commands (the real ones are Rust:
 // DixScript's DLM, AES-256-GCM + Argon2id), so password-protected backups run end to end in jsdom.
 // The output is deliberately NOT valid UTF-8 (so it is recognised as an encrypted file), carries a per-backup
@@ -1022,6 +1056,16 @@ if (STEPS.length > 0 && errors.length === 0) {
         el.dispatchEvent(new w.KeyboardEvent(type, { key: step.press.key, ctrlKey: !!step.press.ctrl, bubbles: true, cancelable: true }));
       }
       await new Promise((r) => setTimeout(r, step.press.settleMs ?? 150));
+    } else if (step.readerEvent !== undefined) {
+      // Round T: the background service reports a change (the page's window.__midnoteReaderEvent receives it as text).
+      const text = globalThis.__readerSetLast(step.readerEvent);
+      const handler = w.__midnoteReaderEvent;
+      if (typeof handler !== "function") {
+        errors.push(new Error(`${where}: the page has not installed window.__midnoteReaderEvent.`));
+        break;
+      }
+      handler(text);
+      await new Promise((r) => setTimeout(r, step.settleMs ?? 250));
     } else if (step.openUrl !== undefined) {
       // Round K: a link arrives while the app is running (the phone's "Open with" -> MidNote, or the sign-in link).
       globalThis.__openWithEmit(step.openUrl);

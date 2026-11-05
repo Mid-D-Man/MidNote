@@ -3,7 +3,8 @@
 import { breadcrumb } from "$lib/debug/log.svelte";
 import { pushToast } from "$lib/stores/toast.svelte";
 import type { Entry } from "$lib/types/entry";
-import { ReadAloudController, type ReadState } from "$lib/utils/readAloudController";
+import { NativeReadAloud, nativeReaderBridge } from "$lib/utils/nativeReader";
+import { ReadAloudController, type ReadState, type StartResult } from "$lib/utils/readAloudController";
 import { DEFAULT_SPEECH, entryToSpeechText, sanitizeSpeechSettings, speechClean, type SpeechSettings } from "$lib/utils/speech";
 import { realTtsBackend, type TtsVoice } from "$lib/utils/ttsBackend";
 
@@ -34,10 +35,51 @@ export function updateTtsSettings(patch: Partial<SpeechSettings>) {
   ttsSettings.rate = next.rate;
   ttsSettings.pitch = next.pitch;
   if (typeof localStorage !== "undefined") localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
+  native?.settingsChanged(); // a reading that is going on in the background service uses the new voice from its next sentence
 }
 
+/** What the rest of this file needs from whichever reader is in use. */
+type Reader = {
+  start(id: string, text: string, title?: string): Promise<StartResult>;
+  stop(): Promise<void>;
+  pause(): Promise<void>;
+  resume(): Promise<StartResult | null>;
+  replay(): Promise<StartResult | null>;
+  seek(index: number): Promise<StartResult | null>;
+};
+
 let controller: ReadAloudController | null = null;
-function ctl(): ReadAloudController {
+let native: NativeReadAloud | null = null;
+
+/**
+ * Where a reading runs: in the Android app's background service (it goes on with the screen off and shows a media
+ * notification, see utils/nativeReader.ts), or, without that service, in readAloudController.ts through the TTS plugin.
+ */
+function ctl(): Reader {
+  const bridge = nativeReaderBridge();
+  if (!bridge) return legacy();
+  if (!native) {
+    native = new NativeReadAloud({
+      bridge,
+      settings: () => ({ voiceId: ttsSettings.voiceId, rate: ttsSettings.rate, pitch: ttsSettings.pitch }),
+      onChange: (s) => Object.assign(readAloud, s),
+      onFailure: (message) => pushToast({ title: "Reading stopped", description: message, variant: "destructive" }),
+      log: breadcrumb,
+    });
+    native.attach();
+  }
+  return native;
+}
+
+/**
+ * Called once when the app starts: if the background service is still reading (the page was reloaded or paused meanwhile),
+ * show the "Reading aloud" bar again.
+ */
+export function syncReadAloud(): void {
+  if (nativeReaderBridge()) ctl();
+}
+
+function legacy(): ReadAloudController {
   if (!controller) {
     controller = new ReadAloudController({
       backend: realTtsBackend(),
@@ -113,7 +155,7 @@ export async function toggleReadAloud(entry: Entry): Promise<void> {
   }
   const text = entryToSpeechText(entry);
   breadcrumb(`read aloud: start (${entry.type} ${entry.id}, ${text.length} chars)`);
-  const result = await ctl().start(entry.id, text);
+  const result = await ctl().start(entry.id, text, entry.title);
   if (!result.ok && !result.cancelled) pushToast({ title: "Couldn't read aloud", description: result.message, variant: "destructive" });
 }
 
@@ -152,6 +194,7 @@ export async function previewTtsVoice(): Promise<void> {
     pushToast({ title: "Read aloud works in the Android app", variant: "destructive" });
     return;
   }
-  const r = await ctl().preview("This is how your notes will sound when they are read aloud.");
+  if (native) await native.stop(); // the sample is spoken by the TTS plugin: do not talk over a reading in the background service
+  const r = await legacy().preview("This is how your notes will sound when they are read aloud.");
   if (!r.ok) pushToast({ title: "Couldn't play the sample", description: r.message, variant: "destructive" });
 }

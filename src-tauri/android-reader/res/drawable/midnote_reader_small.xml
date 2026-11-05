@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Brought to u by MidManStudio -->
+<!-- The read-aloud notification's small icon (status bar): a speaker with two sound waves. Android only uses its shape. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#ffffff"
+        android:pathData="M3,9 L7,9 L12,4.5 L12,19.5 L7,15 L3,15 Z" />
+    <path
+        android:strokeColor="#ffffff"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:pathData="M15.2,9.2 A4,4 0 0,1 15.2,14.8 M17.8,6.6 A7.6,7.6 0 0,1 17.8,17.4" />
+</vector>

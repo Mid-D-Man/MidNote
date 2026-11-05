@@ -21,6 +21,7 @@
   import ReadAloudBar from "$lib/components/shared/ReadAloudBar/ReadAloudBar.svelte";
   import OpenFileSheet from "$lib/components/shared/OpenFileSheet/OpenFileSheet.svelte";
   import { startOpenWith } from "$lib/stores/openWith.svelte";
+  import { syncReadAloud } from "$lib/stores/readAloud.svelte";
   import type { Snippet } from "svelte";
 
   let { children }: { children: Snippet } = $props();
@@ -102,6 +103,7 @@
       // The home-screen widget's three buttons (new note / todo / board) arrive the same way, as a link: open that
       // blank editor. When the same blank editor is already open (it may hold something typed), leave it first so
       // a fresh one opens instead of nothing happening.
+      syncReadAloud(); // a reading may still be going on in the background service
       void startOpenWith(async (path) => {
         if (location.pathname === path) await goto("/");
         await goto(path);
