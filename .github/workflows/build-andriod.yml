@@ -322,6 +322,15 @@ jobs:
         continue-on-error: true
         run: python3 src-tauri/android-widgets/install.py
 
+      # Round T: read aloud that keeps going with the screen off or the app in the background, with a media notification
+      # (title, previous / pause-play / next / stop, progress) in the pull-down shade and on the lock screen.
+      # install.py adds a foreground service (Kotlin), the notification icon, the service entry and permissions in the
+      # manifest, and one override in MainActivity.kt that gives the page its door to the service. Like the widget step,
+      # it checks its own work and puts everything back if anything is off (the app then builds without it).
+      - name: Add the background read-aloud
+        continue-on-error: true
+        run: python3 src-tauri/android-reader/install.py
+
       # --target restricts this to the one ABI that's actually needed. The
       # Galaxy A13's chip is 64-bit capable, but Samsung ships this model
       # with a 32-bit OS, so it only reports armeabi-v7a as installable —
@@ -460,6 +469,29 @@ jobs:
             echo "Widget class compiled: $CLASS"
           else
             echo "::warning::No compiled MidNoteWidget class was found in the build output."
+          fi
+
+      # Round T: proof that background read-aloud really is in the build: the service entry (Android 14+ needs the
+      # mediaPlayback type on it), the hook in MainActivity, and the compiled service class. Warnings, not failures.
+      - name: Check read-aloud in the build
+        run: |
+          MANIFEST=src-tauri/gen/android/app/src/main/AndroidManifest.xml
+          if grep -q 'android:name=".ReaderService"' "$MANIFEST" && grep -q 'android:foregroundServiceType="mediaPlayback"' "$MANIFEST"; then
+            echo "Read-aloud service present in the manifest:"
+            grep -n -A3 'android:name=".ReaderService"' "$MANIFEST"
+          else
+            echo "::warning::The read-aloud service is NOT in the generated AndroidManifest.xml (see the 'Add the background read-aloud' step). Read aloud will work as before, but not in the background."
+          fi
+          if grep -rq 'ReaderBridge.install' src-tauri/gen/android/app/src/main --include=MainActivity.kt; then
+            echo "MainActivity hands the WebView to ReaderBridge"
+          else
+            echo "::warning::MainActivity.kt does not hand the WebView to ReaderBridge."
+          fi
+          CLASS=$(find src-tauri/gen/android/app/build -name 'ReaderService*.class' 2>/dev/null | head -1)
+          if [ -n "$CLASS" ]; then
+            echo "Service class compiled: $CLASS"
+          else
+            echo "::warning::No compiled ReaderService class was found in the build output."
           fi
 
       - name: List built APKs
