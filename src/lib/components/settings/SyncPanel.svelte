@@ -12,6 +12,7 @@
   import Switch from "$lib/components/ui/Switch/Switch.svelte";
   import SettingsRow from "$lib/components/settings/SettingsRow.svelte";
   import { syncStatus, syncPrefs, syncNow, restoreFromCloud, adoptThisAccount, refreshWaiting, setAutoSync } from "$lib/stores/sync.svelte";
+  import { settingsSyncPrefs, setSettingsSync } from "$lib/stores/settingsSync.svelte";
   import { formatWhen } from "$lib/online/syncMessages";
   import { onMount } from "svelte";
 
@@ -47,6 +48,12 @@
   <SettingsRow label="Sync automatically" desc={syncPrefs.auto ? "On: syncs when the app opens, when you come back to it, and shortly after you edit." : "Off: your notes only sync when you tap the cloud button or Sync now."}>
     <Switch checked={syncPrefs.auto} aria-label="Sync automatically" onCheckedChange={(v) => setAutoSync(v)} />
   </SettingsRow>
+  <SettingsRow label="Sync my settings" desc={settingsSyncPrefs.on ? "On: your theme, text size, note font, list view, ruled lines and read-aloud speed follow you to your other phones. The read-aloud voice and any themes, icons or fonts you imported stay on each phone." : "Off: this phone's settings stay on this phone."}>
+    <Switch checked={settingsSyncPrefs.on} aria-label="Sync my settings" onCheckedChange={(v) => setSettingsSync(v)} />
+  </SettingsRow>
+  {#if syncStatus.settingsNote}
+    <p class="fine" role="status">{syncStatus.settingsNote}</p>
+  {/if}
   <div class="actions">
     <Button variant="outline" onclick={() => void syncNow({ toast: true })} disabled={syncStatus.running} aria-label="Sync now">{syncStatus.running ? "Syncing…" : "Sync now"}</Button>
     <Button variant="outline" onclick={() => void restoreFromCloud()} disabled={syncStatus.running} aria-label="Restore from cloud">Restore from cloud</Button>

@@ -38,6 +38,8 @@
     truncated: boolean;
     charged: number | null;
     balance: number | null;
+    /** What the AI wrote, whole: shown when a board came back with no links, so you can see why. */
+    raw: string;
   };
 
   let prompt = $state("");
@@ -92,7 +94,19 @@
       truncated: r.result.truncated,
       charged: r.result.creditsCharged,
       balance: r.result.balance,
+      raw: r.result.text,
     };
+    if (board && board.links.length === 0) {
+      breadcrumb(`ai board creator: no links read, ${board.nodes.length} nodes, ${board.dropped} lines left out, it began: ${answerExcerpt(r.result.text, 6, 300).replace(/\s+/g, " ").slice(0, 200)}`);
+    }
+  }
+
+  /** The AI gave boxes but no arrows: join them one after the other, in the order it wrote them. Nothing else changes. */
+  function joinInOrder() {
+    if (!draft?.board) return;
+    const nodes = draft.board.nodes;
+    const links = nodes.slice(1).map((n, i) => ({ from: nodes[i].key, to: n.key }));
+    draft = { ...draft, board: { ...draft.board, links } };
   }
 
   function create() {
@@ -196,6 +210,16 @@
             {/if}
           </div>
           <p class="line">{draft.board.nodes.length} node{draft.board.nodes.length === 1 ? "" : "s"}, {draft.board.links.length} link{draft.board.links.length === 1 ? "" : "s"}. The app places them for you; you can move them after.</p>
+          {#if draft.board.links.length === 0 && draft.board.nodes.length >= 2}
+            <p class="notice error" role="status">The AI didn't say how the boxes connect.</p>
+            <div class="actions">
+              <Button variant="outline" onclick={joinInOrder} aria-label="Join the nodes in order">Join them in order</Button>
+            </div>
+            <details class="seen">
+              <summary>What the AI wrote</summary>
+              <pre aria-label="What the AI wrote">{answerExcerpt(draft.raw, 16, 1200)}</pre>
+            </details>
+          {/if}
         {/if}
         {#if (draft.todo?.dropped ?? draft.board?.dropped ?? 0) > 0}
           <p class="line">Some of the AI's lines were left out because there were too many or they didn't fit.</p>

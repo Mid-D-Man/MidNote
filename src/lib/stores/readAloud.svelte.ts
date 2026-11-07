@@ -5,6 +5,7 @@ import { pushToast } from "$lib/stores/toast.svelte";
 import type { Entry } from "$lib/types/entry";
 import { NativeReadAloud, nativeReaderBridge } from "$lib/utils/nativeReader";
 import { ReadAloudController, type ReadState, type StartResult } from "$lib/utils/readAloudController";
+import { stampSetting } from "$lib/utils/settingsStamps";
 import { DEFAULT_SPEECH, entryToSpeechText, sanitizeSpeechSettings, speechClean, type SpeechSettings } from "$lib/utils/speech";
 import { realTtsBackend, type TtsVoice } from "$lib/utils/ttsBackend";
 
@@ -35,7 +36,17 @@ export function updateTtsSettings(patch: Partial<SpeechSettings>) {
   ttsSettings.rate = next.rate;
   ttsSettings.pitch = next.pitch;
   if (typeof localStorage !== "undefined") localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
+  stampSetting(SETTINGS_KEY); // settings sync: speed and pitch travel, the voice stays on this phone
   native?.settingsChanged(); // a reading that is going on in the background service uses the new voice from its next sentence
+}
+
+/** Settings sync: re-read the stored voice settings into the live ones (speed and pitch may have arrived from the cloud). */
+export function reloadTtsSettings() {
+  const next = loadSettings();
+  ttsSettings.voiceId = next.voiceId;
+  ttsSettings.rate = next.rate;
+  ttsSettings.pitch = next.pitch;
+  native?.settingsChanged();
 }
 
 /** What the rest of this file needs from whichever reader is in use. */

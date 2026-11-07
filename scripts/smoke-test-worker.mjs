@@ -389,6 +389,10 @@ if (process.env.SMOKE_BACKUP_CRYPTO) {
 //                    POST /rest/v1/rpc/midnote_push_entries applies a row only when it is STRICTLY newer.
 //                    The server's rows are mirrored, one line each, in globalThis.__syncRows as
 //                    "id|live-or-purged|title|lastModified". delayMs makes every sync answer that slow.
+//                    Round U (settings sync): settings = the settings the server already holds ({ "midnote:list-view": { v, t } }),
+//                    settingsMissing = the SQL was never run (the function answers 404), status.settings = forced http status.
+//                    POST /rest/v1/rpc/midnote_merge_settings merges like the real function; the server's settings are
+//                    mirrored in globalThis.__settingsRows as "key|value|stamp".
 // The stand-in server checks PKCE for real: the code only trades for a session when
 // base64url(sha256(code_verifier)) equals the challenge the app sent, so a wrong hash,
 // encoding or verifier fails the scenario.
@@ -427,6 +431,8 @@ if (process.env.SMOKE_ONLINE) {
   const AI_STATUS = { enabled: true, has_account: true, balance: 2996, daily_cap: 400, daily_left: 396, next_topup_at: "2026-11-17T10:00:00.000Z", pool_open: true, resets_in: 21600 };
   // Round C: the sync tables.
   const syncRows = (globalThis.__syncRows = []);
+  // Round U: the settings the server holds, one line each, "key|value|stamp".
+  globalThis.__settingsRows = [];
   const sync = spec.sync ? { rows: new Map(), us: Date.UTC(2026, 9, 28, 10, 0, 0) * 1000 } : null;
   const syncTick = () => (sync.us += 1000);
   const syncFmt = (us) => {
@@ -470,6 +476,22 @@ if (process.env.SMOKE_ONLINE) {
       }
       syncMirror();
       return json(200, out);
+    }
+    if (u.pathname === "/rest/v1/rpc/midnote_merge_settings" && init.method === "POST") {
+      // Round U: settings sync. Same rules as supabase/midnote-007-settings-sync.sql: per key the NEWER t wins, only
+      // names like midnote:font-size, only { v: text-or-null, t: number > 0 }; the merged set is the answer.
+      if (spec.sync.settingsMissing) return json(404, { code: "PGRST202", message: "Could not find the function public.midnote_merge_settings(p_settings) in the schema cache" });
+      if (spec.sync.status?.settings) return json(spec.sync.status.settings, { message: "fake server trouble" });
+      const incoming = JSON.parse(init.body).p_settings;
+      if (!incoming || typeof incoming !== "object" || Array.isArray(incoming)) return json(400, { code: "22023", message: "settings must be a JSON object" });
+      sync.settings ??= { ...(spec.sync.settings ?? {}) };
+      for (const [k, w] of Object.entries(incoming)) {
+        if (!/^midnote:[a-z0-9-]{1,48}$/.test(k) || !w || typeof w !== "object" || typeof w.t !== "number" || w.t <= 0) continue;
+        if (!(w.v === null || typeof w.v === "string") || (w.v ?? "").length > 2000) continue;
+        if (!sync.settings[k] || w.t > sync.settings[k].t) sync.settings[k] = { v: w.v, t: w.t };
+      }
+      globalThis.__settingsRows.splice(0, globalThis.__settingsRows.length, ...Object.entries(sync.settings).sort().map(([k, w]) => `${k}|${w.v}|${w.t}`));
+      return json(200, sync.settings);
     }
     if (u.pathname === "/rest/v1/midnote_entries" && init.method === "GET") {
       if (spec.sync.status?.pull) return json(spec.sync.status.pull, { message: "fake server trouble" });

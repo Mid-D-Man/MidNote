@@ -68,6 +68,11 @@
     }
   }
 
+  /** How many different tag names are in the note, todo and board lists (shared tags counted once). */
+  function tagCount(): number {
+    const known = storage.loadKnownTags();
+    return new Set([...known.notes, ...known.todos, ...known.boards]).size;
+  }
   const counts = $derived(countEntries(entries));
   const mine = $derived(
     [
@@ -79,6 +84,7 @@
       customThemes.length ? plural(customThemes.length, "theme") : "",
       customIcons.length ? plural(customIcons.length, "icon") : "",
       customFonts.length ? plural(customFonts.length, "font") : "",
+      tagCount() ? plural(tagCount(), "tag") : "",
     ]
       .filter(Boolean)
       .join(" · ")
@@ -330,7 +336,11 @@
         const bytes = base64ToBytes(f.data);
         return restoreCustomFont({ id: f.id, name: f.name, kind: f.kind as FontKind, size: bytes.length, addedAt: f.addedAt, bytes: bytes.buffer as ArrayBuffer });
       },
-      addTag: (kind, tag) => storage.addKnownTag(kind, tag),
+      addTag: (kind, tag) => {
+        const had = storage.loadKnownTags()[kind].includes(tag);
+        storage.addKnownTag(kind, tag);
+        return !had;
+      },
       setSetting: (key, value) => localStorage.setItem(key, value),
       tick: () => new Promise((r) => setTimeout(r, 0)),
     };

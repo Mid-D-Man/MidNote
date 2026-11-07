@@ -14,6 +14,8 @@
 // regardless of this — it's cheap and the history since app start stays
 // useful if this gets flipped back on — only the panel's own UI is
 // gated by it. Surfaced from the burger menu's Settings sheet.
+import { stampSetting } from "$lib/utils/settingsStamps";
+
 const FONT_SIZE_KEY = "midnote:font-size";
 const DEFAULT_SIZE = 15;
 const SIZES = [10, 12, 14, 15, 16, 18, 20, 24] as const;
@@ -30,6 +32,7 @@ export const fontSize = $state({ value: loadFontSize() });
 export function setFontSize(size: number) {
   fontSize.value = size;
   if (typeof localStorage !== "undefined") localStorage.setItem(FONT_SIZE_KEY, String(size));
+  stampSetting(FONT_SIZE_KEY); // settings sync: this is the newest change to it
 }
 
 export const FONT_SIZES = SIZES;
@@ -68,6 +71,7 @@ export const noteLinesEnabled = $state({ value: loadNoteLinesEnabled() });
 export function setNoteLinesEnabled(enabled: boolean) {
   noteLinesEnabled.value = enabled;
   if (typeof localStorage !== "undefined") localStorage.setItem(NOTE_LINES_KEY, String(enabled));
+  stampSetting(NOTE_LINES_KEY);
 }
 
 // Landing-page theme — the list/notes-and-todos page's own background,
@@ -129,11 +133,13 @@ export const appBodyTheme = $state<{ value: ThemeRef }>({ value: loadAppBodyThem
 export function setAppHeaderTheme(theme: ThemeRef) {
   appHeaderTheme.value = theme;
   if (typeof localStorage !== "undefined") localStorage.setItem(APP_HEADER_THEME_KEY, JSON.stringify(theme));
+  stampSetting(APP_HEADER_THEME_KEY);
 }
 
 export function setAppBodyTheme(theme: ThemeRef) {
   appBodyTheme.value = theme;
   if (typeof localStorage !== "undefined") localStorage.setItem(APP_BODY_THEME_KEY, JSON.stringify(theme));
+  stampSetting(APP_BODY_THEME_KEY);
 }
 
 // Which list tab (Notes/Todos/Boards) was showing — persisted so leaving
@@ -183,6 +189,7 @@ export function setNoteFont(family: string | null) {
   if (typeof localStorage === "undefined") return;
   if (clean === null) localStorage.removeItem(NOTE_FONT_KEY);
   else localStorage.setItem(NOTE_FONT_KEY, clean);
+  stampSetting(NOTE_FONT_KEY);
 }
 
 // Round 33 — landing-page card layout. One setting for all three tabs
@@ -204,4 +211,19 @@ export const listViewMode = $state<{ value: ListViewMode }>({ value: loadListVie
 export function setListViewMode(mode: ListViewMode) {
   listViewMode.value = mode;
   if (typeof localStorage !== "undefined") localStorage.setItem(LIST_VIEW_KEY, mode);
+  stampSetting(LIST_VIEW_KEY);
+}
+
+/**
+ * Settings sync (Round U): re-read every synced setting from storage into the live values, so a setting that arrived from
+ * the cloud shows at once, with no restart. Uses the same loaders as app start, so an invalid stored value falls back to
+ * the default exactly as it would after a restart.
+ */
+export function reloadSyncedSettings() {
+  fontSize.value = loadFontSize();
+  noteLinesEnabled.value = loadNoteLinesEnabled();
+  appHeaderTheme.value = loadAppHeaderTheme();
+  appBodyTheme.value = loadAppBodyTheme();
+  noteFont.value = loadNoteFont();
+  listViewMode.value = loadListViewMode();
 }

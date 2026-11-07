@@ -376,7 +376,8 @@ export interface RestoreSink {
   addIcon(icon: CustomIcon): Promise<void>;
   /** "added" | "kept" | "failed" */
   addFont(font: BackupFont): Promise<"added" | "kept" | "failed">;
-  addTag(kind: "notes" | "todos" | "boards", tag: string): void;
+  /** Add a known tag. Return false when it was already there (so the report counts only the new ones). */
+  addTag(kind: "notes" | "todos" | "boards", tag: string): boolean | void;
   setSetting(key: string, value: string): void;
   /** Let the UI breathe between chunks of work. */
   tick?(): Promise<void>;
@@ -456,8 +457,7 @@ export async function applyRestore(plan: RestorePlan, sink: RestoreSink, onProgr
   for (const kind of ["notes", "todos", "boards"] as const) {
     for (const tag of plan.tags[kind]) {
       try {
-        sink.addTag(kind, tag);
-        r.tagsAdded++;
+        if (sink.addTag(kind, tag) !== false) r.tagsAdded++;
       } catch {
         /* a tag that can't be added isn't worth failing the restore */
       }
@@ -503,6 +503,7 @@ export function describeReport(r: RestoreReport): string[] {
   if (r.entriesUpdated) entryBits.push(`${r.entriesUpdated} updated to the newer copy`);
   if (r.entriesKept) entryBits.push(`${r.entriesKept} already here (kept)`);
   lines.push(entryBits.length ? `Notes, todos & boards: ${entryBits.join(", ")}.` : "Notes, todos & boards: nothing to add.");
+  if (r.tagsAdded) lines.push(`Tags: ${r.tagsAdded} added to your lists.`);
   const media: string[] = [];
   if (r.themesAdded) media.push(`${r.themesAdded} theme${r.themesAdded === 1 ? "" : "s"}`);
   if (r.iconsAdded) media.push(`${r.iconsAdded} icon${r.iconsAdded === 1 ? "" : "s"}`);

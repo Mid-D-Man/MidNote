@@ -21,6 +21,7 @@ import { breadcrumb } from "$lib/debug/log.svelte";
 import { cancelReminderSilently, syncReminderSilently } from "$lib/utils/reminders";
 import { countPending, emptyState, nextAutoTime, parseState, runSync, type SyncDeps, type SyncResult, type SyncState } from "$lib/online/syncEngine";
 import { RestSyncRemote } from "$lib/online/syncRemote";
+import { settingsNote, syncSettings } from "$lib/stores/settingsSync.svelte";
 import { describeResult, describeRestore } from "$lib/online/syncMessages";
 
 const STATE_KEY = "midnote:sync-state";
@@ -42,6 +43,8 @@ export const syncStatus = $state({
   waiting: 0,
   /** Just signed in on a phone that has never synced: ask whether to bring the account's notes down. */
   offerRestore: false,
+  /** How the settings step of the last run went, when there is something to say ("" otherwise). */
+  settingsNote: "",
 });
 
 /** The person's choice: sync by itself (on open, on return, after edits) or only when asked. Off by default. */
@@ -300,7 +303,15 @@ export function syncNow(opts: SyncNowOptions = {}): Promise<SyncOutcome> {
       result = { status: "failed", pushed: 0, pushedPurges: 0, pulled: 0, removed: 0, unchanged: 0, skipped: 0, heldBack: 0, rejected: [], quota: false, changedLocal: false, appliedIds: [], removedIds: [], error: { kind: "server", message: e instanceof Error ? e.message.slice(0, 80) : "error" } };
     }
     if (result.changedLocal) afterPull(result);
-    const d = opts.restore ? describeRestore(result) : describeResult(result);
+    // The settings step: one more request after the notes step, with its own switch. It never changes how the notes
+    // run is reported; a note about it is added only when there is one (settings arrived, or it is not set up).
+    let note = "";
+    if ((result.status === "ok" || result.status === "partial") && !deps.shouldStop?.()) {
+      note = settingsNote(await syncSettings(deps.remote as RestSyncRemote, { pullOnly: opts.pullOnly }));
+    }
+    syncStatus.settingsNote = note;
+    const d0 = opts.restore ? describeRestore(result) : describeResult(result);
+    const d = note ? { ...d0, description: `${d0.description} ${note}`.trim() } : d0;
     syncStatus.title = d.title;
     syncStatus.message = d.description;
     syncStatus.mismatch = result.status === "account-mismatch";

@@ -8,6 +8,7 @@
 // "+" so its value goes in double quotes (PostgREST's rule for reserved characters) and the
 // whole expression is then percent-encoded.
 import { AuthError, type HttpResponse } from "$lib/online/authClient";
+import { SettingsSyncError, type SettingsWire } from "$lib/utils/settingsSync";
 import { SyncError, type PullCursor, type PushResult, type PushRow, type RemoteRow, type SyncRemote } from "$lib/online/syncEngine";
 
 export type RequestFn = (path: string, init?: { method?: string; headers?: Record<string, string>; body?: string }) => Promise<HttpResponse>;
@@ -76,6 +77,34 @@ export class RestSyncRemote implements SyncRemote {
     }
     if (res.status < 200 || res.status >= 300) throw classifyHttp(res.status, text);
     return text;
+  }
+
+  /**
+   * Settings sync (Round U): send this phone's stamped settings, get the merged set back.
+   *   POST rest/v1/rpc/midnote_merge_settings   body {"p_settings": { key: {v, t}, ... }}  ->  { key: {v, t}, ... }
+   * (the function is in the database; see supabase/midnote-007-settings-sync.sql). Throws SettingsSyncError.
+   */
+  async exchangeSettings(out: SettingsWire): Promise<unknown> {
+    let text: string;
+    try {
+      text = await this.call("rest/v1/rpc/midnote_merge_settings", { method: "POST", body: JSON.stringify({ p_settings: out }) });
+    } catch (e) {
+      if (e instanceof SyncError) {
+        // Not installed yet (the SQL has not been run): not an error to shout about, the notes still sync.
+        if (e.kind === "server" && /isn't set up/i.test(e.message)) throw new SettingsSyncError("unavailable", "Settings sync isn't set up on the server yet");
+        throw new SettingsSyncError(e.kind, e.message);
+      }
+      throw e;
+    }
+    const parsed = (() => {
+      try {
+        return JSON.parse(text) as unknown;
+      } catch {
+        return undefined;
+      }
+    })();
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new SettingsSyncError("server", "The server's answer wasn't readable");
+    return parsed;
   }
 
   async push(rows: PushRow[]): Promise<PushResult[]> {

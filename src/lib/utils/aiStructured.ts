@@ -170,6 +170,10 @@ const NODE_RE = /^node\b\s*[:：]?\s*[[(]?([A-Za-z0-9_-]{1,12})[\])]?\s*(?:\*\*|
 // "LINK a -> b" (also "LINKS", "EDGE", "CONNECTION"; a colon after the word is fine)
 const LINK_RE = /^(?:link|edge|connect(?:ion)?)s?\b\s*[:：]?\s*(.*)$/i;
 const ARROW = /\s*(?:-+>|=+>|→|➔|⟶|⇒)\s*/;
+// several names in one place of a link line
+const FAN = /\s*(?:,|;|&|\+|\band\b)\s*/i;
+// between two names on a LINK line that has no arrow: "a to b", "a - b", "a, b"
+const WORD_SEP = /\s+(?:to|with)\s+|\s+[-–—]\s+|\s*,\s*/i;
 
 /** A node key as the AI may have written it in a link: "[A]", "(a)", "`a`", "a." -> "a". */
 function normKey(k: string): string {
@@ -230,36 +234,73 @@ export function parseAiBoard(raw: string): ParsedBoard | null {
 
   if (nodes.length === 0) return boardFromLabels(raw);
 
+  // A token in a link line -> a node key. Tried in this order: the key itself ("a", "[a]", "node a"), the label ("Opening
+  // scene"), the position ("2" = the second node), and a label's beginning when only one label starts that way. The text
+  // after a ":" / "(" / "|" / " - " is a note about the link, not part of the name.
   const resolve = (token: string): string | null => {
-    const k = normKey(token);
-    if (seen.has(k)) return k;
-    const byName = byLabel.get(cut(plainText(token), L.label).toLowerCase());
-    return byName ?? null;
+    for (const part of [token, token.split(/\s*[:(|]\s*|\s+-\s+/)[0]]) {
+      const name = normKey(part).replace(/^nodes?\s+/i, "").trim();
+      if (!name) continue;
+      if (seen.has(name)) return name;
+      const byName = byLabel.get(cut(plainText(name), L.label).toLowerCase());
+      if (byName) return byName;
+      if (/^\d{1,3}$/.test(name)) {
+        const at = Number(name);
+        if (at >= 1 && at <= nodes.length) return nodes[at - 1].key;
+      }
+      if (name.length >= 3) {
+        const starts = nodes.filter((n) => n.label.toLowerCase().startsWith(name));
+        if (starts.length === 1) return starts[0].key;
+      }
+    }
+    return null;
+  };
+
+  // "a, b" / "a and b" / "a & b": several names in one place of a link ("LINK a -> b, c" is two arrows). A whole part that is
+  // itself a name ("Rise, then fall") is kept whole.
+  const names = (part: string): string[] => (resolve(part) ? [part] : part.split(FAN).map((k) => k.trim()).filter((k) => k.length > 0));
+
+  // The places of a link line, in order: [[from...], [to...], ...]. Arrows are the usual separator; on a LINK line "a to b",
+  // "a - b" and "a, b" are read as one arrow too. A bare arrow line outside LINK must have arrows to count.
+  const places = (text: string, loose: boolean): string[][] | null => {
+    const byArrow = text.split(ARROW).map((k) => k.trim()).filter((k) => k.length > 0);
+    if (byArrow.length >= 2) return byArrow.map(names);
+    if (loose) return null;
+    const two = text.split(WORD_SEP).map((k) => k.trim()).filter((k) => k.length > 0);
+    return two.length === 2 ? two.map((k) => [k]) : null;
   };
 
   const links: ParsedBoard["links"] = [];
   const pairs = new Set<string>();
   for (const { text, loose } of linkLines) {
-    // "a -> b -> c" is two links; a chain with a cut-off end ("a ->") just has fewer
-    const tokens = text.split(ARROW).map((k) => k.trim()).filter((k) => k.length > 0);
-    for (let i = 0; i + 1 < tokens.length; i++) {
-      const from = resolve(tokens[i]);
-      const to = resolve(tokens[i + 1]);
-      if (from === null || to === null || from === to) {
-        if (!loose) dropped++; // an arrow in ordinary prose is not a link that went wrong
-        continue;
+    const cols = places(text, loose);
+    if (!cols) {
+      if (!loose && text.trim()) dropped++; // a LINK line with nothing readable in it
+      continue;
+    }
+    // "a -> b -> c" is two arrows; a chain with a cut-off end ("a ->") just has fewer
+    for (let c = 0; c + 1 < cols.length; c++) {
+      for (const f of cols[c]) {
+        for (const t of cols[c + 1]) {
+          const from = resolve(f);
+          const to = resolve(t);
+          if (from === null || to === null || from === to) {
+            if (!loose) dropped++; // an arrow in ordinary prose is not a link that went wrong
+            continue;
+          }
+          const id = `${from}>${to}`;
+          if (pairs.has(id)) {
+            dropped++;
+            continue;
+          }
+          if (links.length >= L.links) {
+            dropped++;
+            continue;
+          }
+          pairs.add(id);
+          links.push({ from, to });
+        }
       }
-      const id = `${from}>${to}`;
-      if (pairs.has(id)) {
-        dropped++;
-        continue;
-      }
-      if (links.length >= L.links) {
-        dropped++;
-        continue;
-      }
-      pairs.add(id);
-      links.push({ from, to });
     }
   }
   return { title, nodes, links, dropped };
