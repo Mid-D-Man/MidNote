@@ -24,6 +24,7 @@ import { getColorSync } from "colorthief";
 import * as dix from "$lib/dixscript/client";
 import { breadcrumb } from "$lib/debug/log.svelte";
 import { sanitizeComments, reconcileCommentPages } from "$lib/utils/comments";
+import { markTag } from "$lib/utils/tagStamps";
 
 const ENTRIES_KEY = "midnote:entries";
 const TAGS_KEY = "midnote:known-tags";
@@ -541,16 +542,22 @@ export function loadKnownTags(): KnownTags {
   return clone(_knownTags);
 }
 
-export function addKnownTag(kind: TagScope, tag: string) {
+/** Add `tag` to the `kind` list. Marks it as changed on this phone (utils/tagStamps.ts) so the tag-list sync can tell which
+ *  phone changed it last; the sync itself passes `{ stamp: false }` because the mark it saves is the other phone's. */
+export function addKnownTag(kind: TagScope, tag: string, opts?: { stamp?: boolean }) {
   if (!_knownTags[kind].includes(tag)) {
     _knownTags[kind].push(tag);
     persistKnownTags();
+    if (opts?.stamp !== false) markTag(kind, tag, true);
   }
 }
 
-export function removeKnownTag(kind: TagScope, tag: string) {
+export function removeKnownTag(kind: TagScope, tag: string, opts?: { stamp?: boolean }) {
+  const was = _knownTags[kind].includes(tag);
   _knownTags[kind] = _knownTags[kind].filter((t) => t !== tag);
   persistKnownTags();
+  // a tag that was not in this list has nothing to tell the other phones
+  if (was && opts?.stamp !== false) markTag(kind, tag, false);
 }
 
 // Custom (user-uploaded) theme registry — mirrors custom-themes.mdix's

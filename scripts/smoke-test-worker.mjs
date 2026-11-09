@@ -390,7 +390,8 @@ if (process.env.SMOKE_BACKUP_CRYPTO) {
 //                    The server's rows are mirrored, one line each, in globalThis.__syncRows as
 //                    "id|live-or-purged|title|lastModified". delayMs makes every sync answer that slow.
 //                    Round U (settings sync): settings = the settings the server already holds ({ "midnote:list-view": { v, t } }),
-//                    settingsMissing = the SQL was never run (the function answers 404), status.settings = forced http status.
+//                    settingsMissing = the SQL was never run (the function answers 404), status.settings = forced http status,
+//                    settingsOldLimit = the tags SQL update was not run (every value, the tag list too, is limited to 2000 characters).
 //                    POST /rest/v1/rpc/midnote_merge_settings merges like the real function; the server's settings are
 //                    mirrored in globalThis.__settingsRows as "key|value|stamp".
 // The stand-in server checks PKCE for real: the code only trades for a session when
@@ -487,7 +488,7 @@ if (process.env.SMOKE_ONLINE) {
       sync.settings ??= { ...(spec.sync.settings ?? {}) };
       for (const [k, w] of Object.entries(incoming)) {
         if (!/^midnote:[a-z0-9-]{1,48}$/.test(k) || !w || typeof w !== "object" || typeof w.t !== "number" || w.t <= 0) continue;
-        if (!(w.v === null || typeof w.v === "string") || (w.v ?? "").length > 2000) continue;
+        if (!(w.v === null || typeof w.v === "string") || (w.v ?? "").length > (k === "midnote:known-tags" && !spec.sync.settingsOldLimit ? 20000 : 2000)) continue;
         if (!sync.settings[k] || w.t > sync.settings[k].t) sync.settings[k] = { v: w.v, t: w.t };
       }
       globalThis.__settingsRows.splice(0, globalThis.__settingsRows.length, ...Object.entries(sync.settings).sort().map(([k, w]) => `${k}|${w.v}|${w.t}`));

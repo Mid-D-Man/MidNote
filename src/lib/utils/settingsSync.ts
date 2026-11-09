@@ -11,10 +11,14 @@
 // the newer `t`, and answers with the merged set. This phone then applies every key whose `t` is newer than its own.
 // So two phones changing DIFFERENT settings both keep their change, and for the SAME setting the later change wins.
 //
+// The tag list rides in the same call as one more entry, `midnote:known-tags`, merged tag by tag instead of whole-value
+// (utils/tagSync.ts): that is how tags that no note, todo or board uses reach the other phones.
+//
 // Everything that comes back is untrusted: each value is checked against what that setting can hold before it is used.
 import { sanitizeFamilyValue } from "$lib/utils/fonts";
 import { sanitizeSpeechSettings } from "$lib/utils/speech";
 import { SYNCED_SETTING_KEYS, type Stamps } from "$lib/utils/settingsStamps";
+import { TAGS_WIRE_KEY, finishTags, prepareTags, serverKept, type TagSyncDeps } from "$lib/utils/tagSync";
 
 export type SettingWire = { v: string | null; t: number };
 export type SettingsWire = Record<string, SettingWire>;
@@ -173,10 +177,23 @@ export interface SettingsSyncDeps {
   now(): number;
   /** Called with the keys whose value changed, after they were stored (the app re-reads its stores here). */
   onApplied(keys: string[]): void;
+  /** The tag list (utils/tagSync.ts). Left out = the tag list does not sync. */
+  tags?: TagSyncDeps;
+}
+
+/** How the tag part of a settings sync went. */
+export interface TagOutcome {
+  added: number;
+  removed: number;
+  /** Marks left out because there were too many tags to send. */
+  dropped: number;
+  /** "ok": the server holds this phone's list (or has not got anything newer to say). "not-stored": the server did not keep it
+   *  (typically: the SQL update for tags has not been run, so a long list is refused). "not-sent": nothing was sent (restore from cloud). */
+  stored: "ok" | "not-stored" | "not-sent";
 }
 
 export type SettingsOutcome =
-  | { status: "ok"; sent: number; applied: string[] }
+  | { status: "ok"; sent: number; applied: string[]; tags?: TagOutcome; tagError?: string }
   | { status: "unavailable" }
   | { status: "failed"; kind: SettingsSyncError["kind"] | "unexpected"; message: string };
 
@@ -184,11 +201,14 @@ export type SettingsOutcome =
 export async function runSettingsSync(deps: SettingsSyncDeps, opts: { pullOnly?: boolean } = {}): Promise<SettingsOutcome> {
   let stamps = deps.loadStamps();
   let out: SettingsWire = {};
+  const now0 = deps.now();
+  const tagPrep = deps.tags ? prepareTags(deps.tags, now0) : null;
   if (!opts.pullOnly) {
     const boot = bootstrapStamps(deps.io, stamps);
     if (Object.keys(boot).length !== Object.keys(stamps).length) deps.saveStamps(boot);
     stamps = boot;
     out = outgoing(deps.io, stamps);
+    if (tagPrep?.wire) out[TAGS_WIRE_KEY] = tagPrep.wire;
   }
   let remote: unknown;
   try {
@@ -203,7 +223,37 @@ export async function runSettingsSync(deps: SettingsSyncDeps, opts: { pullOnly?:
   const result = applyIncoming(remote, deps.io, stamps, deps.now());
   deps.saveStamps(result.stamps);
   if (result.applied.length > 0) deps.onApplied(result.applied);
-  return { status: "ok", sent: Object.keys(out).length, applied: result.applied };
+  let tags: TagOutcome | undefined;
+  let tagError: string | undefined;
+  if (deps.tags && tagPrep) {
+    try {
+      const fin = finishTags(deps.tags, tagPrep.local, remote, deps.now(), !!opts.pullOnly);
+      let stored: TagOutcome["stored"] = opts.pullOnly ? "not-sent" : "ok";
+      if (fin.resend) {
+        try {
+          const answer2 = await deps.exchange({ [TAGS_WIRE_KEY]: fin.resend });
+          stored = serverKept(answer2, fin.resend) ? "ok" : "not-stored";
+        } catch {
+          stored = "not-stored";
+        }
+      }
+      tags = { added: fin.added, removed: fin.removed, dropped: fin.dropped, stored };
+    } catch (e) {
+      // the tag part must never turn a finished settings sync into a failed one: say so (a note and the debug log) and go on
+      tags = undefined;
+      tagError = e instanceof Error ? e.message.slice(0, 80) : "error";
+    }
+  }
+  const sentCount = Object.keys(out).length - (out[TAGS_WIRE_KEY] ? 1 : 0); // the settings sent: the tag list is counted in `tags`
+  return { status: "ok", sent: sentCount, applied: result.applied, ...(tags ? { tags } : {}), ...(tagError ? { tagError } : {}) };
+}
+
+/** "2 added, 1 removed" for a toast. */
+export function describeTagChanges(added: number, removed: number): string {
+  const parts: string[] = [];
+  if (added > 0) parts.push(`${added} added`);
+  if (removed > 0) parts.push(`${removed} removed`);
+  return parts.join(", ");
 }
 
 /** "Text size, Ruled lines" for a toast. */

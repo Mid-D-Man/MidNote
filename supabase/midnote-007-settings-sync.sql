@@ -2,6 +2,9 @@
 -- MidNote settings sync (Round U). Run this ONCE in the Supabase SQL editor (Dashboard -> SQL Editor -> New query -> paste -> Run).
 -- It is safe to run again: nothing is dropped, nothing is lost.
 --
+-- UPDATE (tags sync): this file now also lets the tag list (the setting named midnote:known-tags) be up to 20000 characters instead of
+-- 2000. If you ran an earlier copy of this file, run this one again: it only replaces the function, nothing is lost.
+--
 -- What it adds: one row per person holding their synced look-and-feel settings, and one function the app calls to send its
 -- settings and get the merged set back. Each setting is stored as { "v": "its value", "t": <when it was changed, ms> } and
 -- the NEWER "t" wins, setting by setting, so two phones that change different settings both keep their change.
@@ -67,7 +70,8 @@ begin
     if coalesce(jsonb_typeof(v -> 'v'), 'missing') not in ('string', 'null') then
       continue;
     end if;
-    if length(coalesce(v ->> 'v', '')) > 2000 then
+    -- 2000 characters for an ordinary setting; the tag list (midnote:known-tags) can be longer, up to 20000
+    if length(coalesce(v ->> 'v', '')) > (case when k = 'midnote:known-tags' then 20000 else 2000 end) then
       continue;
     end if;
     if (v ->> 't')::numeric <= 0 then

@@ -232,6 +232,8 @@ const T_MID = "2026-10-02T10:00:00.000Z";
 const T_NEW = "2026-10-03T10:00:00.000Z";
 // A note "trashed a day ago": the trash empties itself after 30 days, so a fixed date here stops working as the calendar moves on.
 const T_TRASHED = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+// a minute ago, in ms: the time another phone changed a tag (a tag removal older than 90 days is forgotten, so this must not be a fixed old number)
+const T_TAGS = Date.now() - 60 * 1000;
 const syncNote = (id, title, lastModified, extra = {}) => ({ id, type: "regular", title, content: "x", tags: [], lastModified, isBookmarked: false, encrypted: false, ...extra });
 // Sync is MANUAL by default (the "Sync automatically" switch is off); these scenarios are about the automatic behaviour, so they switch it on.
 const SYNC_STORAGE = { "midnote:session": SESSION_VALID, "midnote:sync-auto": "on" };
@@ -476,6 +478,109 @@ function syncScenarios() {
         { expectStored: '"voiceId":"my-voice"' },
         // it shows at once: no restart (the landing page's Grid view button is now the pressed one)
         { expectSelector: 'button[aria-label="Grid view"][aria-pressed="true"]' },
+      ],
+    },
+    // Tags sync: the tag list (also the tags nothing uses yet) rides in the settings call as one more entry, midnote:known-tags,
+    // merged tag by tag: a tag added on another phone arrives, one removed there leaves, this phone's own go up.
+    {
+      name: "tags sync — an unused tag from the other phone arrives and one it removed leaves",
+      path: "/settings/account",
+      seed: [syncNote("n1", "A note", T_MID)],
+      storage: { ...SYNC_STORAGE_MANUAL, "midnote:known-tags": JSON.stringify({ notes: ["Old"], todos: [], boards: [] }) },
+      online: syncOnline({ rows: [], settings: { "midnote:known-tags": { v: JSON.stringify({ notes: { Old: [T_TAGS, 0] }, todos: { Backlog: [T_TAGS, 1] } }), t: T_TAGS } } }),
+      steps: [
+        { wait: 800 },
+        { click: "Sync now" },
+        { wait: 1200 },
+        { expectStored: '"todos":["Backlog"]' },
+        { expectNotStored: '"notes":["Old"]' },
+        { expectText: "Tags updated from the cloud: 1 added, 1 removed." },
+        // the marks keep the other phone's times, not this phone's "now"
+        { expectStored: `"Backlog":[${T_TAGS},1]` },
+        { expectStored: `"Old":[${T_TAGS},0]` },
+      ],
+    },
+    {
+      name: "tags sync — this phone's own unused tags go up in one call",
+      path: "/settings/account",
+      seed: [syncNote("n1", "A note", T_MID)],
+      storage: { ...SYNC_STORAGE_MANUAL, "midnote:known-tags": JSON.stringify({ notes: ["Mine"], todos: [], boards: ["Plans"] }) },
+      online: syncOnline({ rows: [] }),
+      steps: [
+        { wait: 800 },
+        { click: "Sync now" },
+        { wait: 1200 },
+        { expectGlobalCount: { name: "__onlineCalls", substring: "POST /rest/v1/rpc/midnote_merge_settings", count: 1 } },
+        { expectGlobalIncludes: { name: "__settingsRows", substring: 'midnote:known-tags|{"notes":{"Mine":[1,1]},"boards":{"Plans":[1,1]}}|1' } },
+        { expectNoText: "Tags updated from the cloud" },
+      ],
+    },
+    {
+      name: "tags sync — tags on both phones: this phone takes theirs and the cloud ends up holding both",
+      path: "/settings/account",
+      seed: [syncNote("n1", "A note", T_MID)],
+      storage: { ...SYNC_STORAGE_MANUAL, "midnote:known-tags": JSON.stringify({ notes: ["Mine"], todos: [], boards: [] }) },
+      online: syncOnline({ rows: [], settings: { "midnote:known-tags": { v: JSON.stringify({ todos: { Backlog: [T_TAGS, 1] } }), t: T_TAGS } } }),
+      steps: [
+        { wait: 800 },
+        { click: "Sync now" },
+        { wait: 1500 },
+        { expectGlobalCount: { name: "__onlineCalls", substring: "POST /rest/v1/rpc/midnote_merge_settings", count: 2 } },
+        { expectGlobalIncludes: { name: "__settingsRows", substring: `"Backlog":[${T_TAGS},1]` } },
+        { expectGlobalIncludes: { name: "__settingsRows", substring: '"Mine":[1,1]' } },
+        { expectStored: '"todos":["Backlog"]' },
+        { expectStored: '"notes":["Mine"]' },
+        { expectText: "Tags updated from the cloud: 1 added." },
+      ],
+    },
+    {
+      name: "tags sync — Restore from cloud takes the cloud's tags and sends none of this phone's",
+      path: "/settings/account",
+      seed: [syncNote("n1", "A note", T_MID)],
+      storage: { ...SYNC_STORAGE_MANUAL, "midnote:known-tags": JSON.stringify({ notes: ["Mine"], todos: [], boards: [] }) },
+      online: syncOnline({ rows: [], settings: { "midnote:known-tags": { v: JSON.stringify({ todos: { Backlog: [T_TAGS, 1] } }), t: T_TAGS } } }),
+      steps: [
+        { wait: 800 },
+        { click: "Restore from cloud" },
+        { wait: 1500 },
+        { expectGlobalCount: { name: "__onlineCalls", substring: "POST /rest/v1/rpc/midnote_merge_settings", count: 1 } },
+        { expectStored: '"todos":["Backlog"]' },
+        { expectStored: '"notes":["Mine"]' },
+        { expectGlobalCount: { name: "__settingsRows", substring: "Mine", count: 0 } },
+      ],
+    },
+    {
+      name: "tags sync — the tags SQL update was not run: a long list is not saved, says so, and nothing is lost here",
+      path: "/settings/account",
+      seed: [syncNote("n1", "A note", T_MID)],
+      storage: { ...SYNC_STORAGE_MANUAL, "midnote:known-tags": JSON.stringify({ notes: Array.from({ length: 120 }, (_, i) => `A fairly long tag name ${i}`), todos: [], boards: [] }) },
+      online: syncOnline({ rows: [], settingsOldLimit: true }),
+      steps: [
+        { wait: 800 },
+        { click: "Sync now" },
+        { wait: 1500 },
+        { expectText: "couldn't be saved to the server" },
+        { expectGlobalCount: { name: "__settingsRows", substring: "A fairly long tag name", count: 0 } },
+        { expectStored: "A fairly long tag name 119" },
+      ],
+    },
+    {
+      name: "tags sync — adding and removing a shared tag in Settings marks it for the sync",
+      path: "/settings/tags",
+      seed: SEED_ENTRIES,
+      steps: [
+        { wait: 300 },
+        { type: { label: "New shared tag", value: "Plot twist" } },
+        { click: "Add shared tag" },
+        { wait: 700 },
+        { expectStored: '"notes":{"Plot twist":[' },
+        { expectStored: '"boards":{"Plot twist":[' },
+        { click: "Remove shared tag Plot twist" },
+        { wait: 700 },
+        { expectNotStored: '"notes":["Plot twist"' },
+        // the removal is remembered (flag 0) in all three lists so the other phones can drop the tag too
+        { expectStored: ',0]},"todos":{"Plot twist":[' },
+        { expectStored: ',0]},"boards":{"Plot twist":[' },
       ],
     },
     {
@@ -3201,7 +3306,7 @@ const SCENARIOS = [
       { wait: 600 },
       { expectText: "Tag removed from all lists" },
       { expectNoSelector: '[aria-label="Shared tag Plot twist"]' },
-      { expectNotStored: "Plot twist" },
+      { expectNotStored: '"notes":["Plot twist"' }, // gone from the lists (a removal mark for the tag sync is kept: see the tags sync scenarios)
     ],
   },
   {
