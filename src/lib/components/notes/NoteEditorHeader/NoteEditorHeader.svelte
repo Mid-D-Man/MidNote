@@ -49,6 +49,8 @@
     onRenamePage,
     onFindReplace,
     onSelectRange,
+    onReadingView,
+    reading = false,
     getSelectedText,
     onInsertAnswer,
   }: {
@@ -75,6 +77,10 @@
     // Opens the docked "Select text…" bar (select from one text to another). Like find, it needs the live editor,
     // which the route page owns, so the header only hands the tap up.
     onSelectRange?: () => void;
+    // Reading view: switches the page between the editor and the read-only rendered page (the route page owns that state).
+    onReadingView?: () => void;
+    /** true while the Reading view is showing (the Actions row then says "Back to editing"). */
+    reading?: boolean;
     // The text selected in the editor right now, read when Word count opens (so the sheet can count the selection too).
     getSelectedText?: () => string;
     // Round G: adds an AI answer to the end of the page being edited. The editor belongs to the route page (like the
@@ -373,6 +379,17 @@
   // list re-sorts AND the editor's later autosave can't overwrite the pin
   // with a stale value. Gated on the lock like Theme/Share/Copy — a locked
   // entry's editor copy is a placeholder and shouldn't be re-saved from here.
+  // Reading view: the note as a clean read-only page. A locked note has no readable text to show, like Theme / Pin.
+  function handleReadingView() {
+    breadcrumb(`note header: Reading view tapped (encrypted=${note.encrypted}, reading=${reading})`);
+    moreOpen = false;
+    if (note.encrypted) {
+      pushToast({ title: "Unlock first", description: "Unlock this note before reading it here.", variant: "destructive" });
+      return;
+    }
+    onReadingView?.();
+  }
+
   function handleTogglePin() {
     breadcrumb(`note header: Pin tapped (encrypted=${note.encrypted}, pinned=${note.isPinned})`);
     moreOpen = false;
@@ -500,6 +517,12 @@
 
 <Sheet bind:open={moreOpen} side="bottom" title="Actions">
   <div class="action-list">
+    <button class="action-row" onclick={handleReadingView} aria-label={reading ? "Back to editing" : "Reading view"}>
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        {#if reading}<path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />{:else}<path d="M2 5.5A1.5 1.5 0 0 1 3.5 4H9a3 3 0 0 1 3 3v13a2.5 2.5 0 0 0-2.5-2.5H3.5A1.5 1.5 0 0 1 2 16Z" /><path d="M22 5.5A1.5 1.5 0 0 0 20.5 4H15a3 3 0 0 0-3 3v13a2.5 2.5 0 0 1 2.5-2.5h6A1.5 1.5 0 0 0 22 16Z" />{/if}
+      </svg>
+      <span>{reading ? "Back to editing" : "Reading view"}</span>
+    </button>
     <button class="action-row" onclick={handleTogglePin} aria-label={note.isPinned ? "Unpin note" : "Pin note"}>
       <svg viewBox="0 0 24 24" width="18" height="18" fill={note.isPinned ? "currentColor" : "none"} stroke="currentColor" stroke-width="2">
         <path d="M12 17v5" /><path d="M9 3h6l-1 7 3 3H7l3-3z" />

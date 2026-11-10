@@ -28,6 +28,8 @@
   import { escapeRegExp } from "$lib/utils/findReplaceCore";
   import { getKeyboardInset } from "$lib/utils/keyboardInset.svelte";
   import { readBarLift } from "$lib/stores/readAloud.svelte";
+  import ReadingView from "$lib/components/notes/ReadingView/ReadingView.svelte";
+  import { readingMarkdown, setReadingMarkdown } from "$lib/stores/readingView.svelte";
   import { saveEntry } from "$lib/stores/entries.svelte";
   import { noteTags, sync as syncTags } from "$lib/stores/tags.svelte";
   import { fontSize } from "$lib/stores/settings.svelte";
@@ -88,8 +90,12 @@
   // Round 38: height of the formatting toolbar (with any open popup). Together
   // with the find bar's height it tells the "Reading…" bar how far up to ride.
   let toolbarHeight = $state(0);
+  // Reading view (Actions -> Reading view): the note as a clean read-only page. The editor stays mounted but hidden, so
+  // its undo history and place are still there when you tap Edit. Its own bottom bar takes the formatting toolbar's slot.
+  let reading = $state(false);
+  let readingBarHeight = $state(0);
   $effect(() => {
-    readBarLift.px = (findOpen ? findBarHeight : selectOpen ? selectBarHeight : toolbarHeight) + 8;
+    readBarLift.px = (reading ? readingBarHeight : findOpen ? findBarHeight : selectOpen ? selectBarHeight : toolbarHeight) + 8;
     return () => {
       readBarLift.px = 0;
     };
@@ -143,6 +149,7 @@
   // literally, not interpreted).
   function openFind() {
     breadcrumb("note page: find & replace opened");
+    reading = false; // find works on the editor
     const ed = editor;
     if (ed && !ed.isDestroyed) {
       const { from, to, empty } = ed.state.selection;
@@ -165,6 +172,7 @@
   // convenience find has; the bar takes the formatting toolbar's slot, so the find bar closes first.
   function openSelectRange() {
     breadcrumb("note page: select text opened");
+    reading = false; // selecting works on the editor
     const ed = editor;
     if (ed && !ed.isDestroyed) {
       const { from, to, empty } = ed.state.selection;
@@ -178,6 +186,22 @@
     findOpen = false;
     selectOpen = true;
   }
+  function toggleReading() {
+    reading = !reading;
+    breadcrumb(`note page: reading view ${reading ? "on" : "off"}`);
+    if (reading) {
+      findOpen = false;
+      selectOpen = false;
+      try {
+        if (editor && !editor.isDestroyed) editor.commands.blur(); // closes the keyboard
+      } catch {
+        /* nothing to blur */
+      }
+    }
+  }
+  // What the Reading view draws: the page being shown (the first page is the note's own content).
+  const readingHtml = $derived(currentPageIndex === 0 ? note.content : (note.pages[currentPageIndex - 1]?.content ?? ""));
+
   function closeSelectRange() {
     breadcrumb("note page: select text closed");
     selectOpen = false;
@@ -257,6 +281,7 @@
       currentPageIndex = 0;
       findOpen = false; // a different note: never carry an open find bar (or its stale query) across
       selectOpen = false;
+      reading = false;
       if (!id || id === "new") {
         // Round 47: opened from inside a folder (?folder=...): file the new entry there. Untracked on
         // purpose - this effect must not re-run (and reset the editor) every time an entry changes.
@@ -500,6 +525,8 @@
       onRenamePage={renamePage}
       onFindReplace={openFind}
       onSelectRange={openSelectRange}
+      onReadingView={toggleReading}
+      {reading}
       {getSelectedText}
       onInsertAnswer={insertAiAnswer}
     />
@@ -521,7 +548,7 @@
         </button>
       </div>
     {:else}
-      <div class="scroll-area" class:find-open={findOpen || selectOpen} style="--find-pad: {(findOpen ? findBarHeight : selectBarHeight) + getKeyboardInset()}px; {bodyStyle}">
+      <div class="scroll-area" class:find-open={findOpen || selectOpen} style:display={reading ? "none" : undefined} style="--find-pad: {(findOpen ? findBarHeight : selectBarHeight) + getKeyboardInset()}px; {bodyStyle}">
         <div class="inner">
           <NoteTitle bind:value={note.title} />
           {#if currentPageIndex === 0}
@@ -532,7 +559,19 @@
         </div>
       </div>
 
-      {#if findOpen}
+      {#if reading}
+        <ReadingView
+          title={note.title}
+          html={readingHtml}
+          pageKey={`${note.id}:${currentPageIndex}`}
+          markdown={readingMarkdown.value}
+          {bodyStyle}
+          fontSize={fontSize.value}
+          onEdit={toggleReading}
+          onToggleMarkdown={() => setReadingMarkdown(!readingMarkdown.value)}
+          bind:barHeight={readingBarHeight}
+        />
+      {:else if findOpen}
         <FindReplaceBar {editor} {tick} bind:opts={findOpts} bind:height={findBarHeight} onClose={closeFind} />
       {:else if selectOpen}
         <SelectRangeBar {editor} {tick} bind:opts={selectOpts} bind:height={selectBarHeight} onClose={closeSelectRange} onSelected={closeSelectRange} />

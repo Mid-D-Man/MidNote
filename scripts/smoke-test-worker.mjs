@@ -290,6 +290,15 @@ if (process.env.SMOKE_TTS === "fake" || process.env.SMOKE_TTS === "fake-noevents
   };
 }
 
+// Reading view: links open in the phone's browser (utils/openLink.ts). SMOKE_OPEN_LINKS=1 records each address opened on
+// globalThis.__openedLinks instead of opening anything.
+if (process.env.SMOKE_OPEN_LINKS) {
+  globalThis.__openedLinks = [];
+  globalThis.__midnoteOpenLink = (url) => {
+    globalThis.__openedLinks.push(url);
+  };
+}
+
 // Round T (background read-aloud): a stand-in for window.MidNoteReader, the Android service's door
 // (src-tauri/android-reader/kotlin/ReaderBridge.kt). SMOKE_NATIVE_READER = { state?: {...} } (JSON; `state` is what the service
 // reports when the page asks, e.g. a reading that was already going on). Every call is pushed onto globalThis.__readerCalls as
@@ -1097,6 +1106,15 @@ if (STEPS.length > 0 && errors.length === 0) {
       const n = (globalThis.__openWithReads ?? []).length;
       if (n !== step.expectOpenReads) {
         errors.push(new Error(`${where}: the file reader was used ${n} time(s) but should have been used ${step.expectOpenReads}: ${JSON.stringify(globalThis.__openWithReads)}`));
+        break;
+      }
+    } else if (step.expectSelectorCount) {
+      // { selector, count } exactly, or { selector, atLeast, atMost }
+      const spec = step.expectSelectorCount;
+      const n = target.querySelectorAll(spec.selector).length;
+      const okCount = spec.count !== undefined ? n === spec.count : n >= (spec.atLeast ?? 0) && n <= (spec.atMost ?? Infinity);
+      if (!okCount) {
+        errors.push(new Error(`${where}: ${spec.selector} matched ${n} elements, expected ${spec.count ?? `${spec.atLeast ?? 0}..${spec.atMost ?? "any"}`}.`));
         break;
       }
     } else if (step.expectNoSelector) {
