@@ -3,42 +3,50 @@
   // It draws from the note's saved HTML: noteHtmlToMarkdown (the lines and the editor's own formatting) -> parseMarkdown
   // (a tree) -> real elements. Nothing is ever put on the page as HTML, and the note itself is never changed or saved here.
   // Colours, sizes and fonts chosen in the editor are not shown: this page has its own look.
-  import { parseMarkdown } from "$lib/utils/markdown";
-  import { noteHtmlToMarkdown } from "$lib/utils/noteMarkdown";
+  import { FORMAT_OPTIONS, blocksForFormat, formatLabel, type ReadingFormat } from "$lib/utils/readingFormat";
   import { noteFont } from "$lib/stores/settings.svelte";
+  import Sheet from "$lib/components/ui/Sheet/Sheet.svelte";
   import ReadingBody from "./ReadingBody.svelte";
 
   let {
     title,
     html,
     pageKey,
-    markdown,
+    format,
     bodyStyle = "",
     fontSize = 16,
     onEdit,
-    onToggleMarkdown,
+    onFormat,
     barHeight = $bindable(0),
   }: {
     title: string;
     html: string;
     /** Changes when another note or page is shown (starts the progressive drawing over). */
     pageKey: string;
-    markdown: boolean;
+    /** How the note is read: Markdown, plain text, JSON, a table, or code in some language (utils/readingFormat.ts). */
+    format: ReadingFormat;
     bodyStyle?: string;
     fontSize?: number;
     onEdit: () => void;
-    onToggleMarkdown: () => void;
+    onFormat: (format: ReadingFormat) => void;
     barHeight?: number;
   } = $props();
 
-  const blocks = $derived(parseMarkdown(noteHtmlToMarkdown(html, { markdown }), { autolink: markdown }));
-  const signature = $derived(`${pageKey}|${markdown}|${html.length}`);
+  const blocks = $derived(blocksForFormat(html, format));
+  const signature = $derived(`${pageKey}|${format}|${html.length}`);
+  // code, JSON and tables use the full width; prose keeps a comfortable reading column
+  const wide = $derived(format === "json" || format === "csv" || format.startsWith("code:"));
+  let pickerOpen = $state(false);
+  function choose(f: ReadingFormat) {
+    pickerOpen = false;
+    onFormat(f);
+  }
   const family = $derived(noteFont.value ? `${noteFont.value}, var(--font-sans)` : "var(--font-sans)");
 </script>
 
 <div class="reading-wrap">
   <div class="scroll" style={bodyStyle} data-testid="reading-scroll">
-    <article class="doc" style="font-size: {fontSize}px; font-family: {family}">
+    <article class="doc" class:wide style="font-size: {fontSize}px; font-family: {family}">
       {#if title.trim()}<h1 class="doc-title">{title}</h1>{/if}
       {#key signature}
         <ReadingBody {blocks} />
@@ -51,12 +59,28 @@
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
       <span>Edit</span>
     </button>
-    <button type="button" class="bar-btn" class:on={markdown} role="switch" aria-checked={markdown} aria-label="Read as Markdown" onclick={onToggleMarkdown}>
+    <button type="button" class="bar-btn on" aria-label="View as" aria-haspopup="dialog" onclick={() => (pickerOpen = true)}>
       <span class="dot" aria-hidden="true"></span>
-      <span>Markdown</span>
+      <span class="fmt">{formatLabel(format)}</span>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
     </button>
   </div>
 </div>
+
+<Sheet bind:open={pickerOpen} side="bottom" title="View as">
+  <div class="picker">
+    {#each ["Text", "Data", "Code"] as group}
+      <p class="group">{group}</p>
+      <div class="options">
+        {#each FORMAT_OPTIONS.filter((o) => o.group === group) as o (o.id)}
+          <button type="button" class="opt" class:current={o.id === format} aria-label="View as {o.label}" aria-pressed={o.id === format} onclick={() => choose(o.id)}>
+            {o.label}
+          </button>
+        {/each}
+      </div>
+    {/each}
+  </div>
+</Sheet>
 
 <style>
   .reading-wrap {
@@ -129,6 +153,9 @@
     margin: 0 0 0.9em;
     padding-bottom: 0.45em;
     background: linear-gradient(90deg, var(--accent-2), transparent) bottom / 100% 1px no-repeat;
+  }
+  .doc.wide {
+    max-width: none;
   }
   .empty {
     color: var(--text-faint);
@@ -274,4 +301,40 @@
   }
   .bar-btn.on { color: var(--text-hi); border-color: var(--accent-dim); }
   .bar-btn.on .dot { background: var(--accent); border-color: var(--accent); }
+  .picker {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-4) var(--space-5);
+    max-height: 70vh;
+    overflow-y: auto;
+  }
+  .group {
+    margin: var(--space-3) 0 0;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+  .options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+  .opt {
+    min-height: 40px;
+    padding: 0 16px;
+    background: var(--surface-raised);
+    border: 1px solid var(--hairline);
+    border-radius: 999px;
+    color: var(--text-hi);
+    font-size: 14px;
+    cursor: pointer;
+  }
+  .opt.current {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--bg);
+    font-weight: 600;
+  }
 </style>

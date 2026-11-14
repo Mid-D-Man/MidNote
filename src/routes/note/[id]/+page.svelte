@@ -29,7 +29,8 @@
   import { getKeyboardInset } from "$lib/utils/keyboardInset.svelte";
   import { readBarLift } from "$lib/stores/readAloud.svelte";
   import ReadingView from "$lib/components/notes/ReadingView/ReadingView.svelte";
-  import { readingMarkdown, setReadingMarkdown } from "$lib/stores/readingView.svelte";
+  import { getReadingFormat, setReadingFormat } from "$lib/stores/readingView.svelte";
+  import { detectFormat, rawNoteText, type ReadingFormat } from "$lib/utils/readingFormat";
   import { saveEntry } from "$lib/stores/entries.svelte";
   import { noteTags, sync as syncTags } from "$lib/stores/tags.svelte";
   import { fontSize } from "$lib/stores/settings.svelte";
@@ -94,6 +95,7 @@
   // its undo history and place are still there when you tap Edit. Its own bottom bar takes the formatting toolbar's slot.
   let reading = $state(false);
   let readingBarHeight = $state(0);
+  let readingFormat = $state<ReadingFormat>("markdown");
   $effect(() => {
     readBarLift.px = (reading ? readingBarHeight : findOpen ? findBarHeight : selectOpen ? selectBarHeight : toolbarHeight) + 8;
     return () => {
@@ -190,6 +192,8 @@
     reading = !reading;
     breadcrumb(`note page: reading view ${reading ? "on" : "off"}`);
     if (reading) {
+      // what this note is read as: what was chosen (or set by Open with) for it, else what the text itself says, else Markdown
+      readingFormat = getReadingFormat(note.id) ?? detectFormat(rawNoteText(note.content)) ?? "markdown";
       findOpen = false;
       selectOpen = false;
       try {
@@ -564,11 +568,15 @@
           title={note.title}
           html={readingHtml}
           pageKey={`${note.id}:${currentPageIndex}`}
-          markdown={readingMarkdown.value}
+          format={readingFormat}
           {bodyStyle}
           fontSize={fontSize.value}
           onEdit={toggleReading}
-          onToggleMarkdown={() => setReadingMarkdown(!readingMarkdown.value)}
+          onFormat={(f) => {
+            readingFormat = f;
+            setReadingFormat(note.id, f);
+            breadcrumb(`note page: reading format ${f}`);
+          }}
           bind:barHeight={readingBarHeight}
         />
       {:else if findOpen}

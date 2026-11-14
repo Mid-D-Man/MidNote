@@ -38,7 +38,7 @@ export interface ListItem {
 export type Block =
   | { t: "heading"; level: 1 | 2 | 3 | 4 | 5 | 6; c: Inline[] }
   | { t: "para"; c: Inline[] }
-  | { t: "code"; lang: string; v: string }
+  | { t: "code"; lang: string; v: string; /** Show line numbers (a whole note shown as code). */ numbered?: boolean }
   | { t: "quote"; c: Block[] }
   | { t: "list"; ordered: boolean; start: number; items: ListItem[] }
   | { t: "hr" }

@@ -14,6 +14,8 @@ import { createNote } from "$lib/storage";
 import { realOpenWithBackend } from "$lib/utils/openWithNative";
 import { docxToText, DocxError } from "$lib/utils/docxText";
 import { widgetKind, widgetPath } from "$lib/utils/widgetLinks";
+import { formatFromExtension } from "$lib/utils/readingFormat";
+import { setReadingFormat } from "$lib/stores/readingView.svelte";
 import { MAX_READ_BYTES, classifyIncoming, clampForNote, isContentUrl, nameFromUrl, textToNoteHtml, titleFor } from "$lib/utils/openWith";
 import type { PickedFile } from "$lib/utils/backupFiles";
 
@@ -178,6 +180,9 @@ export function createNoteFromOpenFile(): string | null {
   // The text goes in exactly as written, escaped (utils/openWith.ts textToNoteHtml): never parsed as markup.
   n.content = textToNoteHtml(f.text);
   saveEntry(n);
+  // the title drops the file's extension, so remember what the file was: a .rs or .json file is read as code / JSON
+  const asFormat = formatFromExtension(f.name);
+  if (asFormat) setReadingFormat(n.id, asFormat);
   breadcrumb(`open with: note created from ${f.kind} file (${f.text.length} chars)`);
   openWith.file = null;
   return n.id;

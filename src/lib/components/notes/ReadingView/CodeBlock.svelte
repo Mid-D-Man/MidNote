@@ -5,11 +5,19 @@
   import { copyText } from "$lib/utils/copyText";
   import { pushToast } from "$lib/stores/toast.svelte";
 
-  let { lang, code }: { lang: string; code: string } = $props();
+  let { lang, code, numbered = false }: { lang: string; code: string; numbered?: boolean } = $props();
 
   const tokens = $derived(highlight(code, lang));
   const label = $derived((lang.trim().split(/[\s,{]/)[0] ?? "").replace(/^\./, "").slice(0, 20));
   const known = $derived(normalizeLang(lang) !== null);
+  // line numbers: one per line of the code, in a column beside it (not for a huge file: it would be thousands of lines of numbers)
+  const MAX_NUMBERED_LINES = 20000;
+  const gutter = $derived.by(() => {
+    if (!numbered) return "";
+    const n = code.split("\n").length;
+    if (n > MAX_NUMBERED_LINES) return "";
+    return Array.from({ length: n }, (_, i) => String(i + 1)).join("\n");
+  });
 
   async function copy() {
     const ok = await copyText(code);
@@ -22,7 +30,10 @@
     <span class="lang">{label || "code"}</span>
     <button type="button" class="copy" aria-label="Copy code" onclick={copy}>Copy</button>
   </div>
+  <div class="body">
+  {#if gutter}<pre class="gutter" aria-hidden="true">{gutter}</pre>{/if}
   <pre class="pre"><code>{#if tokens}{#each tokens as t}{#if t.k === "plain"}{t.v}{:else}<span class="tok-{t.k}">{t.v}</span>{/if}{/each}{:else}{code}{/if}</code></pre>
+  </div>
 </div>
 
 <style>
@@ -62,18 +73,36 @@
   .copy:active {
     background: var(--accent-wash);
   }
-  .pre {
+  .body {
+    display: flex;
+    align-items: stretch;
+  }
+  .pre,
+  .gutter {
     margin: 0;
     padding: 0.85em 1em;
-    overflow-x: auto;
     font-family: var(--font-mono);
     font-size: 0.84em;
     line-height: 1.55;
     tab-size: 4;
     white-space: pre;
+  }
+  .pre {
+    flex: 1;
+    min-width: 0;
+    overflow-x: auto;
     color: var(--rv-code-text);
     -webkit-user-select: text;
     user-select: text;
+  }
+  .gutter {
+    flex: none;
+    padding-right: 0.7em;
+    text-align: right;
+    color: var(--text-faint);
+    border-right: 1px solid var(--hairline);
+    -webkit-user-select: none;
+    user-select: none;
   }
   .pre :global(.tok-kw) { color: var(--tok-kw); }
   .pre :global(.tok-type) { color: var(--tok-type); }

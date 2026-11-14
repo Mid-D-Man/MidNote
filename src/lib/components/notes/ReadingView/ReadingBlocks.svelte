@@ -15,7 +15,7 @@
   {:else if b.t === "para"}
     <p class="rv-p"><ReadingInline nodes={b.c} /></p>
   {:else if b.t === "code"}
-    <CodeBlock lang={b.lang} code={b.v} />
+    <CodeBlock lang={b.lang} code={b.v} numbered={b.numbered ?? false} />
   {:else if b.t === "quote"}
     <blockquote class="rv-quote"><ReadingBlocks blocks={b.c} /></blockquote>
   {:else if b.t === "hr"}

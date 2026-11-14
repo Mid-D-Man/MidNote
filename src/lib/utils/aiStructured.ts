@@ -87,6 +87,11 @@ function splitDetail(s: string): [string, string] {
 
 const TITLE_RE = /^title\s*[:：]\s*(.*)$/i;
 
+/** "Category: Water" / "Category 2 - Water" -> "Water" (the model sometimes repeats the word on a ## heading). A name that is only the word stays. */
+export function withoutCategoryWord(name: string): string {
+  return name.replace(/^(?:sub-?\s*)?category\s*\d*\s*[:：\-–—]\s*(?=\S)/i, "").trim();
+}
+
 function titleOf(line: string): string | null {
   const m = TITLE_RE.exec(line);
   return m ? m[1].trim() : null;
@@ -112,7 +117,7 @@ export function parseAiTodo(raw: string): ParsedTodo | null {
   let current: string | null = null;
 
   const useCategory = (name: string): string | null => {
-    const clean = cut(plainText(name), L.category);
+    const clean = cut(withoutCategoryWord(plainText(name)), L.category);
     if (!clean) return current;
     const key = clean.toLowerCase();
     const have = known.get(key);
