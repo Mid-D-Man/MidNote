@@ -22,6 +22,9 @@
   import OpenFileSheet from "$lib/components/shared/OpenFileSheet/OpenFileSheet.svelte";
   import { startOpenWith } from "$lib/stores/openWith.svelte";
   import { syncReadAloud } from "$lib/stores/readAloud.svelte";
+  import { startAutoLock } from "$lib/utils/autoLock";
+  import { lockNow, hasLockedSecrets } from "$lib/utils/lockFlow";
+  import { autoLockAway } from "$lib/stores/lockSession.svelte";
   import type { Snippet } from "svelte";
 
   let { children }: { children: Snippet } = $props();
@@ -63,6 +66,15 @@
 
   onMount(() => {
     document.addEventListener("visibilitychange", onVisible);
+    // Locked notes: forget the app password and put any open locked note back under its
+    // lock once the app has been away / idle too long (see utils/autoLock.ts).
+    const stopAutoLock = startAutoLock({
+      getAway: () => autoLockAway.value,
+      hasSecrets: hasLockedSecrets,
+      lock: lockNow,
+      setTimer: (fn, ms) => setTimeout(fn, ms),
+      clearTimer: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+    });
     // Capture always runs regardless of the panel's own visibility
     // setting — see settings.svelte.ts's comment on debugPanelVisible.
     installGlobalCapture();
@@ -113,7 +125,10 @@
       startSync();
     })();
 
-    return () => document.removeEventListener("visibilitychange", onVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      stopAutoLock();
+    };
   });
 </script>
 

@@ -126,10 +126,13 @@
   // dismissed when the page goes away (onDestroy below): an Undo that
   // outlived the editor would write this stale copy of the todo back over
   // whatever changed elsewhere in the meantime.
+  // Auto-lock can put this todo back under its lock while the page (and a toast
+  // that lasts 8 seconds) is still up: Undo then does nothing, or it would write the
+  // restored step in plain text into a todo that is meant to be locked.
   let undoToastId: string | null = null;
   function offerUndo(title: string, run: () => void) {
     if (undoToastId) dismissToast(undoToastId);
-    undoToastId = pushToast({ title, action: { label: "Undo", run: () => { undoToastId = null; run(); } }, durationMs: 8000 });
+    undoToastId = pushToast({ title, action: { label: "Undo", run: () => { undoToastId = null; if (todo.encrypted) return; run(); } }, durationMs: 8000 });
   }
   onDestroy(() => {
     if (undoToastId) dismissToast(undoToastId);

@@ -8,9 +8,13 @@
 //
 // Password handling summary (see lockSession.svelte.ts for the fuller
 // reasoning on why there's no persisted app-password storage anywhere):
-// - "app" mode: uses sessionAppPassword if already set this session;
-//   otherwise prompts once (with confirm) and that becomes the app
-//   password going forward, for the rest of this session only.
+// - "app" mode: uses sessionAppPassword if it is still remembered;
+//   otherwise asks. With nothing locked in app mode yet it asks to SET one
+//   (with confirm); when other items are already locked with it, it asks for the
+//   SAME password and checks it against one of them first (so a typo can never
+//   quietly become a second, different "app password"). Whatever is accepted is
+//   remembered in memory only, and utils/autoLock.ts forgets it again once the app
+//   has been away / idle for too long (see lockNow() below).
 // - "custom" mode: always prompts (with confirm at lock time, without
 //   at unlock time), never cached.
 // - Unlock retries on a wrong password rather than giving up — dixscript
@@ -43,12 +47,12 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import type { Entry, LockKeyMode } from "$lib/types/entry";
 import { askLockChoice, askPassword } from "$lib/stores/lockPrompt.svelte";
-import { sessionAppPassword, setSessionAppPassword } from "$lib/stores/lockSession.svelte";
+import { sessionAppPassword, setSessionAppPassword, forgetSessionAppPassword } from "$lib/stores/lockSession.svelte";
 import { pushToast } from "$lib/stores/toast.svelte";
 import { breadcrumb } from "$lib/debug/log.svelte";
-import { saveEntry } from "$lib/stores/entries.svelte";
+import { entries, saveEntry } from "$lib/stores/entries.svelte";
 import { beginGlobalBusy, endGlobalBusy } from "$lib/stores/globalBusy.svelte";
-import { generateId } from "$lib/storage";
+import { generateId, getEntry } from "$lib/storage";
 import { sanitizeComments } from "$lib/utils/comments";
 import { syncReminderSilently } from "$lib/utils/reminders";
 
@@ -56,6 +60,18 @@ interface LockedPayloadResult {
   encryptedDataB64: string;
   keyFileContent: string;
 }
+
+// Entries currently open on a TEMPORARY (session) unlock, with what it takes to lock
+// them again. Filled by unlockForSession(), emptied as each is re-locked. Memory only,
+// like the app password: it holds passwords.
+interface OpenSession {
+  entry: Entry;
+  password: string;
+  mode: LockKeyMode;
+}
+const openSessions = new Map<string, OpenSession>();
+// A re-lock already running for an entry id (see relockSilently).
+const relocking = new Map<string, Promise<boolean>>();
 
 export function buildPlaintextPayload(entry: Entry): string {
   // Tags used to travel inside this payload (see clearPlaintextFields'
@@ -169,6 +185,60 @@ export function clearPlaintextFields(entry: Entry) {
   // component) — visible, not editable, until unlocked.
 }
 
+/** An item already locked in app mode (its ciphertext is what a typed app password is checked against). */
+function findAppLockedEntry(): Entry | undefined {
+  return entries.find((e) => e.encrypted && e.lockKeyMode === "app" && !!e.lockedPayload && !!e.lockedKeyFile);
+}
+
+/** Does `password` open `entry`? A real decrypt (Argon2id + AES-GCM), result thrown away: wrong password IS the failure. */
+async function passwordOpens(entry: Entry, password: string): Promise<boolean> {
+  beginGlobalBusy("Checking\u2026");
+  try {
+    await invoke<string>("unlock_payload", {
+      encryptedDataB64: entry.lockedPayload!,
+      keyFileContent: entry.lockedKeyFile!,
+      password,
+    });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    endGlobalBusy();
+  }
+}
+
+/**
+ * The password for a NEW "Use app password" lock. Still remembered: use it. Otherwise
+ * ask. Nothing is locked in app mode yet: SET one (with confirm). Something already
+ * is: the new lock must use that same password, so ask for it and prove it against
+ * the existing item before accepting it. (Before this check a second lock typed
+ * after a restart could quietly become a different "app password", and half the
+ * app-locked items would then never open with the other half's.) Null = cancelled.
+ */
+async function appPasswordForLock(): Promise<string | null> {
+  if (sessionAppPassword.value) return sessionAppPassword.value;
+  const probe = findAppLockedEntry();
+  if (!probe) {
+    return askPassword(
+      "Set your app password",
+      "Used for every note/todo you lock with \u201cUse app password.\u201d You\u2019ll be asked for it again after you\u2019ve been away from the app for a while.",
+      true,
+    );
+  }
+  let error: string | null = null;
+  while (true) {
+    const p = await askPassword(
+      "Enter your app password",
+      "Other items are already locked with it, and a new one has to use the same password. Forgot it? Cancel and pick \u201cSet custom password\u201d instead.",
+      false,
+      error,
+    );
+    if (!p) return null;
+    if (await passwordOpens(probe, p)) return p;
+    error = "That isn\u2019t the app password the other locked items use. Try again.";
+  }
+}
+
 /**
  * Core lock crypto + state mutation, no dialogs. Shared by lockEntry()
  * (prompts first) and relockSilently() (reuses a password already known
@@ -234,13 +304,9 @@ export async function lockEntry(entry: Entry): Promise<boolean> {
 
   let password: string;
   if (choice === "app") {
-    if (sessionAppPassword.value) {
-      password = sessionAppPassword.value;
-    } else {
-      const p = await askPassword("Set your app password", "Used for every note/todo you lock with \u201cUse app password.\u201d Remembered only until you close the app.", true);
-      if (!p) return false;
-      password = p;
-    }
+    const p = await appPasswordForLock();
+    if (!p) return false;
+    password = p;
   } else {
     const p = await askPassword("Set a password for this note", "Only this note or todo uses it — nothing else is remembered.", true);
     if (!p) return false;
@@ -340,6 +406,9 @@ export async function unlockForSession(entry: Entry): Promise<{ password: string
     try {
       await performUnlock(entry, password);
       if (mode === "app") setSessionAppPassword(password);
+      // Remember that this entry is open on a temporary unlock, with what it takes to
+      // put the lock back: lockNow() (auto-lock) re-locks every one of these.
+      openSessions.set(entry.id, { entry, password, mode });
       return { password, mode };
     } catch (err) {
       console.error("lockFlow: unlock_payload failed:", err);
@@ -351,22 +420,71 @@ export async function unlockForSession(entry: Entry): Promise<{ password: string
 
 /**
  * Re-locks `entry` using a password/mode already known from a prior
- * unlockForSession() call — no dialogs. Used by the note/todo editor
- * pages' onNavigate hook to put the lock back the moment the user
- * leaves, without asking them to type the password again. Returns
- * false (and leaves the entry as-is, still unlocked) if the crypto call
- * itself fails — this runs with no dialog to fall back to, so on
- * failure it pushes its own toast rather than throwing into onNavigate.
+ * unlockForSession() call — no dialogs. Used by the note/todo/board pages'
+ * onNavigate hook to put the lock back the moment the user leaves (without asking
+ * them to type the password again) and by lockNow() when the app has been away or
+ * idle too long. Returns false (and leaves the entry as-is, still unlocked) if the
+ * crypto call itself fails — this runs with no dialog to fall back to, so on
+ * failure it pushes its own toast rather than throwing into its caller.
+ *
+ * Safe to call twice for the same entry: an entry that is ALREADY locked is left
+ * alone (building a payload from its emptied fields would encrypt nothing over the
+ * real content), and a second call while the first is still running just waits for
+ * the first. Both happen for real: auto-lock re-locks a note the person is still
+ * looking at, and the page's own onNavigate hook then runs again when they leave.
  */
-export async function relockSilently(entry: Entry, password: string, mode: LockKeyMode): Promise<boolean> {
-  if (!isTauri()) return false;
-  breadcrumb(`lockFlow: silently re-locking entry ${entry.id} (${mode} mode) after session unlock`);
-  try {
-    await performLock(entry, password, mode);
-    return true;
-  } catch (err) {
-    console.error("lockFlow: silent re-lock failed:", err);
-    pushToast({ title: "Couldn't re-lock this", description: "It's left unlocked — open it and use the kebab menu's Lock action to secure it again.", variant: "destructive" });
-    return false;
+export function relockSilently(entry: Entry, password: string, mode: LockKeyMode): Promise<boolean> {
+  const running = relocking.get(entry.id);
+  if (running) return running;
+  const run = (async () => {
+    if (entry.encrypted) {
+      openSessions.delete(entry.id);
+      return true;
+    }
+    if (!isTauri()) return false;
+    breadcrumb(`lockFlow: silently re-locking entry ${entry.id} (${mode} mode) after session unlock`);
+    try {
+      await performLock(entry, password, mode);
+      openSessions.delete(entry.id);
+      return true;
+    } catch (err) {
+      console.error("lockFlow: silent re-lock failed:", err);
+      pushToast({ title: "Couldn't re-lock this", description: "It's left unlocked — open it and use the kebab menu's Lock action to secure it again.", variant: "destructive" });
+      return false;
+    }
+  })().finally(() => relocking.delete(entry.id));
+  relocking.set(entry.id, run);
+  return run;
+}
+
+/** Re-locks every entry currently open on a temporary unlock. Entries deleted from inside their editor are skipped (re-locking would save them back out of Trash). Returns how many are locked afterwards. */
+export async function relockAllOpen(): Promise<number> {
+  let locked = 0;
+  for (const s of [...openSessions.values()]) {
+    if (!getEntry(s.entry.id)) {
+      openSessions.delete(s.entry.id);
+      continue;
+    }
+    if (await relockSilently(s.entry, s.password, s.mode)) locked += 1;
   }
+  return locked;
+}
+
+/**
+ * LOCK NOW: forget the remembered app password (so the next app-locked unlock asks
+ * again) and put every note/todo/board that is open on a temporary unlock back under
+ * its lock. What auto-lock (utils/autoLock.ts) and Settings -> Privacy & security
+ * call. The password is forgotten at once, before any slow re-lock; calls that
+ * overlap share one re-lock run.
+ */
+let lockNowRun: Promise<number> | null = null;
+export function lockNow(): Promise<number> {
+  forgetSessionAppPassword();
+  if (!lockNowRun) lockNowRun = relockAllOpen().finally(() => (lockNowRun = null));
+  return lockNowRun;
+}
+
+/** Is a password remembered, or an entry open on a temporary unlock? (Is there anything auto-lock would act on?) */
+export function hasLockedSecrets(): boolean {
+  return sessionAppPassword.value !== null || openSessions.size > 0;
 }

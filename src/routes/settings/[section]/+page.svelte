@@ -10,7 +10,7 @@
   //   /settings/backup       back up everything to a file / restore from one
   //   /settings/account      sign in / out (round B)
   //   /settings/ai           AI credits and a try-it box (round D2)
-  //   /settings/privacy      app password
+  //   /settings/privacy      app password, ask for password again (auto-lock)
   //   /settings/developer    debug panel
   import { page } from "$app/stores";
   import { goto } from "$app/navigation";
@@ -19,6 +19,7 @@
   import ThemeSwatch from "$lib/components/settings/ThemeSwatch.svelte";
   import AppThemeSheet from "$lib/components/settings/AppThemeSheet.svelte";
   import AppPasswordRow from "$lib/components/settings/AppPasswordRow.svelte";
+  import AutoLockRow from "$lib/components/settings/AutoLockRow.svelte";
   import FontsPanel from "$lib/components/settings/FontsPanel.svelte";
   import ReadAloudPanel from "$lib/components/settings/ReadAloudPanel.svelte";
   import BackupPanel from "$lib/components/settings/BackupPanel.svelte";
@@ -108,6 +109,7 @@
       <AiPanel />
     {:else if section.slug === "privacy"}
       <AppPasswordRow />
+      <AutoLockRow />
     {:else if section.slug === "developer"}
       <SettingsRow label="Debug panel" desc="Show the on-device error/log panel while using the app.">
         <Switch
