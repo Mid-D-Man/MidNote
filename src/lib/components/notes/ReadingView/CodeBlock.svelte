@@ -82,7 +82,8 @@
     margin: 0;
     padding: 0.85em 1em;
     font-family: var(--font-mono);
-    font-size: 0.84em;
+    /* --rv-code-zoom is set by ReadingView (A- / A+, pinch); both columns scale together so line numbers stay level with their lines */
+    font-size: calc(0.84em * var(--rv-code-zoom, 1));
     line-height: 1.55;
     tab-size: 4;
     white-space: pre;

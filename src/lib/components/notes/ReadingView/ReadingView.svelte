@@ -5,6 +5,9 @@
   // Colours, sizes and fonts chosen in the editor are not shown: this page has its own look.
   import { FORMAT_OPTIONS, blocksForFormat, formatLabel, type ReadingFormat } from "$lib/utils/readingFormat";
   import { noteFont } from "$lib/stores/settings.svelte";
+  import { codeZoom, previewCodeZoom, saveCodeZoom, setCodeZoom } from "$lib/stores/readingView.svelte";
+  import { ZOOM_MAX, ZOOM_MIN, blocksHaveCode, stepZoom, zoomPercent } from "$lib/utils/codeZoom";
+  import { pinchOnCode } from "$lib/utils/pinchZoom";
   import Sheet from "$lib/components/ui/Sheet/Sheet.svelte";
   import ReadingBody from "./ReadingBody.svelte";
 
@@ -36,6 +39,9 @@
   const signature = $derived(`${pageKey}|${format}|${html.length}`);
   // code, JSON and tables use the full width; prose keeps a comfortable reading column
   const wide = $derived(format === "json" || format === "csv" || format.startsWith("code:"));
+  // code size: A- / A+ in the bar (only when there is code to size) and a two-finger pinch on a code block
+  const zoom = $derived(codeZoom.value);
+  const hasCode = $derived(wide || blocksHaveCode(blocks));
   let pickerOpen = $state(false);
   function choose(f: ReadingFormat) {
     pickerOpen = false;
@@ -45,8 +51,8 @@
 </script>
 
 <div class="reading-wrap">
-  <div class="scroll" style={bodyStyle} data-testid="reading-scroll">
-    <article class="doc" class:wide style="font-size: {fontSize}px; font-family: {family}">
+  <div class="scroll" style={bodyStyle} data-testid="reading-scroll" use:pinchOnCode={{ get: () => codeZoom.value, onZoom: previewCodeZoom, onEnd: saveCodeZoom }}>
+    <article class="doc" class:wide data-code-zoom={zoom} style="font-size: {fontSize}px; font-family: {family}; --rv-code-zoom: {zoom}">
       {#if title.trim()}<h1 class="doc-title">{title}</h1>{/if}
       {#key signature}
         <ReadingBody {blocks} />
@@ -64,6 +70,12 @@
       <span class="fmt">{formatLabel(format)}</span>
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
     </button>
+    {#if hasCode}
+      <div class="zoom" role="group" aria-label="Code size ({zoomPercent(zoom)})">
+        <button type="button" class="zbtn" aria-label="Smaller code" disabled={zoom <= ZOOM_MIN} onclick={() => setCodeZoom(stepZoom(zoom, -1))}>A<span aria-hidden="true">&minus;</span></button>
+        <button type="button" class="zbtn" aria-label="Larger code" disabled={zoom >= ZOOM_MAX} onclick={() => setCodeZoom(stepZoom(zoom, 1))}>A<span aria-hidden="true">+</span></button>
+      </div>
+    {/if}
   </div>
 </div>
 
@@ -132,6 +144,8 @@
   .scroll {
     flex: 1;
     min-height: 0;
+    /* only scrolling is left to the browser: a pinch on code is handled by pinchOnCode, never as a page zoom */
+    touch-action: pan-x pan-y;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
     padding: var(--space-5) var(--space-4) var(--space-6);
@@ -269,7 +283,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: var(--space-3);
+    gap: var(--space-2);
     padding: var(--space-2) var(--space-4) calc(var(--space-2) + env(safe-area-inset-bottom, 0px));
     background: var(--surface);
     border-top: 1px solid var(--hairline);
@@ -279,12 +293,14 @@
     align-items: center;
     gap: 8px;
     min-height: 40px;
-    padding: 0 16px;
+    padding: 0 14px;
     background: transparent;
     border: 1px solid var(--hairline);
     border-radius: 999px;
     color: var(--text-lo);
     font-size: 14px;
+    white-space: nowrap; /* a button's name never wraps onto a second line ("Edi / t") */
+    min-width: 0;
     cursor: pointer;
   }
   .bar-btn.primary {
@@ -293,11 +309,41 @@
     color: #fff;
     font-weight: 600;
   }
+  /* the format's name gives way (with an ellipsis) before anything else on a narrow screen */
+  .fmt {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .bar-btn.primary {
+    flex: none;
+  }
   .bar-btn .dot {
     width: 10px;
     height: 10px;
     border-radius: 50%;
     border: 2px solid var(--text-faint);
+  }
+  .zoom {
+    display: inline-flex;
+    gap: 2px;
+    flex: none;
+  }
+  .zbtn {
+    min-width: 34px;
+    min-height: 40px;
+    padding: 0 6px;
+    background: transparent;
+    border: 1px solid var(--hairline);
+    border-radius: 999px;
+    color: var(--text-hi);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .zbtn:disabled {
+    opacity: 0.35;
+    cursor: default;
   }
   .bar-btn.on { color: var(--text-hi); border-color: var(--accent-dim); }
   .bar-btn.on .dot { background: var(--accent); border-color: var(--accent); }

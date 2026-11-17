@@ -237,6 +237,8 @@ const T_TAGS = Date.now() - 60 * 1000;
 
 // Reading view: notes whose saved HTML is one <div> per line (a string is typed text, escaped; { html } is the editor's own markup).
 const RV_ID = "smoke-reading-note-0001";
+// ten tags, enough to overflow a phone-wide row (tags in headers are one sideways-scrolling row)
+const TAG_ROW = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel", "india", "juliet"];
 const rvEsc = (t) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const rvHtml = (lines) => lines.map((l) => (l === "" ? "<div><br></div>" : `<div>${typeof l === "string" ? rvEsc(l) : l.html}</div>`)).join("");
 const rvNote = (lines, extra = {}) => ({ id: RV_ID, type: "regular", title: "Reading demo", content: rvHtml(lines), tags: [], lastModified: now, isBookmarked: false, encrypted: false, ...extra });
@@ -833,6 +835,144 @@ function syncScenarios() {
         { wait: 500 },
         { expectSelectorText: { selector: ".fmt", text: "Rust" } },
         { expectSelectorText: { selector: ".code-block .lang", text: "rust" } },
+      ],
+    },
+    // Code size in Reading view (A- / A+ in the bar; the pinch gesture is covered by the Node tests, jsdom has no touch layout).
+    {
+      name: "reading view — code gets A− / A+ buttons, each tap changes the code size, and the size is kept",
+      path: `/note/${RV_ID}`,
+      seed: [rvNote(RV_LINES)],
+      steps: [
+        { click: "More" },
+        { click: "Reading view" },
+        { wait: 500 },
+        { expectSelector: ".zoom" },
+        { expectSelector: '[data-code-zoom="1"]' },
+        { expectSelector: '[role="group"][aria-label="Code size (100%)"]' },
+        { click: "Larger code", wait: 300 },
+        { expectSelector: '[data-code-zoom="1.15"]' },
+        { expectSelector: '[role="group"][aria-label="Code size (115%)"]' },
+        { click: "Larger code", wait: 300 },
+        { expectSelector: '[data-code-zoom="1.3"]' },
+        // expectStored searches the VALUES of localStorage joined by newlines: "1.3" + newline is a value that ends in 1.3
+        { expectStored: "1.3\n" },
+        { click: "Smaller code", wait: 300 },
+        { click: "Smaller code", wait: 300 },
+        { expectSelector: '[data-code-zoom="1"]' },
+      ],
+    },
+    {
+      name: "reading view — a note with no code has no code-size buttons",
+      path: `/note/${RV_ID}`,
+      seed: [rvNote(["Just a story.", "", "Two plain paragraphs."])],
+      steps: [
+        { click: "More" },
+        { click: "Reading view" },
+        { wait: 500 },
+        { expectSelector: ".doc" },
+        { expectNoSelector: ".zoom" },
+        { expectNoSelector: '[aria-label="Larger code"]' },
+      ],
+    },
+    {
+      name: "reading view — a note shown as code has the buttons even without a fenced block",
+      path: `/note/${RV_ID}`,
+      seed: [rvNote(["use std::fmt;", "", "#[derive(Debug)]", "pub struct Note {", "    title: String,", "}", "", "fn main() {", "    let n = Note { title: String::new() };", "    println!(\"{:?}\", n);", "}"])],
+      steps: [
+        { click: "More" },
+        { click: "Reading view" },
+        { wait: 500 },
+        { expectSelectorText: { selector: ".fmt", text: "Rust" } },
+        { expectSelector: ".zoom" },
+        { expectSelector: '[data-code-zoom="1"]' },
+      ],
+    },
+    {
+      name: "reading view — at the smallest size A− is disabled",
+      path: `/note/${RV_ID}`,
+      seed: [rvNote(RV_LINES)],
+      storage: { "midnote:reading-code-zoom": "0.6" },
+      steps: [
+        { click: "More" },
+        { click: "Reading view" },
+        { wait: 500 },
+        { expectSelector: '[data-code-zoom="0.6"]' },
+        { expectSelector: 'button[aria-label="Smaller code"][disabled]' },
+        { expectNoSelector: 'button[aria-label="Larger code"][disabled]' },
+      ],
+    },
+    {
+      name: "reading view — at the largest size A+ is disabled",
+      path: `/note/${RV_ID}`,
+      seed: [rvNote(RV_LINES)],
+      storage: { "midnote:reading-code-zoom": "2.4" },
+      steps: [
+        { click: "More" },
+        { click: "Reading view" },
+        { wait: 500 },
+        { expectSelector: '[data-code-zoom="2.4"]' },
+        { expectSelector: 'button[aria-label="Larger code"][disabled]' },
+        { expectNoSelector: 'button[aria-label="Smaller code"][disabled]' },
+      ],
+    },
+    {
+      name: "reading view — a size chosen earlier is applied when a note is opened",
+      path: `/note/${RV_ID}`,
+      seed: [rvNote(RV_LINES)],
+      storage: { "midnote:reading-code-zoom": "1.75" },
+      steps: [{ click: "More" }, { click: "Reading view" }, { wait: 500 }, { expectSelector: '[data-code-zoom="1.75"]' }],
+    },
+    {
+      name: "reading view — a stored size that makes no sense falls back to normal",
+      path: `/note/${RV_ID}`,
+      seed: [rvNote(RV_LINES)],
+      storage: { "midnote:reading-code-zoom": "huge" },
+      steps: [{ click: "More" }, { click: "Reading view" }, { wait: 500 }, { expectSelector: '[data-code-zoom="1"]' }],
+    },
+    // Tags in note / todo / board headers: ONE row that scrolls sideways, Add Tag outside it (before, more tags kept adding lines).
+    {
+      name: "tags — a note's tags are one scrolling row, with Add Tag outside it",
+      path: `/note/${RV_ID}`,
+      seed: [rvNote(["a note with many tags"], { tags: TAG_ROW })],
+      steps: [
+        { wait: 300 },
+        { expectSelectorCount: { selector: '.tag-selector > .strip[aria-label="Tags"]', count: 1 } },
+        { expectSelectorCount: { selector: ".strip .selected-tag", count: 10 } },
+        { expectSelectorCount: { selector: ".strip .add-btn", count: 0 } },
+        { expectSelector: ".tag-selector > .add-wrap .add-btn" },
+        { click: "Remove alpha", wait: 400 },
+        { expectSelectorCount: { selector: ".strip .selected-tag", count: 9 } },
+        { clickSelector: ".add-btn", wait: 300 },
+        { expectSelector: ".dropdown" },
+        { expectNoSelector: ".dropdown.open-right" },
+      ],
+    },
+    {
+      name: "tags — a todo's tags are one scrolling row, with Add Tag outside it",
+      path: `/todo/${TODO_ID}`,
+      seed: [{ id: TODO_ID, type: "todo", title: "Tagged todo", tags: TAG_ROW, lastModified: now, isBookmarked: false, encrypted: false, categories: ["Steps"], steps: [{ id: "s1", text: "step one", done: false, category: "Steps" }], annotations: [] }],
+      steps: [
+        { wait: 300 },
+        { expectSelectorCount: { selector: '.tag-selector > .strip[aria-label="Tags"]', count: 1 } },
+        { expectSelectorCount: { selector: ".strip .selected-tag", count: 10 } },
+        { expectSelectorCount: { selector: ".strip .add-btn", count: 0 } },
+        { expectSelector: ".tag-selector > .add-wrap .add-btn" },
+        { click: "Remove bravo", wait: 400 },
+        { expectSelectorCount: { selector: ".strip .selected-tag", count: 9 } },
+      ],
+    },
+    {
+      name: "tags — a board's tags are one scrolling row, with Add Tag outside it",
+      path: `/board/${BOARD_ID}`,
+      seed: [{ id: BOARD_ID, type: "board", title: "Tagged board", tags: TAG_ROW, lastModified: now, isBookmarked: false, encrypted: false, nodes: [{ id: "bn1", kind: "text", x: 0, y: 0, label: "Node one", body: null, customIconId: null }], edges: [] }],
+      steps: [
+        { wait: 500 },
+        { expectSelectorCount: { selector: '.tag-selector > .strip[aria-label="Tags"]', count: 1 } },
+        { expectSelectorCount: { selector: ".strip .selected-tag", count: 10 } },
+        { expectSelectorCount: { selector: ".strip .add-btn", count: 0 } },
+        { expectSelector: ".tag-selector > .add-wrap .add-btn" },
+        { click: "Remove charlie", wait: 400 },
+        { expectSelectorCount: { selector: ".strip .selected-tag", count: 9 } },
       ],
     },
     {
@@ -1845,6 +1985,13 @@ const OW = (name) => `content://com.android.externalstorage.documents/document/p
 const OW_DOCX_B64 = "UEsDBBQAAAAIACUpW13HHBc8CgAAAAgAAAATAAAAW0NvbnRlbnRfVHlwZXNdLnhtbLMJqSxILda3AwBQSwMEFAAAAAgAJSlbXTWdWLHJAAAARQEAABEAAAB3b3JkL2RvY3VtZW50LnhtbG2QwU7DMAyGXyXKYbctBSSEura77bQDSPAAITVrpMSObI/St6cZB6Rpl8/y79+/LHeHn5zMN7BEwt4+7BprAAONEc+9/Xg/bl+sEfU4+kQIvV1A7GHo5nakcMmAatYAlHbu7aRaWuckTJC97KgArrMv4ux1bfnsZuKxMAUQWfNzco9N8+yyj2hr5CeNS62lgit0eLt4VuC0GCQF6VwVK/nKcus/RpnMxueyN2GKRcwm6f7p/pq7XT550btWgaCv7K7C35Xu/wPDL1BLAQIUAxQAAAAIACUpW13HHBc8CgAAAAgAAAATAAAAAAAAAAAAAACAAQAAAABbQ29udGVudF9UeXBlc10ueG1sUEsBAhQDFAAAAAgAJSlbXTWdWLHJAAAARQEAABEAAAAAAAAAAAAAAIABOwAAAHdvcmQvZG9jdW1lbnQueG1sUEsFBgAAAAACAAIAgAAAADMBAAAAAA==";
 const OW_DOCX_BLANK_B64 = "UEsDBBQAAAAIACIqW13HHBc8CgAAAAgAAAATAAAAW0NvbnRlbnRfVHlwZXNdLnhtbLMJqSxILda3AwBQSwMEFAAAAAgAIipbXePC+XyRAAAAuQAAABEAAAB3b3JkL2RvY3VtZW50LnhtbEWNPQ7CMAyFr1J5py4MCFVN2ZgZ4AAhMW2lxo7iQOntSQfE8n70pO9150+YqzclnYQN7OsGKmInfuLBwP122Z2g0mzZ21mYDKykcO67pfXiXoE4VwXA2i4Gxpxji6hupGC1lkhctqekYHOpacBFko9JHKkWfpjx0DRHDHZi2JAP8evmETdVcvmaSsTfgv/X/gtQSwECFAMUAAAACAAiKltdxxwXPAoAAAAIAAAAEwAAAAAAAAAAAAAAgAEAAAAAW0NvbnRlbnRfVHlwZXNdLnhtbFBLAQIUAxQAAAAIACIqW13jwvl8kQAAALkAAAARAAAAAAAAAAAAAACAATsAAAB3b3JkL2RvY3VtZW50LnhtbFBLBQYAAAAAAgACAIAAAAD7AAAAAAA=";
 const OW_SHEET_NAME = '[aria-label="File name"]';
+// small PDF / PowerPoint files for the Open-with scenarios (hand-built: a two-page PDF, a PDF with a Flate-packed page, one with no text, one marked encrypted;
+// a two-slide deck whose presentation order is the reverse of its file numbers, with speaker notes)
+const OW_PDF_TWO_B64 = "JVBERi0xLjQKMSAwIG9iago8PCAvVHlwZSAvQ2F0YWxvZyAvUGFnZXMgMiAwIFIgPj4KZW5kb2JqCjIgMCBvYmoKPDwgL1R5cGUgL1BhZ2VzIC9LaWRzIFszIDAgUiA0IDAgUl0gL0NvdW50IDIgL1Jlc291cmNlcyA8PCAvRm9udCA8PCAvRjEgNyAwIFIgPj4gPj4gPj4KZW5kb2JqCjMgMCBvYmoKPDwgL1R5cGUgL1BhZ2UgL1BhcmVudCAyIDAgUiAvQ29udGVudHMgNSAwIFIgPj4KZW5kb2JqCjQgMCBvYmoKPDwgL1R5cGUgL1BhZ2UgL1BhcmVudCAyIDAgUiAvQ29udGVudHMgNiAwIFIgPj4KZW5kb2JqCjUgMCBvYmoKPDwgIC9MZW5ndGggNDcgPj4Kc3RyZWFtCkJUIC9GMSAxMiBUZiA3MiA3MDAgVGQgKEhlbGxvIGZyb20gYSBQREYpIFRqIEVUCmVuZHN0cmVhbQplbmRvYmoKNiAwIG9iago8PCAgL0xlbmd0aCA0NyA+PgpzdHJlYW0KQlQgL0YxIDEyIFRmIDcyIDcwMCBUZCAoU2Vjb25kIHBhZ2UgdGV4dCkgVGogRVQKZW5kc3RyZWFtCmVuZG9iago3IDAgb2JqCjw8IC9UeXBlIC9Gb250IC9TdWJ0eXBlIC9UeXBlMSAvQmFzZUZvbnQgL0hlbHZldGljYSAvRW5jb2RpbmcgL1dpbkFuc2lFbmNvZGluZyA+PgplbmRvYmoKdHJhaWxlcgo8PCAvUm9vdCAxIDAgUiA+PgolJUVPRgo=";
+const OW_PDF_FLATE_B64 = "JVBERi0xLjQKMSAwIG9iago8PCAvVHlwZSAvQ2F0YWxvZyAvUGFnZXMgMiAwIFIgPj4KZW5kb2JqCjIgMCBvYmoKPDwgL1R5cGUgL1BhZ2VzIC9LaWRzIFszIDAgUl0gL0NvdW50IDEgL1Jlc291cmNlcyA8PCAvRm9udCA8PCAvRjEgNSAwIFIgPj4gPj4gPj4KZW5kb2JqCjMgMCBvYmoKPDwgL1R5cGUgL1BhZ2UgL1BhcmVudCAyIDAgUiAvQ29udGVudHMgNCAwIFIgPj4KZW5kb2JqCjQgMCBvYmoKPDwgL0ZpbHRlciAvRmxhdGVEZWNvZGUgL0xlbmd0aCA1NSA+PgpzdHJlYW0KeJxzClHQdzNUMDRSCElTMDdSMDcwUAhJUdBwy0ksSVUoSExPVSjPL8ou1lQIyVJwDQEAF2kM2QplbmRzdHJlYW0KZW5kb2JqCjUgMCBvYmoKPDwgL1R5cGUgL0ZvbnQgL1N1YnR5cGUgL1R5cGUxIC9CYXNlRm9udCAvSGVsdmV0aWNhIC9FbmNvZGluZyAvV2luQW5zaUVuY29kaW5nID4+CmVuZG9iagp0cmFpbGVyCjw8IC9Sb290IDEgMCBSID4+CiUlRU9GCg==";
+const OW_PDF_NOTHING_B64 = "JVBERi0xLjQKMSAwIG9iago8PCAvVHlwZSAvQ2F0YWxvZyAvUGFnZXMgMiAwIFIgPj4KZW5kb2JqCjIgMCBvYmoKPDwgL1R5cGUgL1BhZ2VzIC9LaWRzIFszIDAgUl0gL0NvdW50IDEgPj4KZW5kb2JqCjMgMCBvYmoKPDwgL1R5cGUgL1BhZ2UgL1BhcmVudCAyIDAgUiAvQ29udGVudHMgNCAwIFIgPj4KZW5kb2JqCjQgMCBvYmoKPDwgIC9MZW5ndGggMTYgPj4Kc3RyZWFtCjAgMCAxMDAgMTAwIHJlIGYKZW5kc3RyZWFtCmVuZG9iagp0cmFpbGVyCjw8IC9Sb290IDEgMCBSID4+CiUlRU9GCg==";
+const OW_PDF_ENCRYPTED_B64 = "JVBERi0xLjQKMSAwIG9iago8PCAvVHlwZSAvQ2F0YWxvZyAvUGFnZXMgMiAwIFIgPj4KZW5kb2JqCjIgMCBvYmoKPDwgL1R5cGUgL1BhZ2VzIC9LaWRzIFtdIC9Db3VudCAwID4+CmVuZG9iago5IDAgb2JqCjw8IC9GaWx0ZXIgL1N0YW5kYXJkIC9WIDEgL1IgMiAvTyAoeCkgL1UgKHkpIC9QIC00ID4+CmVuZG9iagp0cmFpbGVyCjw8IC9Sb290IDEgMCBSIC9FbmNyeXB0IDkgMCBSID4+CiUlRU9GCg==";
+const OW_PPTX_B64 = "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";
 
 const SCENARIOS = [
   { name: "home / list page", path: "/", seed: SEED_ENTRIES },
@@ -5418,6 +5565,84 @@ const SCENARIOS = [
       { expectStored: '"title":"report"' },
       { expectEditorHtml: "<div>Quarterly notes</div><div>Fish &amp; chips &lt;3</div><div></div><div>Last</div>" },
     ],
+  },
+  {
+    name: "open with — a PDF becomes a note with its text, pages labelled",
+    path: "/",
+    seed: SEED_ENTRIES,
+    openWith: { cold: [OW("paper.pdf")], files: { [OW("paper.pdf")]: { b64: OW_PDF_TWO_B64 } } },
+    steps: [
+      { wait: 700 },
+      { expectText: "PDF document · " },
+      { expectText: "2 pages" },
+      { expectText: "pictures and drawings are left out" },
+      { click: "Create note" },
+      { wait: 900 },
+      { expectStored: '"title":"paper"' },
+      { expectEditorHtml: "<div>Page 1</div><div>Hello from a PDF</div><div></div><div>Page 2</div><div>Second page text</div>" },
+    ],
+  },
+  {
+    name: "open with — a PDF whose page is Flate-packed is unpacked and read",
+    path: "/",
+    seed: SEED_ENTRIES,
+    openWith: { cold: [OW("packed.pdf")], files: { [OW("packed.pdf")]: { b64: OW_PDF_FLATE_B64 } } },
+    steps: [{ wait: 700 }, { expectText: "PDF document · 3 words" }, { expectText: "1 page" }, { click: "Create note" }, { wait: 900 }, { expectEditorHtml: "<div>Flate page works</div>" }],
+  },
+  {
+    name: "open with — a PDF with no text says so (it may be a scan) and a PDF named .pdf with other contents is refused",
+    path: "/",
+    seed: SEED_ENTRIES,
+    openWith: { files: { [OW("scan.pdf")]: { b64: OW_PDF_NOTHING_B64 }, [OW("fake.pdf")]: { text: "this is not really a pdf, only text" } } },
+    steps: [
+      { wait: 300 },
+      { openUrl: OW("scan.pdf") },
+      { expectText: "no text MidNote can read" },
+      { expectText: "OCR" },
+      { expectNoSelector: '[aria-label="Create note"]' },
+      { click: "Close" },
+      { wait: 600 },
+      { openUrl: OW("fake.pdf") },
+      { expectSelectorText: { selector: '[aria-label="Create note"]', text: "Create note" } },
+      { expectText: "Text file · " },
+    ],
+  },
+  {
+    name: "open with — an encrypted PDF is refused with its reason",
+    path: "/",
+    seed: SEED_ENTRIES,
+    openWith: { cold: [OW("locked.pdf")], files: { [OW("locked.pdf")]: { b64: OW_PDF_ENCRYPTED_B64 } } },
+    steps: [{ wait: 700 }, { expectText: "password-protected or encrypted" }, { expectNoSelector: '[aria-label="Create note"]' }],
+  },
+  {
+    name: "open with — a PowerPoint file becomes a note: slides in presentation order, speaker notes, entities",
+    path: "/",
+    seed: SEED_ENTRIES,
+    openWith: { cold: [OW("talk.pptx")], files: { [OW("talk.pptx")]: { b64: OW_PPTX_B64 } } },
+    steps: [
+      { wait: 700 },
+      { expectText: "PowerPoint presentation · " },
+      { expectText: "2 slides" },
+      { expectText: "speaker notes only" },
+      { click: "Create note" },
+      { wait: 900 },
+      { expectStored: '"title":"talk"' },
+      { expectEditorHtml: "<div>Slide 1</div><div>Welcome</div><div>Notes:</div><div>Remember the demo</div><div></div><div>Slide 2</div><div>Budget &amp; plans</div><div>Costs are down</div>" },
+    ],
+  },
+  {
+    name: "open with — a PowerPoint file whose link has no name is still recognised",
+    path: "/",
+    seed: SEED_ENTRIES,
+    openWith: { cold: ["content://media/external/file/42"], files: { "content://media/external/file/42": { b64: OW_PPTX_B64 } } },
+    steps: [{ wait: 700 }, { expectText: "PowerPoint presentation · " }, { expectSelector: '[aria-label="Create note"]' }],
+  },
+  {
+    name: "open with — a file over 32 MB is refused with the 32 MB limit named",
+    path: "/",
+    seed: SEED_ENTRIES,
+    openWith: { cold: [OW("enormous.pdf")], files: { [OW("enormous.pdf")]: { repeat: { count: 34000000 } } } },
+    steps: [{ wait: 1500 }, { expectText: "too big to open" }, { expectText: "32 MB" }, { expectNoSelector: '[aria-label="Create note"]' }],
   },
   {
     name: "open with — a plain MidNote backup goes to Backup & restore and shows its preview first",

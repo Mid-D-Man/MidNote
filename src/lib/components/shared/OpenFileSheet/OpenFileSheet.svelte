@@ -3,7 +3,7 @@
   //
   // Mounted once in the root layout; shown whenever the open-with store is reading a file or holds one. Nothing is
   // created until a button here is tapped, and the file is only ever READ (its text is escaped, never run).
-  //   text / Word file  -> a preview and "Create note"
+  //   text / Word / PowerPoint / PDF file  -> a preview and "Create note"
   //   MidNote backup    -> "Open in Backup & restore" (which shows its own preview before anything is restored)
   //   anything else     -> why it can't be opened
   import { goto } from "$app/navigation";
@@ -15,7 +15,8 @@
 
   const nf = new Intl.NumberFormat();
   const file = $derived(openWith.file);
-  const isText = $derived(file !== null && (file.kind === "text" || file.kind === "docx"));
+  const isText = $derived(file !== null && (file.kind === "text" || file.kind === "docx" || file.kind === "pptx" || file.kind === "pdf"));
+  const kindLabel = $derived(file === null ? "" : file.kind === "docx" ? "Word document" : file.kind === "pptx" ? "PowerPoint presentation" : file.kind === "pdf" ? "PDF document" : "Text file");
   const words = $derived(file !== null && isText ? textStats(file.text).words : 0);
   const preview = $derived(file !== null && isText ? file.text.slice(0, 500) : "");
 
@@ -50,8 +51,11 @@
 
       {#if isText}
         <p class="line" aria-label="File summary">
-          {file.kind === "docx" ? "Word document" : "Text file"} · {nf.format(words)} words · {nf.format(file.chars)} characters
+          {kindLabel} · {nf.format(words)} words · {nf.format(file.chars)} characters
         </p>
+        {#if file.info}
+          <p class="info" role="note" aria-label="About this file">{file.info}</p>
+        {/if}
         <pre class="preview" aria-label="Preview">{preview}{file.text.length > preview.length ? "…" : ""}</pre>
         {#if file.cut}
           <p class="warn" role="note">
@@ -134,6 +138,13 @@
     font-size: 14px;
     line-height: 1.45;
     color: var(--text-hi);
+    overflow-wrap: anywhere;
+  }
+  .info {
+    margin: 0;
+    font-size: 12.5px;
+    line-height: 1.45;
+    color: var(--text-lo);
     overflow-wrap: anywhere;
   }
   .preview {

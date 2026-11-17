@@ -13,22 +13,27 @@ import { saveEntry } from "$lib/stores/entries.svelte";
 import { createNote } from "$lib/storage";
 import { realOpenWithBackend } from "$lib/utils/openWithNative";
 import { docxToText, DocxError } from "$lib/utils/docxText";
+import { pptxToText } from "$lib/utils/pptxText";
+import { ZipError } from "$lib/utils/zipRead";
+import { pdfToText, PdfError } from "$lib/utils/pdfText";
 import { widgetKind, widgetPath } from "$lib/utils/widgetLinks";
 import { formatFromExtension } from "$lib/utils/readingFormat";
 import { setReadingFormat } from "$lib/stores/readingView.svelte";
-import { MAX_READ_BYTES, classifyIncoming, clampForNote, isContentUrl, nameFromUrl, textToNoteHtml, titleFor } from "$lib/utils/openWith";
+import { MAX_NOTE_CHARS, MAX_READ_BYTES, classifyIncoming, clampForNote, isContentUrl, nameFromUrl, textToNoteHtml, titleFor } from "$lib/utils/openWith";
 import type { PickedFile } from "$lib/utils/backupFiles";
 
 export interface OpenFile {
   name: string | null;
   /** Bytes read. */
   size: number;
-  kind: "text" | "docx" | "backup" | "refused";
-  /** text / docx: what the note would contain. "" otherwise. */
+  kind: "text" | "docx" | "pptx" | "pdf" | "backup" | "refused";
+  /** text / docx / pptx / pdf: what the note would contain. "" otherwise. */
   text: string;
-  /** text / docx: characters in the whole file's text (more than `text` when it was cut). */
+  /** text / docx / pptx / pdf: characters in the whole file's text (more than `text` when it was cut). */
   chars: number;
   cut: boolean;
+  /** pdf / pptx: a line about what was read ("12 pages", what is left out). "" otherwise. */
+  info: string;
   part: "backup" | "key" | "encrypted" | null;
   /** refused: what to tell the person. */
   message: string;
@@ -51,11 +56,75 @@ let started = false;
 let seq = 0;
 
 function blank(name: string | null, size: number): OpenFile {
-  return { name, size, kind: "refused", text: "", chars: 0, cut: false, part: null, message: "", bytes: null };
+  return { name, size, kind: "refused", text: "", chars: 0, cut: false, info: "", part: null, message: "", bytes: null };
 }
 
 function refused(name: string | null, size: number, message: string): OpenFile {
   return { ...blank(name, size), message };
+}
+
+const WORD_UNREADABLE = "That isn't a Word document that MidNote can read.";
+const PPTX_UNREADABLE = "That isn't a PowerPoint presentation that MidNote can read.";
+const PDF_UNREADABLE = "That isn't a PDF that MidNote can read.";
+const PDF_NO_TEXT = "This PDF has no text MidNote can read. If it is a scan (pictures of pages), it would need text recognition (OCR), which MidNote doesn't have.";
+const PDF_UNDECODABLE = "The text in this PDF uses a font MidNote can't decode, so nothing readable came out.";
+const PPTX_NOTE = "Text and speaker notes only: pictures, charts and animations are left out.";
+
+/** The text of a Word, PowerPoint or PDF file, as the file to show. Never throws: every way it can fail is a refused file with a plain message. */
+async function extractDocument(kind: "docx" | "pptx" | "pdf", name: string | null, bytes: Uint8Array): Promise<OpenFile> {
+  const size = bytes.length;
+  const withText = (as: "docx" | "pptx" | "pdf", text: string, info: string, forceCut = false): OpenFile => {
+    const clamped = clampForNote(text);
+    return { ...blank(name, size), kind: as, text: clamped.text, chars: text.length, cut: clamped.cut || forceCut, info };
+  };
+  const slideInfo = (text: string) => {
+    const n = (text.match(/^Slide \d+$/gm) ?? []).length;
+    return `${n} slide${n === 1 ? "" : "s"}. ${PPTX_NOTE}`;
+  };
+  try {
+    if (kind === "pdf") {
+      const r = await pdfToText(bytes, MAX_NOTE_CHARS + 20_000);
+      if (r === null) return refused(name, size, PDF_UNREADABLE);
+      if (r.text.trim() === "") return refused(name, size, r.garbled ? PDF_UNDECODABLE : PDF_NO_TEXT);
+      const parts = [`${r.pages} page${r.pages === 1 ? "" : "s"}${r.truncated ? `, the first ${r.pagesRead} read` : ""}`];
+      parts.push("Text only: pictures and drawings are left out");
+      if (r.garbled) parts.push("some text uses a font MidNote can't decode, so parts are missing");
+      return withText("pdf", r.text, parts.join(". ") + ".", r.truncated);
+    }
+    if (kind === "pptx") {
+      const text = await pptxToText(bytes);
+      if (text === null) return refused(name, size, PPTX_UNREADABLE);
+      if (text.trim() === "") return refused(name, size, "That presentation has no text in it.");
+      return withText("pptx", text, slideInfo(text));
+    }
+    let text: string | null = null;
+    try {
+      text = await docxToText(bytes);
+    } catch (e) {
+      if (e instanceof DocxError) {
+        breadcrumb(`open with: docx refused (${e.kind})`);
+        return refused(name, size, e.message);
+      }
+    }
+    if (text === null && name === null) {
+      // a file whose name is unknown, so it may be a PowerPoint file
+      const slides = await pptxToText(bytes);
+      if (slides !== null) {
+        if (slides.trim() === "") return refused(name, size, "That presentation has no text in it.");
+        return withText("pptx", slides, slideInfo(slides));
+      }
+    }
+    if (text === null) return refused(name, size, WORD_UNREADABLE);
+    if (text.trim() === "") return refused(name, size, "That document has no text in it.");
+    return withText("docx", text, "");
+  } catch (e) {
+    if (e instanceof PdfError || e instanceof ZipError) {
+      breadcrumb(`open with: ${kind} refused (${e.kind})`);
+      return refused(name, size, e.message);
+    }
+    breadcrumb(`open with: ${kind} could not be read (${e instanceof Error ? e.message.slice(0, 80) : "error"})`);
+    return refused(name, size, kind === "pdf" ? PDF_UNREADABLE : kind === "pptx" ? PPTX_UNREADABLE : WORD_UNREADABLE);
+  }
 }
 
 /** Reads and classifies one content:// link, then shows the sheet. Never throws. */
@@ -72,32 +141,15 @@ export async function openIncoming(url: string): Promise<void> {
     if (mine !== seq) return; // the person closed the sheet, or another file came in
     let file: OpenFile;
     if (bytes.length > MAX_READ_BYTES) {
-      file = refused(name, bytes.length, "That file is too big to open (the limit is 8 MB).");
+      file = refused(name, bytes.length, "That file is too big to open (the limit is 32 MB).");
     } else {
       const c = classifyIncoming(name, bytes);
       if (c.kind === "refused") file = refused(name, bytes.length, c.message);
       else if (c.kind === "backup") file = { ...blank(name, bytes.length), kind: "backup", part: c.part, bytes };
       else if (c.kind === "text") file = { ...blank(name, bytes.length), kind: "text", text: c.text, chars: c.chars, cut: c.cut };
       else {
-        let text: string | null;
-        try {
-          text = await docxToText(bytes);
-        } catch (e) {
-          text = null;
-          if (e instanceof DocxError) {
-            if (mine !== seq) return;
-            openWith.file = refused(name, bytes.length, e.message);
-            breadcrumb(`open with: docx refused (${e.kind})`);
-            return;
-          }
-        }
+        file = await extractDocument(c.kind, name, bytes);
         if (mine !== seq) return;
-        if (text === null) file = refused(name, bytes.length, "That isn't a Word document that MidNote can read.");
-        else if (text.trim() === "") file = refused(name, bytes.length, "That document has no text in it.");
-        else {
-          const clamped = clampForNote(text);
-          file = { ...blank(name, bytes.length), kind: "docx", text: clamped.text, chars: text.length, cut: clamped.cut };
-        }
       }
     }
     breadcrumb(`open with: ${file.kind}${file.part ? ` (${file.part})` : ""}, ${file.size} bytes`);
@@ -171,10 +223,10 @@ export function dismissOpenFile(): void {
   openWith.file = null;
 }
 
-/** Makes a note from the open text/Word file and closes the sheet. Returns the note's id, or null. */
+/** Makes a note from the open text, Word, PowerPoint or PDF file and closes the sheet. Returns the note's id, or null. */
 export function createNoteFromOpenFile(): string | null {
   const f = openWith.file;
-  if (!f || (f.kind !== "text" && f.kind !== "docx") || f.text.trim() === "") return null;
+  if (!f || (f.kind !== "text" && f.kind !== "docx" && f.kind !== "pptx" && f.kind !== "pdf") || f.text.trim() === "") return null;
   const n = createNote();
   n.title = titleFor(f.name, f.text);
   // The text goes in exactly as written, escaped (utils/openWith.ts textToNoteHtml): never parsed as markup.

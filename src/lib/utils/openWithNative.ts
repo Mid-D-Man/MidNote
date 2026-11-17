@@ -38,14 +38,25 @@ async function readContentUrl(url: string, maxBytes: number): Promise<Uint8Array
   const { open } = await import("@tauri-apps/plugin-fs");
   const handle = await open(url, { read: true });
   try {
-    const buf = new Uint8Array(maxBytes + 1);
+    // read in 1 MB pieces up to the limit + 1 (so the caller can tell "too big"): the limit is large for documents, and a small
+    // file should not need a buffer of that size
+    const limit = maxBytes + 1;
+    const chunks: Uint8Array[] = [];
     let off = 0;
-    while (off < buf.length) {
-      const n = await handle.read(buf.subarray(off));
+    while (off < limit) {
+      const piece = new Uint8Array(Math.min(1024 * 1024, limit - off));
+      const n = await handle.read(piece);
       if (n === null || n === 0) break; // end of file
+      chunks.push(n === piece.length ? piece : piece.subarray(0, n));
       off += n;
     }
-    return buf.slice(0, off);
+    const out = new Uint8Array(off);
+    let at = 0;
+    for (const c of chunks) {
+      out.set(c, at);
+      at += c.length;
+    }
+    return out;
   } finally {
     await handle.close().catch(() => {});
   }

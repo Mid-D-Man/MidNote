@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { scrollStrip } from "$lib/utils/scrollStrip";
+
   let {
     selectedTags,
     availableTags,
@@ -13,6 +15,25 @@
 
   let isOpen = $state(false);
   let searchInput = $state("");
+  // Which side of the "Add Tag" button the list opens towards: the button sits at the right end of the row once the tags
+  // overflow, and a list opening to its right would run off the screen (decided when it opens, from where the button is).
+  let openRight = $state(false);
+  let addBtn = $state<HTMLButtonElement | null>(null);
+  const DROPDOWN_WIDTH = 200;
+  function toggleList() {
+    if (!isOpen && addBtn) openRight = addBtn.getBoundingClientRect().left + DROPDOWN_WIDTH > window.innerWidth - 8;
+    isOpen = !isOpen;
+  }
+
+  // The tags are ONE row that scrolls sideways (a swipe on the phone, a drag with a mouse) instead of wrapping onto more and
+  // more lines: the header stays the same height however many tags there are. Fades at an edge show there is more that way.
+  // The scrolling itself is utils/scrollStrip.ts.
+  let canLeft = $state(false);
+  let canRight = $state(false);
+  const showEdges = (left: boolean, right: boolean) => {
+    canLeft = left;
+    canRight = right;
+  };
 
   const filteredTags = $derived(
     availableTags
@@ -50,21 +71,23 @@
 </script>
 
 <div class="tag-selector">
-  {#each selectedTags as tag (tag)}
-    <div class="selected-tag">
-      {tag}
-      <button onclick={() => onRemoveTag(tag)} aria-label="Remove {tag}">×</button>
-    </div>
-  {/each}
+  <div class="strip" class:can-left={canLeft} class:can-right={canRight} role="list" aria-label="Tags" use:scrollStrip={showEdges}>
+    {#each selectedTags as tag (tag)}
+      <div class="selected-tag" role="listitem">
+        <span class="tag-name">{tag}</span>
+        <button onclick={() => onRemoveTag(tag)} aria-label="Remove {tag}">×</button>
+      </div>
+    {/each}
+  </div>
 
   <div class="add-wrap">
-    <button class="add-btn" onclick={() => (isOpen = !isOpen)}>
+    <button class="add-btn" bind:this={addBtn} onclick={toggleList}>
       Add Tag <span class="chevron">⌄</span>
     </button>
 
     {#if isOpen}
       <div class="scrim" onclick={handleScrimClick} role="presentation"></div>
-      <div class="dropdown">
+      <div class="dropdown" class:open-right={openRight}>
         <input type="text" placeholder="Search tags..." bind:value={searchInput} />
         <div class="list">
           {#if filteredTags.length > 0}
@@ -83,11 +106,43 @@
 <style>
   .tag-selector {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     gap: var(--space-2);
     align-items: center;
+    min-width: 0;
+    max-width: 100%;
+  }
+  /* One row, never wrapping: it takes only the room the tags need and, once they need more than there is, shrinks to the
+     space left of the Add Tag button and scrolls sideways inside itself. */
+  .strip {
+    --fade-left: 0px;
+    --fade-right: 0px;
+    flex: 0 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: var(--space-2);
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--fade-left), #000 calc(100% - var(--fade-right)), transparent 100%);
+    mask-image: linear-gradient(to right, transparent 0, #000 var(--fade-left), #000 calc(100% - var(--fade-right)), transparent 100%);
+  }
+  .strip::-webkit-scrollbar {
+    display: none;
+  }
+  .strip.can-left {
+    --fade-left: 18px;
+  }
+  .strip.can-right {
+    --fade-right: 18px;
   }
   .selected-tag {
+    flex: none;
+    white-space: nowrap;
     display: flex;
     align-items: center;
     gap: var(--space-1);
@@ -104,6 +159,11 @@
     font-size: 12px;
     font-weight: 500;
   }
+  .tag-name {
+    max-width: 16em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .selected-tag button {
     background: none;
     border: none;
@@ -113,6 +173,7 @@
   }
   .add-wrap {
     position: relative;
+    flex: none;
   }
   .add-btn {
     display: flex;
@@ -148,6 +209,10 @@
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32);
     z-index: 50;
     min-width: 160px;
+  }
+  .dropdown.open-right {
+    left: auto;
+    right: 0;
   }
   .dropdown input {
     width: 100%;

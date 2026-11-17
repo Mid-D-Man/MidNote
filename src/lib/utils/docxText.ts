@@ -123,7 +123,8 @@ export async function readDocumentXml(b: Uint8Array): Promise<string | null> {
   return new TextDecoder("utf-8").decode(xml);
 }
 
-function decodeEntities(s: string): string {
+/** XML text with its &amp; &lt; &#233; … written out (also used by pptxText.ts). */
+export function decodeEntities(s: string): string {
   return s.replace(/&(?:#x([0-9a-fA-F]{1,6})|#(\d{1,7})|(amp|lt|gt|quot|apos));/g, (_, hex: string, dec: string, name: string) => {
     if (name) return { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" }[name]!;
     const cp = hex ? parseInt(hex, 16) : parseInt(dec, 10);

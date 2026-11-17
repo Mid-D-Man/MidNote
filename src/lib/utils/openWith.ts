@@ -7,6 +7,8 @@
 //
 //   text      any text file (.txt .md .json .mdix, code, logs, ...)  -> offered as a new note
 //   docx      a Word document                                      -> its text is offered as a new note (docxText.ts)
+//   pptx      a PowerPoint presentation                            -> the text of its slides and notes, as a new note (pptxText.ts)
+//   pdf       a PDF document                                       -> its text, as a new note (pdfText.ts); no OCR, no pictures
 //   backup    a MidNote backup (.mdix / .mdix.enc / .mdix.key)       -> handed to Settings -> Backup & restore
 //   refused   anything else (pictures, videos, apps, archives, ...) -> a plain "can't open that" message
 //
@@ -16,8 +18,11 @@
 // written anywhere, and the person confirms before a note is made. A file that looks like a program (.apk, .sh, .exe)
 // is either not text (refused) or text (shown as inert text).
 
-/** Most bytes the app will read from one file. The reader stops here, however large the file is. */
-export const MAX_READ_BYTES = 8 * 1024 * 1024;
+/** Most bytes the app will read from one file. The reader stops here, however large the file is. Documents (PDF, Word, PowerPoint) are
+ *  often big because of their pictures, so this is larger than the limit for a text file. */
+export const MAX_READ_BYTES = 32 * 1024 * 1024;
+/** Most bytes of a TEXT file (a note, code, a backup). */
+export const MAX_TEXT_BYTES = 8 * 1024 * 1024;
 /** Most characters one opened file becomes as a note (a long novel is ~600k; the editor slows long before that). */
 export const MAX_NOTE_CHARS = 300_000;
 
@@ -50,6 +55,20 @@ const lower = (s: string | null) => (s ?? "").toLowerCase();
 
 export function isDocxName(name: string | null): boolean {
   return /\.docx$/.test(lower(name));
+}
+
+/** .pptx, and .ppsx (the same file made to open as a slide show). */
+export function isPptxName(name: string | null): boolean {
+  return /\.(pptx|ppsx)$/.test(lower(name));
+}
+
+/** A PDF starts with "%PDF-". A file named .pdf may have a few bytes before it, so the first KB is searched for those. */
+export function isPdfBytes(b: Uint8Array, name: string | null): boolean {
+  const has = (at: number) => b[at] === 0x25 && b[at + 1] === 0x50 && b[at + 2] === 0x44 && b[at + 3] === 0x46 && b[at + 4] === 0x2d;
+  if (b.length >= 5 && has(0)) return true;
+  if (!/\.pdf$/.test(lower(name))) return false;
+  for (let i = 1; i + 5 <= Math.min(b.length, 1024); i++) if (has(i)) return true;
+  return false;
 }
 
 export type Decoded = { ok: true; text: string } | { ok: false; reason: "empty" | "binary" };
@@ -146,10 +165,12 @@ export function titleFor(name: string | null, text: string): string {
 export type Incoming =
   | { kind: "text"; name: string | null; text: string; cut: boolean; chars: number }
   | { kind: "docx"; name: string | null }
+  | { kind: "pptx"; name: string | null }
+  | { kind: "pdf"; name: string | null }
   | { kind: "backup"; name: string | null; part: "backup" | "key" | "encrypted" }
   | { kind: "refused"; name: string | null; message: string };
 
-const NOT_OPENABLE = "MidNote opens text files (notes, code, JSON, Markdown…), Word documents (.docx) and its own backups.";
+const NOT_OPENABLE = "MidNote opens text files (notes, code, JSON, Markdown…), PDF files, Word documents (.docx), PowerPoint presentations (.pptx) and its own backups.";
 
 function isZip(b: Uint8Array): boolean {
   return b.length >= 4 && b[0] === 0x50 && b[1] === 0x4b && b[2] === 0x03 && b[3] === 0x04;
@@ -169,14 +190,20 @@ export function isKeyFileText(text: string, name: string | null): boolean {
   return /\.key$/.test(lower(name)) && /\bkey_type\b/.test(head.slice(0, 2000));
 }
 
-/** What a file's bytes are. Synchronous; a "docx" still needs its text pulled out (docxText.ts). Never throws. */
+/** What a file's bytes are. Synchronous; a "docx", "pptx" or "pdf" still needs its text pulled out (docxText.ts, pptxText.ts, pdfText.ts). Never throws. */
 export function classifyIncoming(name: string | null, bytes: Uint8Array): Incoming {
   if (bytes.length === 0) return { kind: "refused", name, message: "That file is empty." };
 
+  if (isPdfBytes(bytes, name)) return { kind: "pdf", name };
+
   if (isZip(bytes)) {
-    if (name && !isDocxName(name)) return { kind: "refused", name, message: `That's a compressed file, not a text file or a Word document. ${NOT_OPENABLE}` };
+    if (name && isPptxName(name)) return { kind: "pptx", name };
+    if (name && !isDocxName(name)) return { kind: "refused", name, message: `That's a compressed file, not a text file or a document. ${NOT_OPENABLE}` };
+    // a Word file, or a file whose name is unknown (the caller tries Word first, then PowerPoint)
     return { kind: "docx", name };
   }
+
+  if (bytes.length > MAX_TEXT_BYTES) return { kind: "refused", name, message: "That file is too big to open (the limit is 8 MB)." };
 
   const decoded = decodeText(bytes);
   if (!decoded.ok) {
