@@ -144,42 +144,66 @@ const CONTINUE_SYSTEM =
 
 // The line formats below are read by the phone (src/lib/utils/aiStructured.ts), which is tolerant of what a small model
 // gets wrong but cannot guess a format it was not told: change one side and change the other.
+//
+// A small model copies an EXAMPLE far more faithfully than it obeys a rule, so each prompt states the rules as a numbered
+// list AND shows an example that does everything the rules ask (every step has a description; every node has an arrow).
+// The size limits are chosen to fit the output budget (max_output, 900 tokens by default) with room to spare: the
+// links / the last steps are the part a cut-off answer loses first.
 const CREATE_TODO_SYSTEM =
   "You write to-do lists inside a note-taking app. Reply in exactly this line format and nothing else:\n" +
   "TITLE: a short title\n" +
   "## Category name\n" +
-  "- Step\n" +
-  "- Another step :: optional short detail\n" +
-  "Rules: the first line is TITLE:. Then 2 to 6 categories, each starting with a line '## Name' and holding 2 to 8 steps, one step per line starting with '- '. " +
-  "A step is a short action (at most 12 words); add ' :: ' and a short detail only when it really helps. " +
-  "Plain text only: no numbering, no checkboxes, no bold, no tables, no other Markdown. The words TITLE and the ## and - markers stay as shown; everything else is in the language of the request. " +
+  "- Step :: Description of how to do it\n" +
+  "- Another step :: Description of how to do it\n" +
+  "Rules:\n" +
+  "1. The first line is TITLE:. Then 2 to 4 categories. Each category is a line '## Name' followed by 2 to 4 steps, one step per line starting with '- '. At most 12 steps in all.\n" +
+  "2. EVERY step line has two parts separated by ' :: ': the step itself (an action of at most 8 words) and then its description (5 to 15 words) that says how to do it, what to watch out for, or what done looks like. " +
+  "A step line without ' :: ' and a description is wrong. Never leave a description out and never just repeat the step in it.\n" +
+  "3. Plain text only: no numbering, no checkboxes, no bold, no tables, no other Markdown. The words TITLE and the ##, - and :: markers stay as shown; everything else is in the language of the request. " +
   "No introduction and no closing remarks.\n" +
   "Example:\n" +
   "TITLE: Plan a camping weekend\n" +
   "## Before you go\n" +
-  "- Book the campsite :: Check the check-in time\n" +
-  "- Pack the tent\n" +
+  "- Book the campsite :: Check the check-in time and ask whether campfires are allowed.\n" +
+  "- Pack the tent :: Count the pegs and put the poles up once at home so nothing is missing.\n" +
   "## At the site\n" +
-  "- Set up the tent\n" +
-  "- Cook dinner";
+  "- Set up the tent :: Choose flat ground away from the water and turn the door away from the wind.\n" +
+  "- Cook dinner :: Keep the stove on bare ground and have a bottle of water close by.";
 
 const CREATE_BOARD_SYSTEM =
   "You build boards (idea maps) inside a note-taking app. A board is boxes (nodes) joined by arrows (links). Reply in exactly this line format and nothing else:\n" +
   "TITLE: a short title\n" +
-  "NODE a: Short label :: optional short detail\n" +
-  "NODE b: Another label\n" +
+  "NODE a: Short label :: short detail\n" +
+  "NODE b: Another label :: short detail\n" +
   "LINK a -> b\n" +
-  "Rules: the first line is TITLE:. Then one NODE line per box, then one LINK line per arrow. Give every node a short unique key of letters and digits (a, b, c, ... or n1, n2, ...) and a label of at most 6 words; use 5 to 20 nodes. " +
-  "A LINK goes from one key to another (LINK a -> b) and means b follows from a; link every node to at least one other and use only keys you defined. " +
-  "Plain text only: no positions, no colours, no Markdown. The words TITLE, NODE and LINK and the keys stay as shown; the labels are in the language of the request. " +
+  "LINK a -> c\n" +
+  "Rules:\n" +
+  "1. The first line is TITLE:.\n" +
+  "2. Then 6 to 12 NODE lines, one per box. Each has a short unique key of letters or digits (a, b, c, ...), a label of at most 5 words, then ' :: ' and a detail of at most 12 words.\n" +
+  "3. After ALL the NODE lines come the LINK lines, one per arrow. The LINK lines are required: a board without them is wrong. 'LINK a -> b' means b follows from a (b comes after a, depends on a, or is part of a). " +
+  "Write at least as many LINK lines as there are NODE lines minus one.\n" +
+  "4. Every node must appear in at least one LINK line, as the start or as the end, so no box is left alone. Start from the main idea and branch out: one node may have several arrows leaving it and several arriving at it. " +
+  "Use only keys you defined and never link a node to itself.\n" +
+  "5. Plain text only: no positions, no colours, no Markdown. The words TITLE, NODE and LINK, the keys, '::' and '->' stay as shown; the labels and details are in the language of the request. " +
   "No introduction and no closing remarks.\n" +
   "Example:\n" +
-  "TITLE: Story arc\n" +
-  "NODE a: Opening scene :: The hero wakes up\n" +
-  "NODE b: The call to adventure\n" +
-  "NODE c: The first trial\n" +
+  "TITLE: Launch a podcast\n" +
+  "NODE a: Pick a topic :: Choose what the show is about and who it is for\n" +
+  "NODE b: Plan episodes :: Outline the first five episodes\n" +
+  "NODE c: Get equipment :: A microphone and a quiet room\n" +
+  "NODE d: Record :: Tape the first episode\n" +
+  "NODE e: Edit :: Cut mistakes and add music\n" +
+  "NODE f: Publish :: Upload to a hosting site\n" +
   "LINK a -> b\n" +
-  "LINK b -> c";
+  "LINK a -> c\n" +
+  "LINK b -> d\n" +
+  "LINK c -> d\n" +
+  "LINK d -> e\n" +
+  "LINK e -> f";
+
+// Said again right after the request, where a small model pays the most attention (it forgets rules it read far above).
+const TODO_REMINDER = "\n\n(Answer in the line format. Every step line must end with ' :: ' and a short description.)";
+const BOARD_REMINDER = "\n\n(Answer in the line format. After the NODE lines write the LINK lines (LINK a -> b) so that every node is connected.)";
 
 const ASK_SYSTEM =
   "You answer a question about a selected part of a note inside a note-taking app. " +
@@ -360,7 +384,7 @@ export function buildMessages(req: RunRequest): ChatMessage[] {
     case "create":
       return [
         { role: "system", content: req.shape === "todo" ? CREATE_TODO_SYSTEM : req.shape === "board" ? CREATE_BOARD_SYSTEM : req.titled ? CREATE_NOTE_SYSTEM : CREATE_SYSTEM },
-        { role: "user", content: req.prompt },
+        { role: "user", content: req.prompt + (req.shape === "todo" ? TODO_REMINDER : req.shape === "board" ? BOARD_REMINDER : "") },
       ];
     case "transform": {
       if (req.mode === null) {

@@ -11,6 +11,11 @@
 //   - Book the campsite :: Check times     NODE b: The call to adventure
 //   - Pack the tent                        LINK a -> b
 //
+// A small model does not always follow a format to the letter, so this reads what it can (see the notes on each parser)
+// and fills the gaps it can fill honestly: a board whose boxes the AI forgot to connect gets them joined in the order
+// they were written (ParsedBoard.joined says how many arrows are the app's own). It never invents text: a step the AI
+// gave no description stays without one, and the creator says so.
+//
 // Everything the AI wrote is DATA: it is cut to length, counted and de-duplicated here, and nothing in it is ever run
 // or treated as markup. Plain TypeScript, no Svelte.
 
@@ -33,11 +38,21 @@ export interface ParsedBoard {
   links: { from: string; to: string }[];
   /** Nodes, links or lines that were left out (over a limit, a link to a node that isn't there, a repeat). */
   dropped: number;
+  /** How many of `links` the app added itself because the AI left boxes unconnected (all of them when it wrote none). */
+  joined: number;
 }
 
 /** The answer's lines, trimmed. (A code fence, a lead-in sentence or a closing remark are just lines that match nothing.) */
 function linesOf(raw: string): string[] {
   return raw.split(/\r\n?|\n/).map((l) => l.trim());
+}
+
+/** The answer's lines with how far each is indented (a nested bullet under a step is that step's description). */
+function indentedLines(raw: string): { text: string; indent: number }[] {
+  return raw.split(/\r\n?|\n/).map((l) => {
+    const t = l.replace(/\t/g, "    ");
+    return { text: t.trim(), indent: t.length - t.trimStart().length };
+  });
 }
 
 function cut(s: string, max: number): string {
@@ -102,6 +117,34 @@ function titleOf(line: string): string | null {
 const STEP_MARK = /^(?:[-*•–]|\d{1,3}[.)])\s+(?:\[[ xX]?\]\s*)?(.*)$/;
 const CATEGORY_MARK = /^#{2,3}\s+(.*)$/;
 const CATEGORY_WORD = /^category\s*[:：]\s*(.*)$/i;
+// a line that is only bold text, "**Before you go**" or "**Before you go:**", is a heading
+const CATEGORY_BOLD = /^(?:\*\*|__)([^*_]{1,60}?)\s*[:：]?\s*(?:\*\*|__)\s*[:：]?$/;
+// "Description: ..." on the line after a step
+const DETAIL_LABEL = /^(?:description|details?|notes?|why|how|tip)\s*[:：]\s*(.+)$/i;
+// "**Title**: detail" / "**Title:** detail" / "**Title** - detail" (the separator inside or after the bold)
+const BOLD_STEP = /^(?:\*\*|__)([^*_]+?)\s*([:：–—-]?)\s*(?:\*\*|__)\s*([:：–—-]?)\s*(.+)$/;
+
+/**
+ * A step line's text -> [step, description]. The asked-for form is "Step :: description"; a model also writes "**Step**:
+ * description", "Step - description" (a spaced dash) and "Step: description" (at most 8 words before the colon, and the
+ * colon must be followed by a space, so "10:30" and "http://..." are safe).
+ */
+function splitStep(text: string): [string, string] {
+  if (text.includes("::")) return splitDetail(plainText(text));
+  const b = BOLD_STEP.exec(text);
+  if (b && (b[2] || b[3])) return [plainText(b[1]), plainText(b[4])];
+  const plain = plainText(text);
+  const dash = /^(.{2,}?)\s+[–—-]\s+(.+)$/.exec(plain);
+  if (dash) return [dash[1].trim(), dash[2].trim()];
+  const colon = /^([^:：]+?)\s*[:：]\s+(.+)$/.exec(plain);
+  if (colon && colon[1].trim().split(/\s+/).length <= 8) return [colon[1].trim(), colon[2].trim()];
+  return [plain, ""];
+}
+
+/** "TITLE: x" with the dressing a chat model adds in front of it ("# TITLE:", "**TITLE:** x") taken off. */
+function titleLine(line: string): string | null {
+  return titleOf(line.replace(/^[>#\s]+/, "").replace(/^(?:\*\*|__|\*|`)+/, ""));
+}
 
 /**
  * Reads a todo. Returns null when there is nothing usable (not a single step), so the caller can say so instead of
@@ -131,34 +174,69 @@ export function parseAiTodo(raw: string): ParsedTodo | null {
     return clean;
   };
 
-  for (const line of linesOf(raw)) {
-    const t = titleOf(line);
-    if (t !== null) {
-      if (!title) title = cut(plainText(t), L.title);
+  let last: ParsedTodo["steps"][number] | null = null; // the step the next nested line / "Description:" line belongs to
+  let stepIndent = 0;
+  let afterStep = false; // the previous line was a step (or its description), with no blank line between
+  const addDetail = (step: ParsedTodo["steps"][number], text: string) => {
+    const more = plainText(text);
+    if (more) step.content = cut(step.content ? `${step.content} ${more}` : more, L.detail);
+  };
+
+  for (const { text: line, indent } of indentedLines(raw)) {
+    if (!line) {
+      afterStep = false;
       continue;
     }
-    const c = CATEGORY_MARK.exec(line) ?? CATEGORY_WORD.exec(line);
+    const t = titleLine(line);
+    if (t !== null) {
+      if (!title) title = cut(plainText(t), L.title);
+      afterStep = false;
+      continue;
+    }
+    const c = CATEGORY_MARK.exec(line) ?? CATEGORY_WORD.exec(line) ?? CATEGORY_BOLD.exec(line);
     if (c) {
       current = useCategory(c[1]);
+      last = null;
+      afterStep = false;
       continue;
     }
     const s = STEP_MARK.exec(line);
-    if (!s) continue; // anything else (a preamble, a remark) is ignored
-    const [rawTitle, rawDetail] = splitDetail(plainText(s[1]));
-    const stepTitle = cut(rawTitle, L.step);
-    if (!stepTitle) continue;
-    if (steps.length >= L.steps) {
-      dropped++;
+    const nested = afterStep && last !== null && indent > stepIndent;
+    if (s && !nested) {
+      const [rawTitle, rawDetail] = splitStep(s[1]);
+      const stepTitle = cut(rawTitle, L.step);
+      if (!stepTitle) continue;
+      if (steps.length >= L.steps) {
+        dropped++;
+        last = null;
+        afterStep = false;
+        continue;
+      }
+      // steps before any heading go in the default category; a step under a heading that was over the limit is dropped
+      if (current === null && order.length === 0) current = useCategory(DEFAULT_CATEGORY);
+      const cat = current;
+      if (cat === null) {
+        dropped++;
+        last = null;
+        afterStep = false;
+        continue;
+      }
+      const step = { category: cat, title: stepTitle, content: cut(rawDetail, L.detail) };
+      steps.push(step);
+      last = step;
+      stepIndent = indent;
+      afterStep = true;
       continue;
     }
-    // steps before any heading go in the default category; a step under a heading that was over the limit is dropped
-    if (current === null && order.length === 0) current = useCategory(DEFAULT_CATEGORY);
-    const cat = current;
-    if (cat === null) {
-      dropped++;
-      continue;
+    // a description on the line(s) under a step: a nested bullet, an indented line, or "Description: ..."
+    if (afterStep && last) {
+      const body = s ? s[1] : (DETAIL_LABEL.exec(line)?.[1] ?? (indent > stepIndent ? line : null));
+      if (body !== null) {
+        addDetail(last, body);
+        continue;
+      }
     }
-    steps.push({ category: cat, title: stepTitle, content: cut(rawDetail, L.detail) });
+    afterStep = false; // anything else (a preamble, a remark) is ignored
   }
 
   if (steps.length === 0) return null;
@@ -171,7 +249,10 @@ export function parseAiTodo(raw: string): ParsedTodo | null {
 
 // "NODE a: Label :: detail". Tolerated: a bullet / bold / code mark in front (see bare), "NODE: a - Label", "NODE [a]: Label",
 // "NODE a = Label", "NODE 1. Label". The key is 1-12 letters, digits, _ or -.
-const NODE_RE = /^node\b\s*[:：]?\s*[[(]?([A-Za-z0-9_-]{1,12})[\])]?\s*(?:\*\*|__)?\s*[:：.)=–—-]\s*(.*)$/i;
+const NODE_RE = /^node\b\s*[:：]?\s*[[(]?([A-Za-z0-9_-]{1,12})[\])]?\s*(?:\*\*|__)?\s*[:：.)=–—-](?![:：])\s*(.*)$/i;
+// "NODE: Opening scene :: detail" - a NODE line the AI wrote without a key; the app makes one up (n1, n2, ...) and a link can
+// still name the node by its label.
+const NODE_KEYLESS_RE = /^node\s*[:：]\s*(.+)$/i;
 // "LINK a -> b" (also "LINKS", "EDGE", "CONNECTION"; a colon after the word is fine)
 const LINK_RE = /^(?:link|edge|connect(?:ion)?)s?\b\s*[:：]?\s*(.*)$/i;
 const ARROW = /\s*(?:-+>|=+>|→|➔|⟶|⇒)\s*/;
@@ -214,9 +295,20 @@ export function parseAiBoard(raw: string): ParsedBoard | null {
       continue;
     }
     const n = NODE_RE.exec(core);
-    if (n) {
-      const key = n[1].toLowerCase();
-      const [rawLabel, rawBody] = splitDetail(plainText(n[2]));
+    const keyless = n ? null : NODE_KEYLESS_RE.exec(core);
+    if (n || keyless) {
+      let key: string;
+      let text: string;
+      if (n) {
+        key = n[1].toLowerCase();
+        text = n[2];
+      } else {
+        let at = nodes.length + 1;
+        while (seen.has(`n${at}`)) at++;
+        key = `n${at}`;
+        text = (keyless as RegExpExecArray)[1];
+      }
+      const [rawLabel, rawBody] = splitDetail(plainText(text));
       const label = cut(rawLabel, L.label);
       if (!label) continue;
       if (seen.has(key)) {
@@ -277,38 +369,80 @@ export function parseAiBoard(raw: string): ParsedBoard | null {
 
   const links: ParsedBoard["links"] = [];
   const pairs = new Set<string>();
-  for (const { text, loose } of linkLines) {
-    const cols = places(text, loose);
-    if (!cols) {
-      if (!loose && text.trim()) dropped++; // a LINK line with nothing readable in it
-      continue;
-    }
-    // "a -> b -> c" is two arrows; a chain with a cut-off end ("a ->") just has fewer
-    for (let c = 0; c + 1 < cols.length; c++) {
-      for (const f of cols[c]) {
-        for (const t of cols[c + 1]) {
-          const from = resolve(f);
-          const to = resolve(t);
-          if (from === null || to === null || from === to) {
-            if (!loose) dropped++; // an arrow in ordinary prose is not a link that went wrong
-            continue;
+  for (const { text: lineText, loose } of linkLines) {
+    // "LINK a -> b, a -> c" / "a -> b; b -> c": several whole arrows on one line are read one by one
+    for (const text of linkSegments(lineText)) {
+      const cols = places(text, loose);
+      if (!cols) {
+        if (!loose && text.trim()) dropped++; // a LINK line with nothing readable in it
+        continue;
+      }
+      // "a -> b -> c" is two arrows; a chain with a cut-off end ("a ->") just has fewer
+      for (let c = 0; c + 1 < cols.length; c++) {
+        for (const f of cols[c]) {
+          for (const t of cols[c + 1]) {
+            const from = resolve(f);
+            const to = resolve(t);
+            if (from === null || to === null || from === to) {
+              if (!loose) dropped++; // an arrow in ordinary prose is not a link that went wrong
+              continue;
+            }
+            const id = `${from}>${to}`;
+            if (pairs.has(id)) {
+              dropped++;
+              continue;
+            }
+            if (links.length >= L.links) {
+              dropped++;
+              continue;
+            }
+            pairs.add(id);
+            links.push({ from, to });
           }
-          const id = `${from}>${to}`;
-          if (pairs.has(id)) {
-            dropped++;
-            continue;
-          }
-          if (links.length >= L.links) {
-            dropped++;
-            continue;
-          }
-          pairs.add(id);
-          links.push({ from, to });
         }
       }
     }
   }
-  return { title, nodes, links, dropped };
+  const joined = joinLoose(nodes, links, pairs);
+  return { title, nodes, links, dropped, joined };
+}
+
+/** "a -> b, a -> c" is two links on one line (every part has its own arrow); "a -> b, c" is one arrow to two boxes (see FAN). */
+function linkSegments(text: string): string[] {
+  if (!/[;,]/.test(text)) return [text];
+  const parts = text.split(/\s*[;,]\s*/).map((p) => p.trim()).filter((p) => p.length > 0);
+  return parts.length > 1 && parts.every((p) => ARROW.test(p)) ? parts : [text];
+}
+
+/**
+ * Boxes nobody pointed an arrow at or from are joined to the box written before them (the first one to the box after it),
+ * and a board with no arrows at all becomes one chain in the order it was written: "link every node" is the rule the
+ * AI was given, and a board of loose boxes is worth less than one the AI only half connected. Returns how many arrows were
+ * added (they count towards the same limit as the AI's own).
+ */
+function joinLoose(nodes: { key: string }[], links: { from: string; to: string }[], pairs: Set<string>): number {
+  if (nodes.length < 2) return 0;
+  const touched = new Set<string>();
+  for (const l of links) {
+    touched.add(l.from);
+    touched.add(l.to);
+  }
+  let added = 0;
+  const add = (from: string, to: string) => {
+    const id = `${from}>${to}`;
+    if (links.length >= AI_BOARD_LIMITS.links || pairs.has(id)) return;
+    pairs.add(id);
+    links.push({ from, to });
+    touched.add(from);
+    touched.add(to);
+    added++;
+  };
+  for (let i = 0; i < nodes.length; i++) {
+    if (touched.has(nodes[i].key)) continue;
+    if (i > 0) add(nodes[i - 1].key, nodes[i].key);
+    else add(nodes[0].key, nodes[1].key);
+  }
+  return added;
 }
 
 /**
@@ -369,7 +503,8 @@ function boardFromLabels(raw: string): ParsedBoard | null {
     if (b) nodeFor(b[1]);
   }
   if (nodes.length === 0) return null;
-  return { title, nodes, links, dropped };
+  const joined = joinLoose(nodes, links, pairs);
+  return { title, nodes, links, dropped, joined };
 }
 
 /** A title for a draft that came without one: the start of what was asked for. */

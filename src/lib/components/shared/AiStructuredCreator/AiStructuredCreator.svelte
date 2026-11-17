@@ -5,6 +5,8 @@
   //
   // The server asks the model for a plain line format (workers/midnote-ai/src/prompts.ts) and utils/aiStructured.ts reads it
   // tolerantly, with hard limits. A board's positions are never the AI's: the app lays the nodes out (utils/aiBoardLayout.ts).
+  // When the AI leaves boxes unconnected the reader joins them (ParsedBoard.joined) and the preview says so; when it leaves
+  // most todo steps without a description the preview says that too, and Try again asks once more.
   // Only what you type here is sent, to MidManStudio's AI server, to be answered (it isn't kept there; a backup provider
   // may answer). State is written from handlers only (docs/svelte5-effect-safety.md).
   import { goto } from "$app/navigation";
@@ -38,7 +40,7 @@
     truncated: boolean;
     charged: number | null;
     balance: number | null;
-    /** What the AI wrote, whole: shown when a board came back with no links, so you can see why. */
+    /** What the AI wrote, whole: shown when the app had to join a board's boxes itself, so you can see why. */
     raw: string;
   };
 
@@ -96,18 +98,17 @@
       balance: r.result.balance,
       raw: r.result.text,
     };
-    if (board && board.links.length === 0) {
-      breadcrumb(`ai board creator: no links read, ${board.nodes.length} nodes, ${board.dropped} lines left out, it began: ${answerExcerpt(r.result.text, 6, 300).replace(/\s+/g, " ").slice(0, 200)}`);
+    if (board && board.joined > 0) {
+      breadcrumb(`ai board creator: the app joined ${board.joined} of ${board.links.length} links, ${board.nodes.length} nodes, ${board.dropped} lines left out, it began: ${answerExcerpt(r.result.text, 6, 300).replace(/\s+/g, " ").slice(0, 200)}`);
+    }
+    if (todo && stepsWithoutDetail(todo) * 2 > todo.steps.length) {
+      breadcrumb(`ai todo creator: ${stepsWithoutDetail(todo)} of ${todo.steps.length} steps came without a description, it began: ${answerExcerpt(r.result.text, 6, 300).replace(/\s+/g, " ").slice(0, 200)}`);
     }
   }
 
-  /** The AI gave boxes but no arrows: join them one after the other, in the order it wrote them. Nothing else changes. */
-  function joinInOrder() {
-    if (!draft?.board) return;
-    const nodes = draft.board.nodes;
-    const links = nodes.slice(1).map((n, i) => ({ from: nodes[i].key, to: n.key }));
-    draft = { ...draft, board: { ...draft.board, links } };
-  }
+  const stepsWithoutDetail = (t: ParsedTodo) => t.steps.filter((s) => !s.content).length;
+  /** More than half of the steps have no description: the preview says so (the AI was asked for one on every step). */
+  const mostlyBare = (t: ParsedTodo) => stepsWithoutDetail(t) * 2 > t.steps.length;
 
   function create() {
     if (!draft) return;
@@ -191,6 +192,9 @@
             {/each}
           </div>
           <p class="line">{draft.todo.steps.length} step{draft.todo.steps.length === 1 ? "" : "s"} in {draft.todo.categories.length} categor{draft.todo.categories.length === 1 ? "y" : "ies"}.</p>
+          {#if mostlyBare(draft.todo)}
+            <p class="notice error" role="status">The AI gave most of these steps no description. Try again to get them, or add them yourself in the todo.</p>
+          {/if}
         {:else if draft.board}
           <h4>{draft.board.title}</h4>
           <div class="body">
@@ -210,11 +214,15 @@
             {/if}
           </div>
           <p class="line">{draft.board.nodes.length} node{draft.board.nodes.length === 1 ? "" : "s"}, {draft.board.links.length} link{draft.board.links.length === 1 ? "" : "s"}. The app places them for you; you can move them after.</p>
-          {#if draft.board.links.length === 0 && draft.board.nodes.length >= 2}
-            <p class="notice error" role="status">The AI didn't say how the boxes connect.</p>
-            <div class="actions">
-              <Button variant="outline" onclick={joinInOrder} aria-label="Join the nodes in order">Join them in order</Button>
-            </div>
+          {#if draft.board.joined > 0}
+            <p class="notice error" role="status">
+              {#if draft.board.joined === draft.board.links.length}
+                The AI didn't say how the boxes connect, so the app joined them one after the other, in the order the AI wrote them.
+              {:else}
+                The AI left some boxes unconnected, so the app added {draft.board.joined} arrow{draft.board.joined === 1 ? "" : "s"}: each loose box is joined to the one written before it.
+              {/if}
+              Try again for the AI's own arrows.
+            </p>
             <details class="seen">
               <summary>What the AI wrote</summary>
               <pre aria-label="What the AI wrote">{answerExcerpt(draft.raw, 16, 1200)}</pre>
