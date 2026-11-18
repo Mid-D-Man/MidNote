@@ -133,14 +133,37 @@ export function decodeEntities(s: string): string {
   });
 }
 
-/** The visible text of a word/document.xml: one line per paragraph; tabs and line breaks kept. */
+const CELL_SPACE = '<w:t xml:space="preserve"> </w:t>';
+const CELL_TAB = "<w:tab/>";
+
+/**
+ * A table row becomes ONE paragraph: its cells in a row, a tab between them (a note keeps a tab as spaces, and the Reading
+ * view's Word view draws a run of such lines as a table). The paragraphs inside one cell are joined with a space. A row with a
+ * table inside it is left as it is (one line per paragraph).
+ */
+function flattenTableRows(xml: string): string {
+  return xml.replace(/<w:tr(?:\s[^>]*)?>[\s\S]*?<\/w:tr>/g, (row) => {
+    if (row.includes("<w:tbl")) return row;
+    const cells = row.split("</w:tc>");
+    cells.pop(); // what follows the last cell (</w:tr>)
+    if (cells.length === 0) return row;
+    const cellText = (cell: string): string => {
+      const pieces = cell.split("</w:p>");
+      const lastPiece = pieces.pop() ?? "";
+      return pieces.join(CELL_SPACE) + lastPiece;
+    };
+    return cells.map(cellText).join(CELL_TAB) + "</w:p>";
+  });
+}
+
+/** The visible text of a word/document.xml: one line per paragraph (a table row is one line, tabs between its cells); tabs and line breaks kept. */
 export function documentXmlToText(xml: string): string {
   // Word writes a text box twice (the modern form and a fallback copy for old readers): keep one
   // An empty paragraph can be written self-closing (<w:p/>): turn it into <w:p></w:p> so it still counts as a (blank) line
-  const paragraphs = xml
+  const withParagraphs = xml
     .replace(/<mc:Fallback>[\s\S]*?<\/mc:Fallback>/g, "")
-    .replace(/<w:p(?:\s[^>]*)?\/>/g, "<w:p></w:p>")
-    .split("</w:p>");
+    .replace(/<w:p(?:\s[^>]*)?\/>/g, "<w:p></w:p>");
+  const paragraphs = flattenTableRows(withParagraphs).split("</w:p>");
   const lines: string[] = [];
   // the last piece is whatever follows the final paragraph (section settings): not text
   for (let i = 0; i < paragraphs.length - 1; i++) {

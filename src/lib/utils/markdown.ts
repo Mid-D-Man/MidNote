@@ -42,7 +42,9 @@ export type Block =
   | { t: "quote"; c: Block[] }
   | { t: "list"; ordered: boolean; start: number; items: ListItem[] }
   | { t: "hr" }
-  | { t: "table"; align: Align[]; head: Inline[][]; rows: Inline[][][] };
+  | { t: "table"; align: Align[]; head: Inline[][]; rows: Inline[][][] }
+  /** A framed part of a document: a slide of a presentation or a page of a PDF (utils/readingDocs.ts). `label` may be empty. */
+  | { t: "section"; kind: "slide" | "page"; label: string; c: Block[] };
 
 export interface ParseOptions {
   /** Turn bare https:// addresses into links. */

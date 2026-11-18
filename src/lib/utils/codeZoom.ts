@@ -43,7 +43,7 @@ export function zoomPercent(zoom: number): string {
 export function blocksHaveCode(blocks: Block[]): boolean {
   for (const b of blocks) {
     if (b.t === "code") return true;
-    if (b.t === "quote" && blocksHaveCode(b.c)) return true;
+    if ((b.t === "quote" || b.t === "section") && blocksHaveCode(b.c)) return true;
     if (b.t === "list" && b.items.some((it) => blocksHaveCode(it.c))) return true;
   }
   return false;

@@ -2,21 +2,22 @@
 //
 // A note can hold a story, a Markdown file, a source file opened with "Open with", a JSON export or a CSV sheet. Reading it as
 // Markdown garbles code (a * or _ or # in code is not formatting), so the reading page has a "View as" choice:
-//   markdown, plain text, JSON (pretty-printed and coloured), table (CSV / TSV), or code in one of the languages the
-//   highlighter (utils/codeHighlight.ts) knows.
+//   markdown, plain text, JSON (pretty-printed and coloured), table (CSV / TSV), a document (PowerPoint slides, PDF pages, Word
+//   paragraphs: utils/readingDocs.ts), or code in one of the languages the highlighter (utils/codeHighlight.ts) knows.
 // The first time a note is read the format is guessed: from the file's extension when the note was made by "Open with"
 // (formatFromExtension), else from the text itself (detectFormat, deliberately cautious: it only says "code" when the text
 // is full of unmistakable code lines, never for ordinary writing). Whatever you pick is remembered for that note.
 import { parseMarkdown, type Block, type Inline } from "$lib/utils/markdown";
 import { noteHtmlToMarkdown } from "$lib/utils/noteMarkdown";
 import { normalizeLang } from "$lib/utils/codeHighlight";
+import { docxBlocks, pdfBlocks, pptxBlocks } from "$lib/utils/readingDocs";
 
-export type ReadingFormat = "markdown" | "plain" | "json" | "csv" | `code:${string}`;
+export type ReadingFormat = "markdown" | "plain" | "json" | "csv" | "pptx" | "pdf" | "docx" | `code:${string}`;
 
 export interface FormatOption {
   id: ReadingFormat;
   label: string;
-  group: "Text" | "Data" | "Code";
+  group: "Text" | "Data" | "Documents" | "Code";
 }
 
 /** Languages offered under "Code": the highlighter's own names (see normalizeLang) and what to call them. */
@@ -46,6 +47,9 @@ export const FORMAT_OPTIONS: readonly FormatOption[] = [
   { id: "plain", label: "Plain text", group: "Text" },
   { id: "json", label: "JSON", group: "Data" },
   { id: "csv", label: "Table (CSV)", group: "Data" },
+  { id: "pptx", label: "PowerPoint", group: "Documents" },
+  { id: "pdf", label: "PDF", group: "Documents" },
+  { id: "docx", label: "Word", group: "Documents" },
   ...CODE_LANGS.map(([id, label]): FormatOption => ({ id: `code:${id}`, label, group: "Code" })),
 ];
 
@@ -69,6 +73,9 @@ const EXTENSIONS: Record<string, ReadingFormat> = {
   txt: "plain", text: "plain", log: "plain",
   json: "json", jsonc: "json", json5: "json", geojson: "json",
   csv: "csv", tsv: "csv",
+  pptx: "pptx", ppsx: "pptx",
+  pdf: "pdf",
+  docx: "docx",
   js: "code:js", mjs: "code:js", cjs: "code:js", jsx: "code:js",
   ts: "code:ts", tsx: "code:ts", mts: "code:ts", cts: "code:ts",
   rs: "code:rust",
@@ -192,6 +199,10 @@ export function detectFormat(text: string): ReadingFormat | null {
   const t = text.length > MAX_SNIFF_CHARS ? text.slice(0, MAX_SNIFF_CHARS) : text;
   const trimmed = t.trim();
   if (trimmed === "") return null;
+  // text read out of a presentation / PDF by "Open with" (utils/pptxText.ts, pdfText.ts): "Slide 1" / "Page 1" on a line of its own
+  // first, and for a PDF a "Page 2" later (a single page has no marker, so only the file's extension can say it was a PDF)
+  if (/^Slide 1[ \t]*\n/.test(trimmed)) return "pptx";
+  if (/^Page 1[ \t]*\n/.test(trimmed) && /\nPage 2[ \t]*(\n|$)/.test(trimmed)) return "pdf";
   if (/^(```|~~~)/m.test(trimmed)) return null; // a Markdown document with fenced code in it
   const first = trimmed[0];
   const last = trimmed[trimmed.length - 1];
@@ -337,6 +348,9 @@ export function blocksForFormat(html: string, format: ReadingFormat): Block[] {
     if (truncated) out.push({ t: "para", c: text(`Showing the first ${rows.length} of ${total} rows.`) });
     return out;
   }
+  if (format === "pptx") return pptxBlocks(raw);
+  if (format === "pdf") return pdfBlocks(raw);
+  if (format === "docx") return docxBlocks(raw);
   const lang = codeLangOf(format);
   return [{ t: "code", lang: lang !== null && normalizeLang(lang) === lang ? lang : "", v: raw, numbered: true }];
 }

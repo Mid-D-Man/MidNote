@@ -33,6 +33,11 @@
         {/if}
       {/each}
     </svelte:element>
+  {:else if b.t === "section"}
+    <section class="rv-section {b.kind}">
+      {#if b.label}<p class="rv-section-label">{b.label}</p>{/if}
+      <div class="rv-section-body"><ReadingBlocks blocks={b.c} /></div>
+    </section>
   {:else if b.t === "table"}
     <div class="rv-table-wrap">
       <table class="rv-table">

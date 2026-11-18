@@ -81,7 +81,7 @@
 
 <Sheet bind:open={pickerOpen} side="bottom" title="View as">
   <div class="picker">
-    {#each ["Text", "Data", "Code"] as group}
+    {#each ["Text", "Data", "Documents", "Code"] as group}
       <p class="group">{group}</p>
       <div class="options">
         {#each FORMAT_OPTIONS.filter((o) => o.group === group) as o (o.id)}
@@ -257,6 +257,28 @@
     border-width: 0 2px 2px 0;
     transform: rotate(45deg);
   }
+  /* a slide of a presentation / a page of a PDF: a framed card with a small label on top */
+  .doc :global(.rv-section) {
+    margin: 0 0 1.2em;
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-md);
+    background: var(--surface-raised);
+    overflow: hidden;
+  }
+  .doc :global(.rv-section-label) {
+    margin: 0;
+    padding: 0.4em 0.9em;
+    background: var(--accent-wash);
+    border-bottom: 1px solid var(--hairline);
+    color: var(--text-lo);
+    font-size: 0.75em;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .doc :global(.rv-section-body) { padding: 0.9em 1em 0.3em; }
+  .doc :global(.rv-section-body > :first-child) { margin-top: 0; }
+  .doc :global(.rv-section-body .rv-table-wrap) { background: var(--bg); }
   .doc :global(.rv-table-wrap) {
     overflow-x: auto;
     margin: 0 0 1.1em;

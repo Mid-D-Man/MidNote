@@ -233,7 +233,8 @@ export function createNoteFromOpenFile(): string | null {
   n.content = textToNoteHtml(f.text);
   saveEntry(n);
   // the title drops the file's extension, so remember what the file was: a .rs or .json file is read as code / JSON
-  const asFormat = formatFromExtension(f.name);
+  // (a Word / PowerPoint / PDF file is read as that: by what it was found to be, not by what its name says)
+  const asFormat = f.kind === "docx" || f.kind === "pptx" || f.kind === "pdf" ? f.kind : formatFromExtension(f.name);
   if (asFormat) setReadingFormat(n.id, asFormat);
   breadcrumb(`open with: note created from ${f.kind} file (${f.text.length} chars)`);
   openWith.file = null;
