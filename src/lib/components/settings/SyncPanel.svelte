@@ -36,7 +36,7 @@
   {#if syncStatus.mismatch}
     <div class="notice" role="alert">
       <p class="fine strong">These notes were synced with a different account.</p>
-      <p class="fine">Adding them to this account puts a copy of everything on this phone into it. Nothing is deleted from either side. If you don't want that, leave it and sign back in to the other account.</p>
+      <p class="fine">Adding them puts a copy of everything on this phone into this account. Nothing is deleted.</p>
       <div class="actions">
         <Button variant="default" onclick={() => void adoptThisAccount()} disabled={syncStatus.running} aria-label="Add this phone's notes to this account">Add this phone's notes to this account</Button>
       </div>
@@ -45,10 +45,10 @@
   {#if problem}
     <p class="notice" class:error={syncStatus.outcome === "failed"} role="status">{problem}</p>
   {/if}
-  <SettingsRow label="Sync automatically" desc={syncPrefs.auto ? "On: syncs when the app opens, when you come back to it, and shortly after you edit." : "Off: your notes only sync when you tap the cloud button or Sync now."}>
+  <SettingsRow label="Sync automatically" desc={syncPrefs.auto ? "On: syncs by itself." : "Off: sync when you tap the cloud button or Sync now."}>
     <Switch checked={syncPrefs.auto} aria-label="Sync automatically" onCheckedChange={(v) => setAutoSync(v)} />
   </SettingsRow>
-  <SettingsRow label="Sync my settings" desc={settingsSyncPrefs.on ? "On: your theme, text size, note font, list view, ruled lines, read-aloud speed and tag lists (even tags nothing uses yet) follow you to your other phones. The read-aloud voice and any themes, icons or fonts you imported stay on each phone." : "Off: this phone's settings stay on this phone."}>
+  <SettingsRow label="Sync my settings" desc={settingsSyncPrefs.on ? "On: your settings follow you to your other phones." : "Off: this phone's settings stay on this phone."}>
     <Switch checked={settingsSyncPrefs.on} aria-label="Sync my settings" onCheckedChange={(v) => setSettingsSync(v)} />
   </SettingsRow>
   {#if syncStatus.settingsNote}
@@ -60,12 +60,11 @@
   </div>
   <p class="fine">
     {#if syncStatus.lastSyncAt}
-      Restore brings everything in your account down to this phone again. It sends nothing and deletes nothing here. Only the latest version of each item is kept in the cloud, so it can't go back to an older one.
+      Restore brings everything in your account down to this phone.
     {:else}
-      This phone hasn't synced yet. If your account already has notes in the cloud, Restore brings them here without sending anything up.
+      Not synced yet. Restore brings your cloud notes here.
     {/if}
   </p>
-  <p class="fine">Locked notes are stored locked. Every other note, todo and board is stored on MidManStudio's server as readable text, tied to your account. Themes, icons and fonts stay on this phone.</p>
 </div>
 
 <style>

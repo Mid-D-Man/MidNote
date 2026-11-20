@@ -65,7 +65,7 @@
 
   <div class="ra">
     {#if status === "unsupported"}
-      <p class="note">Read aloud uses your phone's text-to-speech voices, so it works in the Android app.</p>
+      <p class="note">Read aloud works in the Android app.</p>
     {:else}
       <section>
         <h3 class="section-label">Voice</h3>
@@ -134,10 +134,7 @@
         <Button variant="outline" aria-label="Play sample" onclick={() => void previewTtsVoice()}>Play sample</Button>
       </section>
 
-      <p class="note">
-        Voices come from your phone's text-to-speech engine. To add more, install voice data or another text-to-speech app in your phone's
-        Text-to-speech settings and choose it there — new voices appear here. Reading stops when you leave the page.
-      </p>
+      <p class="note">To add voices, install voice data in your phone's Text-to-speech settings.</p>
     {/if}
   </div>
 

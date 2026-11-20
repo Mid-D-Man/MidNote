@@ -142,7 +142,7 @@
 <ConfirmDialog
   bind:open={syncStatus.offerRestore}
   title="Restore your notes?"
-  description="If this account already has notes, todos or boards in the cloud, this brings them to this phone. Nothing here is deleted and nothing is sent up."
+  description="Bring this account's cloud notes to this phone?"
   confirmLabel="Restore"
   onconfirm={() => void restoreFromCloud()}
 />

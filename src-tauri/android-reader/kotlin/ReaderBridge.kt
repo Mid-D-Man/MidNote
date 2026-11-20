@@ -40,6 +40,10 @@ object ReaderHub {
     @Volatile
     private var webView: WeakReference<WebView>? = null
 
+    /** The app's screen, so the page can step back after a "Read aloud" started from another app's text-selection menu. */
+    @Volatile
+    var activity: WeakReference<Activity>? = null
+
     @Volatile
     private var lastState: String = ReaderWire.stateJson(ReaderState(ReaderStatus.IDLE, null, "", 0, 0, null))
 
@@ -156,6 +160,12 @@ class ReaderBridge(private val context: Context) {
         ReaderHub.main.post { ReaderHub.service?.applySettings(voiceId, r, p) }
     }
 
+    /** Go back to the app the person came from (the text-selection "Read aloud" action): the reading carries on in the service. */
+    @JavascriptInterface
+    fun sendToBack() {
+        ReaderHub.main.post { ReaderHub.activity?.get()?.moveTaskToBack(true) }
+    }
+
     /** The last state sent to the page: lets the page catch up after it was paused or reloaded while the service kept reading. */
     @JavascriptInterface
     fun state(): String = ReaderHub.lastStateJson()
@@ -164,6 +174,7 @@ class ReaderBridge(private val context: Context) {
         /** Called from MainActivity.onWebViewCreate. */
         fun install(activity: Activity, webView: WebView) {
             ReaderHub.attach(webView)
+            ReaderHub.activity = WeakReference(activity)
             webView.addJavascriptInterface(ReaderBridge(activity.applicationContext), "MidNoteReader")
         }
     }

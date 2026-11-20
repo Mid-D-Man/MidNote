@@ -23,6 +23,11 @@ export interface AutoLockDeps {
   hasSecrets: () => boolean;
   /** Lock for real (lockFlow.lockNow). */
   lock: () => Promise<unknown>;
+  /**
+   * True while the phone's own security prompt is up (or a moment after): the app looks HIDDEN then, but nobody went away, so that
+   * hide is ignored. Only hide events are checked: leaving right after the prompt still starts the away timer.
+   */
+  isPaused?: (now: number) => boolean;
   /** Timer seam for tests. */
   setTimer: (fn: () => void, ms: number) => unknown;
   clearTimer: (handle: unknown) => void;
@@ -56,6 +61,7 @@ export class AutoLockWatcher {
 
   /** The app went to the background / the screen turned off. */
   onHidden(now: number) {
+    if (this.deps.isPaused?.(now)) return;
     this.cancelAwayTimer();
     this.hiddenAt = now;
     const limit = awayLimitMs(this.deps.getAway());

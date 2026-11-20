@@ -74,10 +74,7 @@
       </section>
     {/if}
 
-    <p class="fine">
-      Counts the text of the note (not its title). A word is anything with a letter or number in it; words joined by a dash are
-      counted separately. Sentences are approximate. Reading time assumes {READING_WPM} words a minute, speaking {SPEAKING_WPM}.
-    </p>
+    <p class="fine">Sentences are approximate. Reading time assumes {READING_WPM} words a minute, speaking {SPEAKING_WPM}.</p>
   </div>
 </Sheet>
 

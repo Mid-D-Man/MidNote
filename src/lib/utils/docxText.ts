@@ -67,7 +67,7 @@ function findEntry(b: Uint8Array, wanted: string): Entry | null {
 
 async function inflateRaw(data: Uint8Array, cap: number): Promise<Uint8Array> {
   const DS = (globalThis as { DecompressionStream?: new (f: string) => { writable: WritableStream; readable: ReadableStream } }).DecompressionStream;
-  if (!DS) throw new DocxError("unsupported", "This phone's browser engine can't unpack Word documents yet. Update Android System WebView and try again.");
+  if (!DS) throw new DocxError("unsupported", "This phone can't open Word files yet. Update Android System WebView and try again.");
   const ds = new DS("deflate-raw");
   const writer = ds.writable.getWriter();
   // write in the background; a failed or stopped stream surfaces through the reader below

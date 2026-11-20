@@ -193,7 +193,7 @@
         <button type="button" class="secondary" aria-label="Resend email" disabled={busy || resent} onclick={resend}>{resent ? "Sent" : "Resend email"}</button>
         <button type="button" class="primary" aria-label="Go to sign in" onclick={() => go("signin")}>Go to sign in</button>
       {:else if mode === "forgot-sent"}
-        <p class="note">If <strong>{email.trim()}</strong> has an account, a reset link is on its way. It opens the MidManStudio accounts page, where you choose a new password.</p>
+        <p class="note">If <strong>{email.trim()}</strong> has an account, a reset link is on its way.</p>
         <button type="button" class="primary" aria-label="Back to sign in" onclick={() => go("signin")}>Back to sign in</button>
       {:else}
         <form onsubmit={submit}>

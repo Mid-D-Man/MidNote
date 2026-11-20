@@ -329,6 +329,7 @@ if (process.env.SMOKE_NATIVE_READER) {
     next: () => calls.push("next"),
     previous: () => calls.push("previous"),
     settings: (v, r, p) => calls.push(`settings:${v}:${r}:${p}`),
+    sendToBack: () => calls.push("sendToBack"),
     state: () => last,
   };
 }
@@ -642,6 +643,21 @@ if (process.env.SMOKE_ONLINE) {
         emit(back);
         if (mode === "dupe") setTimeout(() => emit(back), 20);
       }, 30);
+    },
+  };
+}
+
+// Round AD ("unlock with the phone's own security"): a stand-in for the phone's prompt. SMOKE_PHONE_AUTH = { supported?: boolean
+// (default true), result?: { ok: true } | { ok: false, why } (default ok) }. Every prompt shown is recorded in
+// globalThis.__phoneAuthCalls (the reason line it was shown with).
+if (process.env.SMOKE_PHONE_AUTH) {
+  const spec = JSON.parse(process.env.SMOKE_PHONE_AUTH);
+  const calls = (globalThis.__phoneAuthCalls = []);
+  globalThis.__midnotePhoneAuth = {
+    supported: async () => spec.supported !== false,
+    authenticate: async (reason) => {
+      calls.push(reason);
+      return spec.result ?? { ok: true };
     },
   };
 }

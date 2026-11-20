@@ -66,7 +66,7 @@ function refused(name: string | null, size: number, message: string): OpenFile {
 const WORD_UNREADABLE = "That isn't a Word document that MidNote can read.";
 const PPTX_UNREADABLE = "That isn't a PowerPoint presentation that MidNote can read.";
 const PDF_UNREADABLE = "That isn't a PDF that MidNote can read.";
-const PDF_NO_TEXT = "This PDF has no text MidNote can read. If it is a scan (pictures of pages), it would need text recognition (OCR), which MidNote doesn't have.";
+const PDF_NO_TEXT = "This PDF has no text to read. It may be a scan.";
 const PDF_UNDECODABLE = "The text in this PDF uses a font MidNote can't decode, so nothing readable came out.";
 const PPTX_NOTE = "Text and speaker notes only: pictures, charts and animations are left out.";
 

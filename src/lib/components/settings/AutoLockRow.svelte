@@ -18,7 +18,7 @@
 
 <SettingsRow
   label="Ask for password again"
-  desc="How long you can be away from MidNote before locked notes need the password again. It also asks after 5 minutes without a touch."
+  desc="How long you can be away before locked notes ask for the password again."
 >
   <select class="away" aria-label="Ask for password again" value={autoLockAway.value} onchange={handleChange}>
     {#each AWAY_OPTIONS as option (option.value)}

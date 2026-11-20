@@ -44,14 +44,7 @@ export function friendlyAuthMessage(err: unknown): string {
   }
 }
 
-export function configProblemMessage(problem: ConfigProblem): string {
-  switch (problem) {
-    case "secret-key":
-      return "This build was given a secret key where the public one belongs, so online features are switched off. Replace it with the publishable key.";
-    case "bad-url":
-    case "bad-key":
-      return "This build's online settings look wrong, so online features are switched off.";
-    default:
-      return "This build isn't connected to an account service yet.";
-  }
+// One short line for every problem: the specific reason is written to the debug log (stores/account.svelte.ts), not shown here.
+export function configProblemMessage(_problem: ConfigProblem): string {
+  return "This build isn't set up for online features.";
 }

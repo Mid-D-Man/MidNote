@@ -1,0 +1,14 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "android-biometric",
+  "description": "Undo of the biometric round: the plugin is no longer part of the build, so this file only grants the core permissions (it cannot be deleted by the replacements pipeline).",
+  "windows": [
+    "main"
+  ],
+  "platforms": [
+    "android"
+  ],
+  "permissions": [
+    "core:default"
+  ]
+}

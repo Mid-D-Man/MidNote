@@ -111,7 +111,7 @@
       <AppPasswordRow />
       <AutoLockRow />
     {:else if section.slug === "developer"}
-      <SettingsRow label="Debug panel" desc="Show the on-device error/log panel while using the app.">
+      <SettingsRow label="Debug panel" desc="Show the debug panel.">
         <Switch
           checked={debugPanelVisible.value}
           aria-label="Show debug panel"

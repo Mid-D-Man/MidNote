@@ -70,7 +70,7 @@
         {/if}
       </button>
     {/each}
-    <p class="note">Comments are private and are never included in an export.</p>
+    <p class="note">Comments aren't included.</p>
   </div>
 </Sheet>
 

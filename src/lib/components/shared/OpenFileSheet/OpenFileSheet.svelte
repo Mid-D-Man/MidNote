@@ -68,15 +68,15 @@
         </div>
       {:else if file.kind === "backup"}
         {#if file.part === "key"}
-          <p class="line">This is the key file of a password-protected MidNote backup. Open the backup file (.mdix.enc) with MidNote too, or pick both together in Settings → Backup &amp; restore.</p>
+          <p class="line">This is a backup key file. Open the backup file too, or pick both in Settings → Backup &amp; restore.</p>
           <div class="buttons">
             <Button aria-label="Close" onclick={dismissOpenFile}>Close</Button>
           </div>
         {:else}
           <p class="line">
             {file.part === "encrypted"
-              ? "This is a password-protected MidNote backup. Backup & restore will ask for its key file and password."
-              : "This is a MidNote backup. Backup & restore shows what is in it before anything is restored."}
+              ? "This is a protected MidNote backup. Restore it from Backup & restore."
+              : "This is a MidNote backup. Restore it from Backup & restore."}
           </p>
           <div class="buttons">
             <Button aria-label="Open in Backup and restore" onclick={toBackup}>Open in Backup &amp; restore</Button>
@@ -90,11 +90,6 @@
         </div>
       {/if}
 
-      <p class="fine">
-        {isText
-          ? "MidNote only reads the text of a file. Nothing in it is run, and nothing is saved unless you tap Create note."
-          : "MidNote only reads files. Nothing in them is ever run."}
-      </p>
     {/if}
   </div>
 </Sheet>
@@ -171,11 +166,5 @@
     display: flex;
     flex-wrap: wrap;
     gap: var(--space-2);
-  }
-  .fine {
-    margin: 0;
-    font-size: 12px;
-    line-height: 1.4;
-    color: var(--text-lo);
   }
 </style>

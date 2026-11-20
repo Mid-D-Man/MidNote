@@ -25,7 +25,7 @@ export function friendlyAiMessage(e: AiError, nowMs: number = Date.now()): strin
     case "signed-out":
       return "Sign in to use AI.";
     case "network":
-      return "Can't reach the AI server. Check your connection and try again.";
+      return "Can't reach AI. Check your connection and try again.";
     case "timeout":
       return "The AI took too long. You weren't charged.";
     case "no-credits":
@@ -37,7 +37,7 @@ export function friendlyAiMessage(e: AiError, nowMs: number = Date.now()): strin
     case "rate-limited":
       return "That was a lot of requests. Try again in a minute.";
     case "pool-exhausted":
-      return `AI is resting: today's free capacity is used up. It's back in ${formatWait(e.retryAfter ?? secondsUntilUtcMidnight(nowMs))}.`;
+      return `AI is resting. Back in ${formatWait(e.retryAfter ?? secondsUntilUtcMidnight(nowMs))}.`;
     case "too-long":
       return "That's too long for AI. Try a shorter text.";
     case "disabled":
@@ -50,6 +50,6 @@ export function friendlyAiMessage(e: AiError, nowMs: number = Date.now()): strin
     case "bad-request":
       return "That request wasn't understood.";
     case "server":
-      return "Something went wrong on the AI server.";
+      return "Something went wrong. Try again.";
   }
 }

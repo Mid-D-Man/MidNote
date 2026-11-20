@@ -64,7 +64,7 @@ export function listZip(b: Uint8Array): Map<string, ZipEntry> | null {
 
 async function inflateRaw(data: Uint8Array, cap: number): Promise<Uint8Array> {
   const DS = (globalThis as { DecompressionStream?: new (f: string) => { writable: WritableStream; readable: ReadableStream } }).DecompressionStream;
-  if (!DS) throw new ZipError("unsupported", "This phone's browser engine can't unpack documents yet. Update Android System WebView and try again.");
+  if (!DS) throw new ZipError("unsupported", "This phone can't open these files yet. Update Android System WebView and try again.");
   const ds = new DS("deflate-raw");
   const writer = ds.writable.getWriter();
   void writer.write(data as unknown as BufferSource).then(() => writer.close()).catch(() => {});

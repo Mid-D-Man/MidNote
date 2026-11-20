@@ -38,10 +38,10 @@
 
   const desc = $derived(
     sessionAppPassword.value
-      ? 'Remembered for now — used automatically for anything locked with "Use app password." Forgotten after you\'ve been away for a while, or tap Forget.'
+      ? 'Remembered for now. Tap Forget to ask again.'
       : hasAppLockedEntries
-        ? "Not set this session yet — you'll be asked for it the next time you open something locked with it."
-        : 'Not set yet — set it now, or it\'ll be asked for the first time you lock something with "Use app password."',
+        ? "You'll be asked for it when you open something locked."
+        : 'Not set yet. Set it now, or you\'ll be asked when you first lock something.',
   );
 </script>
 

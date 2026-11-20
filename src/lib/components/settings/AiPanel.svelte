@@ -17,7 +17,6 @@
   import { ai, initAi, refreshAiStatus, runAi } from "$lib/stores/ai.svelte";
   import { AI_LIMITS, type AiRequest } from "$lib/online/aiClient";
   import { formatWait } from "$lib/online/aiMessages";
-  import { configProblemMessage } from "$lib/online/authMessages";
   import { copyText } from "$lib/utils/copyText";
   import { pushToast } from "$lib/stores/toast.svelte";
   import { breadcrumb } from "$lib/debug/log.svelte";
@@ -97,13 +96,10 @@
 <div class="ai">
   {#if !ai.configured}
     <p class="lead">AI isn't set up in this build.</p>
-    <p class="fine">The build needs the address of the AI server: the AI_PROXY_URL secret.</p>
   {:else if !account.configured}
     <p class="lead">Online features aren't set up in this build.</p>
-    {#if account.problem}<p class="fine">{configProblemMessage(account.problem)}</p>{/if}
   {:else if !account.signedIn}
     <p class="lead">Sign in to use AI.</p>
-    <p class="fine">Your AI credits belong to your MidManStudio account. Everything else in MidNote keeps working without one.</p>
     <div class="actions">
       <Button variant="default" onclick={openSignIn} aria-label="Sign in to use AI">Sign in</Button>
     </div>
@@ -122,7 +118,7 @@
         {#if !ai.status.enabled}
           <p class="state off">AI is switched off right now.</p>
         {:else if !ai.status.poolOpen}
-          <p class="state off">AI is resting: today's free capacity is used up. It's back in {formatWait(ai.status.resetsIn)}.</p>
+          <p class="state off">AI is resting. Back in {formatWait(ai.status.resetsIn)}.</p>
         {:else}
           <p class="state on">AI is available.</p>
         {/if}
@@ -182,9 +178,7 @@
         <section class="answer" aria-label="AI answer">
           <p class="line">The AI's answer. Nothing is saved or changed.</p>
           <div class="answer-text">{answer.text}</div>
-          <p class="line">
-            {#if answer.charged !== null}Used {fmt(answer.charged)} credit{answer.charged === 1 ? "" : "s"}{#if answer.balance !== null}{" · "}{fmt(answer.balance)} left{/if}{:else}Credits for this answer are still being settled.{/if}
-          </p>
+          {#if answer.charged !== null}<p class="line">Used {fmt(answer.charged)} credit{answer.charged === 1 ? "" : "s"}{#if answer.balance !== null}{" · "}{fmt(answer.balance)} left{/if}</p>{/if}
           <div class="actions">
             <Button variant="default" onclick={copyAnswer} aria-label="Copy AI answer">Copy</Button>
             <Button variant="ghost" onclick={clearAnswer} aria-label="Clear AI answer">Clear</Button>
@@ -192,8 +186,7 @@
         </section>
       {/if}
     </section>
-    <p class="fine">Only the text you type here is sent, to MidManStudio's AI server, which doesn't keep it. It is answered by Cloudflare or, if Cloudflare is out of free capacity, by a backup provider (Groq or Mistral) under its own privacy terms.</p>
-    <p class="fine">In a note, select some text and tap the sparkle button to edit it with AI. The AI reads the rest of the page to understand it, and you approve its answer before anything changes.</p>
+    <p class="fine">Select text in a note and tap the sparkle button to edit it with AI.</p>
   {/if}
 </div>
 

@@ -99,7 +99,7 @@
     </div>
 
     <div class="section-label">Your uploads</div>
-    <p class="upload-hint">Any photo works — it's center-cropped to a square and shrunk to a small badge before saving.</p>
+    <p class="upload-hint">Any photo works. It's cropped to a square.</p>
     <div class="swatch-grid">
       {#each customIcons as ci (ci.id)}
         <div class="custom-swatch-wrap">

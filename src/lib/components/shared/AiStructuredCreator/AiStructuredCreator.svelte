@@ -17,7 +17,6 @@
   import AuthDialog, { type AuthMode } from "$lib/components/layout/AuthDialog/AuthDialog.svelte";
   import { account } from "$lib/stores/account.svelte";
   import { ai, initAi, runAi } from "$lib/stores/ai.svelte";
-  import { configProblemMessage } from "$lib/online/authMessages";
   import { parseAiTodo, parseAiBoard, fallbackTitle, answerExcerpt, type ParsedTodo, type ParsedBoard } from "$lib/utils/aiStructured";
   import { pushToast } from "$lib/stores/toast.svelte";
   import { breadcrumb } from "$lib/debug/log.svelte";
@@ -151,9 +150,9 @@
   {#if !ai.configured}
     <p class="fine">AI isn't set up in this build.</p>
   {:else if !account.configured}
-    <p class="fine">Online features aren't set up in this build.{#if account.problem} {configProblemMessage(account.problem)}{/if}</p>
+    <p class="fine">Online features aren't set up in this build.</p>
   {:else if !account.signedIn}
-    <p class="fine">Sign in to have AI write a {noun} for you. Your AI credits belong to your MidManStudio account.</p>
+    <p class="fine">Sign in to have AI write a {noun} for you.</p>
     <Button onclick={() => ((dialogMode = "signin"), (dialogOpen = true))} class="generate-btn" aria-label="Sign in to use AI">Sign in</Button>
   {:else}
     <div onkeydown={onKeydown} role="presentation">
@@ -164,7 +163,6 @@
       {#if loading}<Spinner />{/if}
       {loading ? "Generating..." : `Generate ${noun === "todo" ? "Todo" : "Board"}`}
     </Button>
-    <p class="fine">Your description is sent to MidManStudio's AI server, which doesn't keep it, and is answered by Cloudflare or, if Cloudflare is out of free capacity, by a backup provider (Groq or Mistral) under its own privacy terms. You see the {noun} before anything is created.</p>
 
     {#if notice}
       <p class="notice error" role="alert">{notice}</p>
@@ -193,7 +191,7 @@
           </div>
           <p class="line">{draft.todo.steps.length} step{draft.todo.steps.length === 1 ? "" : "s"} in {draft.todo.categories.length} categor{draft.todo.categories.length === 1 ? "y" : "ies"}.</p>
           {#if mostlyBare(draft.todo)}
-            <p class="notice error" role="status">The AI gave most of these steps no description. Try again to get them, or add them yourself in the todo.</p>
+            <p class="notice error" role="status">Most steps came without a description. Try again, or add them yourself.</p>
           {/if}
         {:else if draft.board}
           <h4>{draft.board.title}</h4>
@@ -213,31 +211,18 @@
               </ul>
             {/if}
           </div>
-          <p class="line">{draft.board.nodes.length} node{draft.board.nodes.length === 1 ? "" : "s"}, {draft.board.links.length} link{draft.board.links.length === 1 ? "" : "s"}. The app places them for you; you can move them after.</p>
+          <p class="line">{draft.board.nodes.length} node{draft.board.nodes.length === 1 ? "" : "s"}, {draft.board.links.length} link{draft.board.links.length === 1 ? "" : "s"}. You can move them after.</p>
           {#if draft.board.joined > 0}
-            <p class="notice error" role="status">
-              {#if draft.board.joined === draft.board.links.length}
-                The AI didn't say how the boxes connect, so the app joined them one after the other, in the order the AI wrote them.
-              {:else}
-                The AI left some boxes unconnected, so the app added {draft.board.joined} arrow{draft.board.joined === 1 ? "" : "s"}: each loose box is joined to the one written before it.
-              {/if}
-              Try again for the AI's own arrows.
-            </p>
-            <details class="seen">
-              <summary>What the AI wrote</summary>
-              <pre aria-label="What the AI wrote">{answerExcerpt(draft.raw, 16, 1200)}</pre>
-            </details>
+            <p class="notice error" role="status">Boxes the AI left unconnected were joined in order. Try again for different arrows.</p>
           {/if}
         {/if}
         {#if (draft.todo?.dropped ?? draft.board?.dropped ?? 0) > 0}
-          <p class="line">Some of the AI's lines were left out because there were too many or they didn't fit.</p>
+          <p class="line">Some lines were left out.</p>
         {/if}
         {#if draft.truncated}
-          <p class="notice error" role="alert">The AI ran out of room, so the end of this {noun} is probably missing.</p>
+          <p class="notice error" role="alert">The end of this {noun} may be cut off.</p>
         {/if}
-        <p class="line">
-          {#if draft.charged !== null}Used {fmt(draft.charged)} credit{draft.charged === 1 ? "" : "s"}{#if draft.balance !== null}{" · "}{fmt(draft.balance)} left{/if}{:else}Credits for this answer are still being settled.{/if}
-        </p>
+        {#if draft.charged !== null}<p class="line">Used {fmt(draft.charged)} credit{draft.charged === 1 ? "" : "s"}{#if draft.balance !== null}{" · "}{fmt(draft.balance)} left{/if}</p>{/if}
         <div class="actions">
           <Button onclick={create} aria-label={`Create AI ${noun}`}>Create {noun}</Button>
           <Button variant="outline" onclick={() => void generate(lastPrompt)} disabled={loading} aria-label="Generate again">Try again</Button>

@@ -6,8 +6,7 @@
   // reopen the sheet and it is still here), and gone when you leave the note. Nothing is saved anywhere.
   //
   // An answer can be COPIED or ADDED to the page you are on (at its end, as real bullets/bold: one undo step). Nothing
-  // in the note changes unless you tap Add. The first time, one notice says that the note text goes to the AI server
-  // (the same acknowledgement as the selection sheet: utils/aiNotice.ts). State is written from handlers only
+  // in the note changes unless you tap Add. State is written from handlers only
   // (docs/svelte5-effect-safety.md): there is no $effect here.
   import Sheet from "$lib/components/ui/Sheet/Sheet.svelte";
   import Button from "$lib/components/ui/Button/Button.svelte";
@@ -15,8 +14,6 @@
   import { account } from "$lib/stores/account.svelte";
   import { ai, initAi, runAi } from "$lib/stores/ai.svelte";
   import { AI_LIMITS } from "$lib/online/aiClient";
-  import { configProblemMessage } from "$lib/online/authMessages";
-  import { aiNoticeSeen, markAiNoticeSeen } from "$lib/utils/aiNotice";
   import { clampNoteText, lastChatTurns } from "$lib/utils/aiNoteHtml";
   import { entryToPlainText } from "$lib/utils/selectionActions";
   import { copyText } from "$lib/utils/copyText";
@@ -48,7 +45,6 @@
   let busy = $state(false);
   let notice = $state<string | null>(null);
   let credits = $state<{ charged: number | null; balance: number | null } | null>(null);
-  let noticeSeen = $state(aiNoticeSeen());
   let dialogOpen = $state(false);
   let dialogMode = $state<AuthMode>("signin");
   let nextId = 0;
@@ -57,14 +53,9 @@
 
   const fmt = (n: number) => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   const ready = $derived(ai.configured && account.configured && account.signedIn);
-  const canSend = $derived(ready && noticeSeen && !busy);
+  const canSend = $derived(ready && !busy);
   // a failed question stays in the list; Try again re-asks it without adding it twice
   const canRetry = $derived(!busy && notice !== null && messages.length > 0 && messages[messages.length - 1].role === "user");
-
-  function ackNotice() {
-    markAiNoticeSeen();
-    noticeSeen = true;
-  }
 
   async function ask(text: string) {
     const q = text.trim();
@@ -139,30 +130,18 @@
 
     {#if !ai.configured}
       <p class="lead">AI isn't set up in this build.</p>
-      <p class="fine">The build needs the address of the AI server: the AI_PROXY_URL secret.</p>
     {:else if !account.configured}
       <p class="lead">Online features aren't set up in this build.</p>
-      {#if account.problem}<p class="fine">{configProblemMessage(account.problem)}</p>{/if}
     {:else if !account.signedIn}
       <p class="lead">Sign in to use AI.</p>
-      <p class="fine">Your AI credits belong to your MidManStudio account. Everything else in MidNote keeps working without one.</p>
       <div class="actions">
         <Button variant="default" onclick={openSignIn} aria-label="Sign in to use AI">Sign in</Button>
       </div>
     {:else}
-      {#if !noticeSeen}
-        <section class="card" aria-label="About sending your note">
-          <h3>Before you use AI</h3>
-          <p class="fine">To answer, the AI is sent this whole note (all its pages) with your question. It goes to MidManStudio's AI server, which doesn't keep it, and is answered by Cloudflare or, if Cloudflare is out of free capacity, by a backup provider (Groq or Mistral) under its own privacy terms. Nothing changes in your note until you tap Add to page.</p>
-          <div class="actions">
-            <Button variant="default" onclick={ackNotice} aria-label="Understood, use AI">Got it</Button>
-          </div>
-        </section>
-      {/if}
 
       <div class="log" aria-live="polite">
         {#if messages.length === 0}
-          <p class="empty">Ask for a summary, the key points, a rewrite or ideas. The AI reads this whole note.</p>
+          <p class="empty">Ask for a summary, key points, a rewrite or ideas.</p>
           <div class="chips" role="group" aria-label="Suggestions">
             {#each SUGGESTIONS as s (s)}
               <button type="button" class="chip" disabled={!canSend} aria-label={`Chat: ${s}`} onclick={() => void ask(s)}>{s}</button>
@@ -175,7 +154,7 @@
             {:else}
               <div class="bubble assistant" aria-label="AI answer">
                 <div class="answer-text">{m.text}</div>
-                {#if m.truncated}<p class="cut">The AI ran out of room, so this answer is probably cut off.</p>{/if}
+                {#if m.truncated}<p class="cut">The answer may be cut off.</p>{/if}
                 <div class="row">
                   {#if onInsert}
                     <button type="button" class="mini" aria-label="Add answer to page" onclick={() => addToPage(m.text)}>Add to page</button>
@@ -197,7 +176,7 @@
       {/if}
       {#if credits && !busy}
         <p class="line">
-          {#if credits.charged !== null}Used {fmt(credits.charged)} credit{credits.charged === 1 ? "" : "s"}{#if credits.balance !== null}{" · "}{fmt(credits.balance)} left{/if}{:else}Credits for this answer are still being settled.{/if}
+          {#if credits.charged !== null}Used {fmt(credits.charged)} credit{credits.charged === 1 ? "" : "s"}{#if credits.balance !== null}{" · "}{fmt(credits.balance)} left{/if}{/if}
           {#if messages.length > 0}<button type="button" class="mini" aria-label="Start a new chat" onclick={newChat}>New chat</button>{/if}
         </p>
       {/if}
@@ -248,7 +227,6 @@
     font-size: 15px;
     color: var(--text-hi);
   }
-  .fine,
   .line {
     margin: 0;
     font-size: 13px;
@@ -265,21 +243,6 @@
     display: flex;
     flex-wrap: wrap;
     gap: var(--space-2);
-  }
-  .card {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-    padding: var(--space-3);
-    background: var(--surface-raised);
-    border: 1px solid var(--hairline);
-    border-radius: var(--radius-md);
-  }
-  h3 {
-    margin: 0;
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--text-hi);
   }
   .log {
     flex: 1;

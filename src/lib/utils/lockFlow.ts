@@ -47,7 +47,16 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import type { Entry, LockKeyMode } from "$lib/types/entry";
 import { askLockChoice, askPassword } from "$lib/stores/lockPrompt.svelte";
-import { sessionAppPassword, setSessionAppPassword, forgetSessionAppPassword } from "$lib/stores/lockSession.svelte";
+import {
+  sessionAppPassword,
+  setSessionAppPassword,
+  forgetSessionAppPassword,
+  gateSessionAppPassword,
+  releaseHeldAppPassword,
+  heldAppPassword,
+  phoneUnlock,
+} from "$lib/stores/lockSession.svelte";
+import { confirmItsYou } from "$lib/utils/phoneAuth";
 import { pushToast } from "$lib/stores/toast.svelte";
 import { breadcrumb } from "$lib/debug/log.svelte";
 import { entries, saveEntry } from "$lib/stores/entries.svelte";
@@ -215,13 +224,26 @@ async function passwordOpens(entry: Entry, password: string): Promise<boolean> {
  * after a restart could quietly become a different "app password", and half the
  * app-locked items would then never open with the other half's.) Null = cancelled.
  */
-async function appPasswordForLock(): Promise<string | null> {
+/**
+ * The app password when it can be had without typing: it is remembered, or (phone unlock on) it is held behind the phone's own
+ * security, which is asked now. A cancelled or failed prompt just means "type it": null.
+ */
+async function rememberedAppPassword(): Promise<string | null> {
   if (sessionAppPassword.value) return sessionAppPassword.value;
+  if (!phoneUnlock.on || !heldAppPassword.present) return null;
+  const r = await confirmItsYou("Unlock your locked notes");
+  if (!r.ok) return null;
+  return releaseHeldAppPassword() ?? sessionAppPassword.value;
+}
+
+async function appPasswordForLock(): Promise<string | null> {
+  const remembered = await rememberedAppPassword();
+  if (remembered) return remembered;
   const probe = findAppLockedEntry();
   if (!probe) {
     return askPassword(
       "Set your app password",
-      "Used for every note/todo you lock with \u201cUse app password.\u201d You\u2019ll be asked for it again after you\u2019ve been away from the app for a while.",
+      "Used for everything you lock with \u201cUse app password.\u201d",
       true,
     );
   }
@@ -229,7 +251,7 @@ async function appPasswordForLock(): Promise<string | null> {
   while (true) {
     const p = await askPassword(
       "Enter your app password",
-      "Other items are already locked with it, and a new one has to use the same password. Forgot it? Cancel and pick \u201cSet custom password\u201d instead.",
+      "Other items already use this password. Forgot it? Cancel and pick \u201cSet custom password\u201d.",
       false,
       error,
     );
@@ -337,7 +359,7 @@ export async function unlockEntry(entry: Entry): Promise<boolean> {
   }
   if (!entry.encrypted || !entry.lockedPayload || !entry.lockedKeyFile) return false;
 
-  let password = entry.lockKeyMode === "app" ? sessionAppPassword.value : null;
+  let password = entry.lockKeyMode === "app" ? await rememberedAppPassword() : null;
   let error: string | null = null;
 
   while (true) {
@@ -391,7 +413,7 @@ export async function unlockForSession(entry: Entry): Promise<{ password: string
   if (!entry.encrypted || !entry.lockedPayload || !entry.lockedKeyFile) return null;
 
   const mode = entry.lockKeyMode as LockKeyMode;
-  let password = mode === "app" ? sessionAppPassword.value : null;
+  let password = mode === "app" ? await rememberedAppPassword() : null;
   let error: string | null = null;
 
   while (true) {
@@ -476,10 +498,14 @@ export async function relockAllOpen(): Promise<number> {
  * its lock. What auto-lock (utils/autoLock.ts) and Settings -> Privacy & security
  * call. The password is forgotten at once, before any slow re-lock; calls that
  * overlap share one re-lock run.
+ *
+ * `gate: true` (auto-lock): with phone unlock ON the password is not forgotten but GATED, so the next unlock asks the phone
+ * ("is this you?") instead of asking for the password. Without phone unlock it is forgotten as before. Settings' Forget never gates.
  */
 let lockNowRun: Promise<number> | null = null;
-export function lockNow(): Promise<number> {
-  forgetSessionAppPassword();
+export function lockNow(options?: { gate?: boolean }): Promise<number> {
+  if (options?.gate) gateSessionAppPassword();
+  else forgetSessionAppPassword();
   if (!lockNowRun) lockNowRun = relockAllOpen().finally(() => (lockNowRun = null));
   return lockNowRun;
 }

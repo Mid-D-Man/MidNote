@@ -112,7 +112,7 @@
 
     {#if allowCustom}
       <div class="section-label">Your uploads</div>
-      <p class="upload-hint">Any photo works — it's resized to 720px on the long edge before saving. Landscape/wide shots fit a card background best; very tall portrait photos will get cropped.</p>
+      <p class="upload-hint">Any photo works. Wide photos fit best.</p>
       <div class="swatch-grid">
         {#each customThemes as ct (ct.id)}
           <div class="custom-swatch-wrap">
@@ -143,7 +143,7 @@
         <input bind:this={fileInput} type="file" accept="image/*" class="file-input" onchange={handleFileChange} />
       </div>
     {:else}
-      <p class="upload-hint">Photo backgrounds aren't available for the writing area yet — coming in a later update. Solid colors only for now.</p>
+      <p class="upload-hint">Photo backgrounds aren't available here yet.</p>
     {/if}
   </div>
 </Sheet>

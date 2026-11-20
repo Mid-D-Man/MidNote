@@ -20,8 +20,6 @@
   import { ai, initAi, runAi } from "$lib/stores/ai.svelte";
   import { AI_LIMITS, type AiEditMode } from "$lib/online/aiClient";
   import { ASK_CHIPS, EDIT_CHIPS, LONG_SELECTION_CHARS, planInsertBelow, planReplace, type AiSelection } from "$lib/utils/aiSelection";
-  import { configProblemMessage } from "$lib/online/authMessages";
-  import { aiNoticeSeen, markAiNoticeSeen } from "$lib/utils/aiNotice";
   import { copyText } from "$lib/utils/copyText";
   import { getKeyboardInset } from "$lib/utils/keyboardInset.svelte";
   import { pushToast } from "$lib/stores/toast.svelte";
@@ -45,7 +43,6 @@
   let busy = $state(false);
   let notice = $state<string | null>(null);
   let result = $state<Result | null>(null);
-  let noticeSeen = $state(aiNoticeSeen());
   let dialogOpen = $state(false);
   let dialogMode = $state<AuthMode>("signin");
   let resultEl = $state<HTMLElement | null>(null);
@@ -58,14 +55,9 @@
   const tooLong = $derived(selection.text.length > AI_LIMITS.text);
   const longEdit = $derived(mode === "edit" && selection.text.length > LONG_SELECTION_CHARS && !tooLong);
   const ready = $derived(ai.configured && account.configured && account.signedIn);
-  const canSend = $derived(ready && noticeSeen && !busy && !tooLong);
+  const canSend = $derived(ready && !busy && !tooLong);
   const chips = $derived(mode === "edit" ? EDIT_CHIPS : ASK_CHIPS);
   const preview = $derived(selection.text.length > 240 ? `${selection.text.slice(0, 240)}…` : selection.text);
-
-  function ackNotice() {
-    markAiNoticeSeen();
-    noticeSeen = true;
-  }
 
   function setMode(m: "edit" | "ask") {
     if (busy) return;
@@ -176,37 +168,23 @@
   <div class="ai" style="padding-bottom: {getKeyboardInset()}px">
     {#if !ai.configured}
       <p class="lead">AI isn't set up in this build.</p>
-      <p class="fine">The build needs the address of the AI server: the AI_PROXY_URL secret.</p>
     {:else if !account.configured}
       <p class="lead">Online features aren't set up in this build.</p>
-      {#if account.problem}<p class="fine">{configProblemMessage(account.problem)}</p>{/if}
     {:else if !account.signedIn}
       <p class="lead">Sign in to use AI.</p>
-      <p class="fine">Your AI credits belong to your MidManStudio account. Everything else in MidNote keeps working without one.</p>
       <div class="actions">
         <Button variant="default" onclick={openSignIn} aria-label="Sign in to use AI">Sign in</Button>
       </div>
     {:else}
-      {#if !noticeSeen}
-        <section class="card" aria-label="About sending your note">
-          <h3>Before you use AI</h3>
-          <p class="fine">To understand what you selected, the AI is sent the selection and the rest of this page of the note. It goes to MidManStudio's AI server, which doesn't keep it, and is answered by Cloudflare or, if Cloudflare is out of free capacity, by a backup provider (Groq or Mistral) under its own privacy terms. Nothing changes in your note until you tap Replace or Insert.</p>
-          <div class="actions">
-            <Button variant="default" onclick={ackNotice} aria-label="Understood, use AI">Got it</Button>
-          </div>
-        </section>
-      {/if}
 
       {#if result}
         <section class="answer" aria-label="AI result" bind:this={resultEl}>
           <p class="line">{result.mode === "edit" ? "The AI's rewrite. Your note hasn't changed yet." : result.mode === "continue" ? "The AI's continuation. Your note hasn't changed yet." : "The AI's answer. Your note hasn't changed yet."}</p>
           <div class="answer-text">{result.text}</div>
           {#if result.truncated}
-            <p class="notice error" role="alert">The AI ran out of room, so this answer is probably cut off.{result.mode === "edit" ? " Replace is off so no text is lost. Try a shorter selection." : ""}</p>
+            <p class="notice error" role="alert">The answer may be cut off.{result.mode === "edit" ? " Replace is off. Try a shorter selection." : ""}</p>
           {/if}
-          <p class="line">
-            {#if result.charged !== null}Used {fmt(result.charged)} credit{result.charged === 1 ? "" : "s"}{#if result.balance !== null}{" · "}{fmt(result.balance)} left{/if}{:else}Credits for this answer are still being settled.{/if}
-          </p>
+          {#if result.charged !== null}<p class="line">Used {fmt(result.charged)} credit{result.charged === 1 ? "" : "s"}{#if result.balance !== null}{" · "}{fmt(result.balance)} left{/if}</p>{/if}
           <div class="actions">
             {#if result.mode === "edit"}
               <Button variant="default" onclick={replace} disabled={result.truncated} aria-label="Replace selection with AI result">Replace selection</Button>
@@ -228,7 +206,7 @@
       {#if tooLong}
         <p class="notice error" role="alert">That selection is too long for AI (the limit is {fmt(AI_LIMITS.text)} characters). Select less text.</p>
       {:else if longEdit}
-        <p class="fine">This is a long selection. The AI can write back about 3,000 characters; if its answer is cut off, Replace stays off.</p>
+        <p class="fine">Long selection: the answer may be cut off.</p>
       {/if}
 
       <div class="modes" role="group" aria-label="What the AI should do">
@@ -296,21 +274,6 @@
     display: flex;
     flex-wrap: wrap;
     gap: var(--space-2);
-  }
-  .card {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-    padding: var(--space-3);
-    background: var(--surface-raised);
-    border: 1px solid var(--hairline);
-    border-radius: var(--radius-md);
-  }
-  h3 {
-    margin: 0;
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--text-hi);
   }
   .selected {
     display: flex;

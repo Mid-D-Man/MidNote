@@ -90,7 +90,7 @@
   <div class="fonts">
     <section>
       <h3 class="section-label">Default note font</h3>
-      <p class="section-desc">Used for the text in every note. A font picked for part of a note in the editor toolbar still wins there.</p>
+      <p class="section-desc">Used for the text in every note.</p>
       <div class="option-list" role="group" aria-label="Default note font">
         {#each options as o (o.key)}
           <button
@@ -110,12 +110,10 @@
 
     <section>
       <h3 class="section-label">Your fonts</h3>
-      <p class="section-desc">
-        Import .ttf, .otf, .woff or .woff2 files. Fonts stay on this device — notes you send or export keep their text, not the font.
-      </p>
+      <p class="section-desc">Import .ttf, .otf, .woff or .woff2 fonts.</p>
 
       {#if fontStore.ready && fontStore.storage === "session"}
-        <p class="notice error">Storage isn't available here, so imported fonts last only until the app closes.</p>
+        <p class="notice error">Imported fonts won't be kept after the app closes.</p>
       {/if}
 
       {#if customFonts.length === 0}

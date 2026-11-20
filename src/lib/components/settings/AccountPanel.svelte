@@ -13,7 +13,7 @@
   import Button from "$lib/components/ui/Button/Button.svelte";
   import AuthDialog, { type AuthMode } from "$lib/components/layout/AuthDialog/AuthDialog.svelte";
   import { account, openPortal, setPassword, signOutNow } from "$lib/stores/account.svelte";
-  import { configProblemMessage, friendlyAuthMessage } from "$lib/online/authMessages";
+  import { friendlyAuthMessage } from "$lib/online/authMessages";
   import { checkPassword } from "$lib/online/passwordRules";
   import { pushToast } from "$lib/stores/toast.svelte";
   import { breadcrumb } from "$lib/debug/log.svelte";
@@ -83,7 +83,7 @@
 <div class="account">
   {#if !account.configured}
     <p class="lead">Online features aren't available in this build.</p>
-    <p class="fine">{configProblemMessage(account.problem ?? "missing")} MidNote works fully without an account.</p>
+    <p class="fine">MidNote works fully without an account.</p>
   {:else if account.signedIn}
     <SettingsRow label="Signed in" desc={account.email ?? ""} />
     <SettingsRow
@@ -138,10 +138,10 @@
     <div class="actions">
       <Button variant="outline" onclick={signOut} disabled={busy !== null} aria-label="Sign out">{busy === "signout" ? "Signing out…" : "Sign out"}</Button>
     </div>
-    <p class="fine">Signing out only ends the session on this phone. Your notes, todos and boards stay here.</p>
+    <p class="fine">Your notes stay on this phone.</p>
   {:else}
     <p class="lead">You're not signed in.</p>
-    <p class="fine">MidNote keeps everything on this phone. An account is only needed for the online parts: sync between devices and AI. It's your MidManStudio account, the same one the studio's other apps use.</p>
+    <p class="fine">An account is only needed for sync and AI.</p>
     <div class="actions">
       <Button variant="default" onclick={() => openDialog("signin")} aria-label="Sign in">Sign in</Button>
       {#if account.emailFlows}

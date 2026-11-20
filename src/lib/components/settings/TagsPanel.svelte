@@ -120,7 +120,7 @@
 
   <section aria-label="Your tags">
     <h3>Your tags</h3>
-    <p class="fine">Tags you made in one list. Removing a tag only takes it off the list. Items that already have it keep it.</p>
+    <p class="fine">Removing a tag only takes it off the list. Items keep it.</p>
     {#each SCOPES as s (s.scope)}
       {@const own = listFor(s.scope).filter((t) => !isSystemTag(t, s.scope) && !isSharedTag(t))}
       <h4>{s.label}</h4>

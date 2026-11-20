@@ -123,7 +123,7 @@
 <Sheet bind:open side="bottom" title="Reminder">
   <div class="reminder">
     {#if !supported}
-      <p class="info">Reminders are sent as Android notifications, so they only work in the installed Android app — not in this preview.</p>
+      <p class="info">Reminders only work in the Android app.</p>
     {:else}
       {#if dueAt}
         <div class="current" role="status">

@@ -24,7 +24,7 @@ type DS = new (f: string) => { writable: WritableStream; readable: ReadableStrea
  */
 export async function inflateZlib(data: Uint8Array, cap: number = MAX_STREAM_BYTES): Promise<Uint8Array> {
   const Ctor = (globalThis as { DecompressionStream?: DS }).DecompressionStream;
-  if (!Ctor) throw new PdfError("unsupported", "This phone's browser engine can't unpack PDF files yet. Update Android System WebView and try again.");
+  if (!Ctor) throw new PdfError("unsupported", "This phone can't open PDF files yet. Update Android System WebView and try again.");
   const ds = new Ctor("deflate");
   const writer = ds.writable.getWriter();
   void writer.write(data as unknown as BufferSource).then(() => writer.close()).catch(() => {});

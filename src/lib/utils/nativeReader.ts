@@ -55,6 +55,23 @@ export function nativeReaderBridge(): NativeReaderBridge | null {
   return candidate as NativeReaderBridge;
 }
 
+/**
+ * Go back to the app the person came from (used after a "Read aloud" from another app's selection menu: the reading carries
+ * on in the background). False when this build can't (a browser, an older Android build): the app just stays on screen.
+ */
+export function sendAppToBack(): boolean {
+  const candidate = (globalThis.__midnoteNativeReader ?? (typeof window !== "undefined" ? window.MidNoteReader : undefined)) as
+    | { sendToBack?: unknown }
+    | undefined;
+  if (!candidate || typeof candidate.sendToBack !== "function") return false;
+  try {
+    (candidate.sendToBack as () => void)();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export type NativeStateEvent = { status: ReadStatus; id: string | null; index: number; count: number; message: string | null };
 
 const STATUSES: readonly string[] = ["idle", "starting", "reading", "paused", "done"];

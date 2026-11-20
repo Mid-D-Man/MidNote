@@ -225,7 +225,7 @@ export class AiClient {
       });
     } catch (e) {
       if ((e as { name?: string } | null)?.name === "AbortError") throw new AiError("timeout", "The AI took too long");
-      throw new AiError("network", "Can't reach the AI server");
+      throw new AiError("network", "Can't reach AI");
     }
   }
 
@@ -240,7 +240,7 @@ export class AiClient {
     try {
       text = await res.text();
     } catch {
-      throw new AiError("network", "Can't reach the AI server");
+      throw new AiError("network", "Can't reach AI");
     }
     return { status: res.status, json: parseJson(text) };
   }

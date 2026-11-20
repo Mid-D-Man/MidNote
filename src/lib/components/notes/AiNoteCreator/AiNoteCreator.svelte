@@ -12,7 +12,6 @@
   import { account } from "$lib/stores/account.svelte";
   import { ai, initAi, runAi } from "$lib/stores/ai.svelte";
   import { AI_LIMITS } from "$lib/online/aiClient";
-  import { configProblemMessage } from "$lib/online/authMessages";
   import { aiTextToHtml, splitTitledNote } from "$lib/utils/aiNoteHtml";
   import { pushToast } from "$lib/stores/toast.svelte";
   import { breadcrumb } from "$lib/debug/log.svelte";
@@ -101,9 +100,9 @@
   {#if !ai.configured}
     <p class="fine">AI isn't set up in this build.</p>
   {:else if !account.configured}
-    <p class="fine">Online features aren't set up in this build.{#if account.problem} {configProblemMessage(account.problem)}{/if}</p>
+    <p class="fine">Online features aren't set up in this build.</p>
   {:else if !account.signedIn}
-    <p class="fine">Sign in to have AI write a note for you. Your AI credits belong to your MidManStudio account.</p>
+    <p class="fine">Sign in to have AI write a note for you.</p>
     <Button onclick={() => ((dialogMode = "signin"), (dialogOpen = true))} class="generate-btn" aria-label="Sign in to use AI">Sign in</Button>
   {:else}
     <div onkeydown={onKeydown} role="presentation">
@@ -114,7 +113,6 @@
       {#if loading}<Spinner />{/if}
       {loading ? "Generating..." : "Generate Note"}
     </Button>
-    <p class="fine">Your description is sent to MidManStudio's AI server, which doesn't keep it, and is answered by Cloudflare or, if Cloudflare is out of free capacity, by a backup provider (Groq or Mistral) under its own privacy terms. You see the note before anything is created.</p>
 
     {#if notice}
       <p class="notice error" role="alert">{notice}</p>
@@ -126,11 +124,9 @@
         <h4>{draft.title}</h4>
         <div class="body">{draft.body}</div>
         {#if draft.truncated}
-          <p class="notice error" role="alert">The AI ran out of room, so the end of this note is probably missing.</p>
+          <p class="notice error" role="alert">The end of this note may be cut off.</p>
         {/if}
-        <p class="line">
-          {#if draft.charged !== null}Used {fmt(draft.charged)} credit{draft.charged === 1 ? "" : "s"}{#if draft.balance !== null}{" · "}{fmt(draft.balance)} left{/if}{:else}Credits for this answer are still being settled.{/if}
-        </p>
+        {#if draft.charged !== null}<p class="line">Used {fmt(draft.charged)} credit{draft.charged === 1 ? "" : "s"}{#if draft.balance !== null}{" · "}{fmt(draft.balance)} left{/if}</p>{/if}
         <div class="actions">
           <Button onclick={create} aria-label="Create AI note">Create note</Button>
           <Button variant="outline" onclick={() => void generate(lastPrompt)} disabled={loading} aria-label="Generate again">Try again</Button>

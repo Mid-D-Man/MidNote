@@ -161,7 +161,7 @@ export async function toggleReadAloud(entry: Entry): Promise<void> {
     return;
   }
   if (!readAloudSupported()) {
-    pushToast({ title: "Read aloud works in the Android app", description: "It uses your phone's text-to-speech voices.", variant: "destructive" });
+    pushToast({ title: "Read aloud works in the Android app", variant: "destructive" });
     return;
   }
   const text = entryToSpeechText(entry);
@@ -178,7 +178,7 @@ export async function toggleReadAloud(entry: Entry): Promise<void> {
  */
 export async function readSelectionAloud(entryId: string, rawSelection: string): Promise<void> {
   if (!readAloudSupported()) {
-    pushToast({ title: "Read aloud works in the Android app", description: "It uses your phone's text-to-speech voices.", variant: "destructive" });
+    pushToast({ title: "Read aloud works in the Android app", variant: "destructive" });
     return;
   }
   const text = speechClean(rawSelection);

@@ -391,12 +391,12 @@
     value={busy === "backup" ? "Saving…" : ""}
     chevron={busy !== "backup"}
   />
-  <SettingsRow label="Protect with a password" desc="Saves an encrypted .mdix.enc backup plus its .mdix.key key file. Keep both, and remember the password.">
+  <SettingsRow label="Protect with a password" desc="Saves a protected backup and a key file. Keep both.">
     <Switch bind:checked={protect} aria-label="Protect backup with a password" />
   </SettingsRow>
   <SettingsRow
     label="Restore from a backup"
-    desc="Merges a backup into this phone. Nothing is deleted. For an encrypted backup, pick its .mdix.enc and .mdix.key files together."
+    desc="Adds a backup to this phone. For a protected backup, pick both of its files."
     aria-label="Restore from a backup"
     onclick={() => fileInput?.click()}
     value={busy === "reading" ? "Reading…" : ""}
@@ -405,7 +405,7 @@
   <input bind:this={fileInput} type="file" multiple class="file-input" aria-label="Backup file" onchange={handlePicked} />
   <input bind:this={keyInput} type="file" class="file-input" aria-label="Key file" onchange={handleKeyPicked} />
 
-  <p class="warn">A plain .mdix backup isn't encrypted: anyone who has it can read your unlocked notes. Turn on "Protect with a password" for an encrypted copy. Locked notes stay locked inside either kind. Keep backups somewhere private.</p>
+  <p class="warn">Turn on "Protect with a password" to keep the backup private.</p>
 
   {#if notice}
     <p class="notice" class:error={notice.kind === "error"} role="alert">{notice.text}</p>
@@ -414,7 +414,7 @@
   {#if waiting}
     <section class="card" aria-label="Key file needed">
       <h2>Key file needed</h2>
-      <p class="line">This backup is encrypted. Pick the key file that was saved with it (it ends in .mdix.key).</p>
+      <p class="line">This backup is protected. Pick its key file (.mdix.key).</p>
       <div class="actions">
         <Button variant="default" onclick={() => keyInput?.click()} disabled={busy !== null} aria-label="Pick key file">Pick key file</Button>
         <Button variant="ghost" onclick={() => (waiting = null)} aria-label="Cancel key file">Cancel</Button>
@@ -449,7 +449,7 @@
             · {mediaToAdd} theme/icon/font{mediaToAdd === 1 ? "" : "s"} to add
           {/if}
         </p>
-        <p class="line">Where both copies exist, the newer one is kept. Nothing on this phone is deleted.</p>
+        <p class="line">The newer copy is kept. Nothing is deleted.</p>
       {/if}
       {#if pending.plan.invalidEntries > 0}
         <p class="line">{pending.plan.invalidEntries} item{pending.plan.invalidEntries === 1 ? "" : "s"} in the file can't be read and will be skipped.</p>
