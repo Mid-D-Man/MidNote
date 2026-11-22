@@ -13,7 +13,7 @@
   // "change": changing it while entries already use it would silently make them
   // unopenable with the new value.
   import SettingsRow from "./SettingsRow.svelte";
-  import { sessionAppPassword, setSessionAppPassword } from "$lib/stores/lockSession.svelte";
+  import { sessionAppPassword, setSessionAppPassword, heldAppPassword } from "$lib/stores/lockSession.svelte";
   import { askPassword } from "$lib/stores/lockPrompt.svelte";
   import { entries } from "$lib/stores/entries.svelte";
   import { breadcrumb } from "$lib/debug/log.svelte";
@@ -25,7 +25,7 @@
     breadcrumb("settings: set app password tapped");
     const p = await askPassword(
       "Set your app password",
-      "Used for every note/todo you lock with \u201cUse app password.\u201d You\u2019ll be asked for it again after you\u2019ve been away from the app for a while.",
+      "Used for everything you lock with \u201cUse app password.\u201d",
       true,
     );
     if (p) setSessionAppPassword(p);
@@ -39,14 +39,16 @@
   const desc = $derived(
     sessionAppPassword.value
       ? 'Remembered for now. Tap Forget to ask again.'
-      : hasAppLockedEntries
+      : heldAppPassword.present
+        ? 'Remembered. Your phone confirms it\'s you to use it.'
+        : hasAppLockedEntries
         ? "You'll be asked for it when you open something locked."
         : 'Not set yet. Set it now, or you\'ll be asked when you first lock something.',
   );
 </script>
 
 <SettingsRow label="App password" {desc}>
-  {#if sessionAppPassword.value}
+  {#if sessionAppPassword.value || heldAppPassword.present}
     <button type="button" class="text-action" onclick={handleForgetAppPassword}>Forget</button>
   {:else if !hasAppLockedEntries}
     <button type="button" class="text-action" onclick={handleSetAppPassword}>Set</button>

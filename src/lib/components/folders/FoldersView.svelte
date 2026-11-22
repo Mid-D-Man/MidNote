@@ -11,8 +11,9 @@
   import FolderEditSheet from "./FolderEditSheet.svelte";
   import LockBadge from "$lib/components/shared/LockBadge/LockBadge.svelte";
   import { entries, removeEntry } from "$lib/stores/entries.svelte";
-  import { folderState, folderNav, createFolderIn, deleteFolder, requestMove, FOLDER_NAME_MAX } from "$lib/stores/folders.svelte";
-  import { breadcrumbOf, childrenOf, countContents, effectiveTags, MAX_FOLDER_DEPTH } from "$lib/utils/folders";
+  import { folderState, folderNav, createFolderIn, deleteFolder, requestMove, renameFolder, FOLDER_NAME_MAX } from "$lib/stores/folders.svelte";
+  import { breadcrumbOf, childrenOf, countContents, effectiveTags, folderPathLabel, MAX_FOLDER_DEPTH } from "$lib/utils/folders";
+  import { searchFolderView, normalizeQuery } from "$lib/utils/folderSearch";
   import { createLongPressHandlers } from "$lib/utils/longPress";
   import { pushToast } from "$lib/stores/toast.svelte";
   import { breadcrumb as logCrumb } from "$lib/debug/log.svelte";
@@ -23,6 +24,12 @@
   const depthHere = $derived(current ? view.depth.get(current)! : 0);
   const canAddFolder = $derived(depthHere < MAX_FOLDER_DEPTH);
   const currentTags = $derived(current ? effectiveTags(view, current) : null);
+
+  // ---- search: across every folder and item (not only the open folder), by name or tag
+  let query = $state("");
+  const searching = $derived(normalizeQuery(query) !== "");
+  const found = $derived(searchFolderView(view, query, (id) => Date.parse(entryOf(id)?.lastModified ?? "") || 0));
+  const hasAnything = $derived(view.byId.size > 0);
 
   const folderIds = $derived(
     childrenOf(view, current)
@@ -76,6 +83,7 @@
   // Moving to another folder leaves the selection behind it.
   $effect(() => {
     void current; // a different folder: the selection no longer matches what's on screen
+    void normalizeQuery(query); // and so does a different search
     exitSelect();
   });
 
@@ -83,6 +91,7 @@
     const e = view.byId.get(id)!;
     if (e.type === "folder") {
       logCrumb(`folders: open ${id}`);
+      query = ""; // going into a folder from a search result ends the search
       folderNav.open(id);
     } else {
       goto(e.type === "todo" ? `/todo/${id}` : e.type === "board" ? `/board/${id}` : `/note/${id}`);
@@ -154,6 +163,36 @@
   }
 
   let editOpen = $state(false);
+
+  // ---- renaming a folder (the pencil on its row, or Rename in the selection bar)
+  let renameOpen = $state(false);
+  let renameId = $state<string | null>(null);
+  let renameName = $state("");
+  let renameError = $state("");
+  const onlySelectedFolder = $derived.by(() => {
+    if (selectedIds.size !== 1) return null;
+    const id = [...selectedIds][0];
+    return view.folders.has(id) ? id : null;
+  });
+  function startRename(id: string) {
+    const f = view.folders.get(id);
+    if (!f) return;
+    exitSelect();
+    renameId = id;
+    renameName = f.title;
+    renameError = "";
+    renameOpen = true;
+  }
+  function commitRename() {
+    if (renameId === null) return;
+    const r = renameFolder(renameId, renameName);
+    if (!r.ok) {
+      renameError = r.message;
+      return;
+    }
+    logCrumb("folders: renamed");
+    renameOpen = false;
+  }
 </script>
 
 <div class="folders">
@@ -184,6 +223,50 @@
     </div>
   {/if}
 
+  {#if hasAnything}
+    <div class="search">
+      <input class="search-input" type="search" aria-label="Search folders" placeholder="Search folders and items" autocomplete="off" bind:value={query} />
+      {#if query !== ""}<button type="button" class="clear" aria-label="Clear search" onclick={() => (query = "")}>✕</button>{/if}
+    </div>
+  {/if}
+
+  {#if searching}
+    {#if found.results.length === 0}
+      <div class="empty"><p>Nothing found for “{query.trim()}”.</p></div>
+    {:else}
+      <p class="result-count" role="status">{found.total} result{found.total === 1 ? "" : "s"}{found.total > found.results.length ? `, showing the first ${found.results.length}` : ""}</p>
+      <ul class="list" aria-label="Search results">
+        {#each found.results as r (r.id)}
+          {@const e = entryOf(r.id)}
+          {@const where = folderPathLabel(view, r.id)}
+          {#if e}
+            <li class="item">
+              {#if r.isFolder}
+                <div class="row folder" class:selected={selectedIds.has(r.id)} role="button" tabindex="0" aria-label={`Folder ${e.title || "Untitled folder"}`} {...handlersFor(r.id)} onclick={() => handleClick(r.id)} onkeydown={(ev) => ev.key === "Enter" && activate(r.id)}>
+                  <span class="glyph"><FolderGlyph size={22} /></span>
+                  <div class="info">
+                    <span class="title">{e.title || "Untitled folder"}</span>
+                    <span class="sub">{where || "All folders"}</span>
+                  </div>
+                  {#if selectMode}<span class="check" class:on={selectedIds.has(r.id)} aria-hidden="true">{selectedIds.has(r.id) ? "✓" : ""}</span>{/if}
+                </div>
+                {#if !selectMode}<button type="button" class="pencil" aria-label={`Rename folder ${e.title || "Untitled folder"}`} onclick={() => startRename(r.id)}>✎</button>{/if}
+              {:else}
+                <div class="row" class:selected={selectedIds.has(r.id)} role="button" tabindex="0" aria-label={`${typeLabel(e.type)} ${e.title || "Untitled"}`} {...handlersFor(r.id)} onclick={() => handleClick(r.id)} onkeydown={(ev) => ev.key === "Enter" && activate(r.id)}>
+                  <span class="kind">{typeLabel(e.type)}</span>
+                  <div class="info">
+                    <span class="title">{e.title || "Untitled"} {#if e.encrypted}<LockBadge />{/if}</span>
+                    <span class="sub">{where || "Not in a folder"}</span>
+                  </div>
+                  {#if selectMode}<span class="check" class:on={selectedIds.has(r.id)} aria-hidden="true">{selectedIds.has(r.id) ? "✓" : ""}</span>{/if}
+                </div>
+              {/if}
+            </li>
+          {/if}
+        {/each}
+      </ul>
+    {/if}
+  {:else}
   {#if folderIds.length === 0 && itemIds.length === 0}
     <div class="empty">
       <p>{current ? "This folder is empty." : "No folders yet."}</p>
@@ -194,7 +277,7 @@
       {#each folderIds as id (id)}
         {@const f = view.folders.get(id)!}
         {@const t = effectiveTags(view, id)}
-        <li>
+        <li class="item">
           <div class="row folder" class:selected={selectedIds.has(id)} role="button" tabindex="0" aria-label={`Folder ${f.title || "Untitled folder"}`} {...handlersFor(id)} onclick={() => handleClick(id)} onkeydown={(e) => e.key === "Enter" && activate(id)}>
             <span class="glyph"><FolderGlyph size={22} /></span>
             <div class="info">
@@ -209,6 +292,7 @@
             </div>
             {#if selectMode}<span class="check" class:on={selectedIds.has(id)} aria-hidden="true">{selectedIds.has(id) ? "✓" : ""}</span>{/if}
           </div>
+          {#if !selectMode}<button type="button" class="pencil" aria-label={`Rename folder ${f.title || "Untitled folder"}`} onclick={() => startRename(id)}>✎</button>{/if}
         </li>
       {/each}
       {#each itemIds as id (id)}
@@ -232,12 +316,16 @@
       {/each}
     </ul>
   {/if}
+  {/if}
 </div>
 
 {#if selectMode}
   <div class="bar">
     <button class="cancel" onclick={exitSelect} aria-label="Cancel selection">✕</button>
     <span class="count">{selectedIds.size} selected</span>
+    {#if onlySelectedFolder}
+      <Button variant="outline" size="sm" onclick={() => startRename(onlySelectedFolder)} aria-label="Rename folder">Rename</Button>
+    {/if}
     <Button variant="outline" size="sm" onclick={() => requestMove([...selectedIds], exitSelect)} aria-label="Move to folder">Move</Button>
     <Button variant="outline" size="sm" disabled={selectionHasLocked} onclick={() => (confirmDelete = true)} aria-label="Delete" title={selectionHasLocked ? "Unlock or deselect the locked item to delete" : "Delete selected"}>Delete</Button>
   </div>
@@ -261,6 +349,14 @@
     <input class="input" type="text" aria-label="New folder name" placeholder="Folder name" maxlength={FOLDER_NAME_MAX} bind:value={newName} onkeydown={(e) => e.key === "Enter" && createHere()} />
     {#if nameError}<p class="error" role="alert">{nameError}</p>{/if}
     <Button onclick={createHere} aria-label="Create folder">Create folder</Button>
+  </div>
+</Sheet>
+
+<Sheet bind:open={renameOpen} side="bottom" title="Rename folder">
+  <div class="menu">
+    <input class="input" type="text" aria-label="New name for the folder" placeholder="Folder name" maxlength={FOLDER_NAME_MAX} bind:value={renameName} onkeydown={(e) => e.key === "Enter" && commitRename()} />
+    {#if renameError}<p class="error" role="alert">{renameError}</p>{/if}
+    <Button onclick={commitRename} aria-label="Save folder name">Save</Button>
   </div>
 </Sheet>
 
@@ -331,6 +427,65 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-2);
+  }
+  .item {
+    position: relative;
+  }
+  /* a folder row leaves room for its pencil, which sits beside the row (not inside it: the row has its own tap and long-press) */
+  .item .row.folder {
+    padding-right: 52px;
+  }
+  .pencil {
+    position: absolute;
+    right: var(--space-2);
+    top: 50%;
+    transform: translateY(-50%);
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    border-radius: 50%;
+    color: var(--text-faint);
+    font-size: 17px;
+    cursor: pointer;
+  }
+  .pencil:hover {
+    background: var(--surface);
+    color: var(--text-hi);
+  }
+  .search {
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+  .search-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: var(--space-2) 40px var(--space-2) var(--space-3);
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: 999px;
+    color: var(--text-hi);
+    font-size: 14px;
+  }
+  .clear {
+    position: absolute;
+    right: var(--space-2);
+    width: 28px;
+    height: 28px;
+    background: transparent;
+    border: none;
+    border-radius: 50%;
+    color: var(--text-faint);
+    cursor: pointer;
+  }
+  .result-count {
+    margin: 0;
+    font-size: 12px;
+    color: var(--text-faint);
   }
   .row {
     position: relative;

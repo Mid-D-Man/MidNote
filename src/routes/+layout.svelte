@@ -24,6 +24,7 @@
   import { syncReadAloud } from "$lib/stores/readAloud.svelte";
   import { startAutoLock } from "$lib/utils/autoLock";
   import { lockNow, hasLockedSecrets } from "$lib/utils/lockFlow";
+  import { phoneAuthPaused } from "$lib/utils/phoneAuth";
   import { autoLockAway } from "$lib/stores/lockSession.svelte";
   import type { Snippet } from "svelte";
 
@@ -71,7 +72,8 @@
     const stopAutoLock = startAutoLock({
       getAway: () => autoLockAway.value,
       hasSecrets: hasLockedSecrets,
-      lock: lockNow,
+      lock: () => lockNow({ gate: true }),
+      isPaused: phoneAuthPaused,
       setTimer: (fn, ms) => setTimeout(fn, ms),
       clearTimer: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
     });

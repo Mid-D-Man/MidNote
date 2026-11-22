@@ -44,6 +44,20 @@ export function createFolderIn(parentId: string | null, rawName: string): Create
   return { ok: true, folder };
 }
 
+export type RenameFolderResult = { ok: true; changed: boolean } | { ok: false; message: string };
+
+/** Give a folder a new name (the same rules as naming a new one). Nothing changes when the name is the same. */
+export function renameFolder(folderId: string, rawName: string): RenameFolderResult {
+  const folder = entries.find((e): e is Folder => e.type === "folder" && e.id === folderId);
+  if (!folder || folder.deletedAt) return { ok: false, message: refusalText("not-a-folder") };
+  const name = rawName.trim();
+  if (!name) return { ok: false, message: "Give the folder a name" };
+  if (name.length > FOLDER_NAME_MAX) return { ok: false, message: `Keep the name under ${FOLDER_NAME_MAX} characters` };
+  if (name === folder.title) return { ok: true, changed: false };
+  saveEntry({ ...folder, title: name });
+  return { ok: true, changed: true };
+}
+
 /** File these entries into a folder (null = top level). Nothing moves unless every one can. */
 export function moveEntriesTo(ids: readonly string[], targetId: string | null): MoveCheck {
   const check = canMove(view, ids, targetId);

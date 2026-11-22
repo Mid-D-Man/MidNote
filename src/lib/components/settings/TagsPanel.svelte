@@ -7,7 +7,10 @@
   // filtered out of "Your tags" here by name. State is read-only derived; the one write is a click handler.
   import { entries } from "$lib/stores/entries.svelte";
   import { noteTags, todoTags, boardTags, unregisterTag, registerSharedTag, unregisterSharedTag, isSharedTag } from "$lib/stores/tags.svelte";
+  import Sheet from "$lib/components/ui/Sheet/Sheet.svelte";
   import { cleanTagName, MAX_TAG_LENGTH } from "$lib/utils/tagNames";
+  import { planRename } from "$lib/utils/tagRename";
+  import { allTagNames, renameTagEverywhere } from "$lib/stores/tagRename.svelte";
   import { SYSTEM_TAGS, isSystemTag } from "$lib/utils/systemTags";
   import { pushToast } from "$lib/stores/toast.svelte";
   import { breadcrumb } from "$lib/debug/log.svelte";
@@ -51,6 +54,29 @@
     breadcrumb("settings: shared tag removed from all lists");
     unregisterSharedTag(tag);
     pushToast({ title: "Tag removed from all lists", description: `Items that already have "${tag}" keep it.` });
+  }
+
+  // ---- renaming: one sheet for every row. A tag is renamed everywhere it is (the lists and every item); a name that already
+  // exists merges the two.
+  let renameOpen = $state(false);
+  let renameFrom = $state("");
+  let renameValue = $state("");
+  const plan = $derived(renameOpen ? planRename(renameFrom, renameValue, allTagNames()) : null);
+  const canSave = $derived(plan !== null && plan.ok && !plan.same);
+
+  function startRename(tag: string) {
+    if (isSystemTag(tag)) return;
+    renameFrom = tag;
+    renameValue = tag;
+    renameOpen = true;
+  }
+  function commitRename() {
+    const chosen = plan; // taken before anything changes: the plan is worked out from the tags as they are NOW
+    if (!chosen || !chosen.ok || chosen.same) return;
+    const items = renameTagEverywhere(renameFrom, chosen.name);
+    breadcrumb(`settings: tag renamed${chosen.merge ? " (merged)" : ""}, ${items} item(s)`);
+    pushToast({ title: chosen.merge ? `Merged into "${chosen.name}"` : `Renamed to "${chosen.name}"`, description: items > 0 ? usage(items) : undefined });
+    renameOpen = false;
   }
 
   function remove(scope: TagScope, tag: string) {
@@ -111,7 +137,10 @@
               <span class="chip">{tag}</span>
               <span class="meta">Notes, Todos, Boards · {usage(uses(tag))}</span>
             </div>
-            <button type="button" class="remove" aria-label={`Remove shared tag ${tag}`} onclick={() => removeShared(tag)}>Remove</button>
+            <div class="actions">
+              <button type="button" class="rename" aria-label={`Rename tag ${tag}`} onclick={() => startRename(tag)}>Rename</button>
+              <button type="button" class="remove" aria-label={`Remove shared tag ${tag}`} onclick={() => removeShared(tag)}>Remove</button>
+            </div>
           </li>
         {/each}
       </ul>
@@ -134,7 +163,10 @@
                 <span class="chip">{tag}</span>
                 <span class="meta">{usage(uses(tag, s.type))}</span>
               </div>
-              <button type="button" class="remove" aria-label={`Remove tag ${tag} from ${s.label}`} onclick={() => remove(s.scope, tag)}>Remove</button>
+              <div class="actions">
+                <button type="button" class="rename" aria-label={`Rename tag ${tag}`} onclick={() => startRename(tag)}>Rename</button>
+                <button type="button" class="remove" aria-label={`Remove tag ${tag} from ${s.label}`} onclick={() => remove(s.scope, tag)}>Remove</button>
+              </div>
             </li>
           {/each}
         </ul>
@@ -142,6 +174,32 @@
     {/each}
   </section>
 </div>
+
+<Sheet bind:open={renameOpen} side="bottom" title="Rename tag">
+  <div class="rename-box">
+    <input
+      type="text"
+      class="add-input"
+      aria-label="New tag name"
+      maxlength={MAX_TAG_LENGTH}
+      bind:value={renameValue}
+      onkeydown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          commitRename();
+        }
+      }}
+    />
+    {#if plan && !plan.ok}
+      <p class="fine" role="alert">{plan.message}</p>
+    {:else if plan && plan.ok && plan.merge}
+      <p class="fine" role="status">A tag called "{plan.name}" already exists. The two will be merged.</p>
+    {:else}
+      <p class="fine">It changes on every note, todo, board and folder.</p>
+    {/if}
+    <button type="button" class="add-btn" aria-label="Save tag name" disabled={!canSave} onclick={commitRename}>Save</button>
+  </div>
+</Sheet>
 
 <style>
   .tags {
@@ -265,6 +323,27 @@
   .add-btn:disabled {
     opacity: 0.5;
     cursor: default;
+  }
+  .actions {
+    display: flex;
+    gap: var(--space-2);
+    flex-shrink: 0;
+  }
+  .rename-box {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+  .rename {
+    flex-shrink: 0;
+    min-height: 32px;
+    padding: 0 var(--space-3);
+    font-size: 13px;
+    color: var(--text-hi);
+    background: transparent;
+    border: 1px solid var(--hairline);
+    border-radius: 999px;
+    cursor: pointer;
   }
   .remove {
     flex-shrink: 0;

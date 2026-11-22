@@ -21,6 +21,9 @@ import { formatFromExtension } from "$lib/utils/readingFormat";
 import { setReadingFormat } from "$lib/stores/readingView.svelte";
 import { MAX_NOTE_CHARS, MAX_READ_BYTES, classifyIncoming, clampForNote, isContentUrl, nameFromUrl, textToNoteHtml, titleFor } from "$lib/utils/openWith";
 import type { PickedFile } from "$lib/utils/backupFiles";
+import { parseTextLink, rememberTextLink, isTextLink, type TextLink } from "$lib/utils/textLinks";
+import { readAloud, readSelectionAloud } from "$lib/stores/readAloud.svelte";
+import { sendAppToBack } from "$lib/utils/nativeReader";
 
 export interface OpenFile {
   name: string | null;
@@ -39,6 +42,8 @@ export interface OpenFile {
   message: string;
   /** backup: the bytes to hand to Backup & restore. */
   bytes: Uint8Array | null;
+  /** "selection": text picked in another app's selection menu (not a file). */
+  source?: "selection";
 }
 
 export const openWith = $state({
@@ -164,6 +169,34 @@ export async function openIncoming(url: string): Promise<void> {
 }
 
 /**
+ * Text picked in another app's selection menu (midnote://text/..., utils/textLinks.ts). "note": the text waits in the same sheet a
+ * file does, and a note is only made when the person taps Create note. "read": it is read aloud, and the app steps back so the
+ * person is where they were while it carries on. A link already acted on (Android hands links over again) is ignored.
+ */
+async function handleTextLink(url: string): Promise<void> {
+  const link: TextLink | null = parseTextLink(url);
+  if (!link) {
+    breadcrumb("text link: ignored (not usable)");
+    return;
+  }
+  if (!rememberTextLink(link.id)) return;
+  breadcrumb(`text link: ${link.mode} (${link.text.length} chars${link.cut ? ", cut" : ""})`);
+  if (link.mode === "note") {
+    openWith.file = {
+      ...blank(null, new TextEncoder().encode(link.text).length),
+      kind: "text",
+      text: link.text,
+      chars: link.text.length,
+      cut: link.cut,
+      source: "selection",
+    };
+    return;
+  }
+  await readSelectionAloud("selection", link.text);
+  if (readAloud.status === "reading" || readAloud.status === "starting") sendAppToBack();
+}
+
+/**
  * Starts listening: for files opened while the app runs, and for the file that started the app. Safe to call twice.
  *
  * The home-screen widget's buttons arrive through the same door as links (midnote://new/note | todo | board, see
@@ -182,9 +215,14 @@ export async function startOpenWith(onWidget?: (path: string) => void | Promise<
     await backend.onUrl((url) => {
       const path = widgetPath(url);
       if (path) openWidget(url, path);
+      else if (isTextLink(url)) void handleTextLink(url);
       else void openIncoming(url);
     });
     for (const url of await backend.getCurrent()) {
+      if (isTextLink(url)) {
+        await handleTextLink(url);
+        continue;
+      }
       const path = widgetPath(url);
       if (path) {
         // The plugin keeps the app's launch link for as long as the app runs: remember that this session already acted

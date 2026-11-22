@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/mobile-schema.json",
   "identifier": "android-biometric",
-  "description": "Undo of the biometric round: the plugin is no longer part of the build, so this file only grants the core permissions (it cannot be deleted by the replacements pipeline).",
+  "description": "Unlock with the phone's own security (fingerprint, face, PIN / pattern / password). Android only: the plugin is a mobile-only dependency, so a desktop build has no \"biometric\" permissions to validate against, and tauri-build skips a capability whose platforms don't include the build target.",
   "windows": [
     "main"
   ],
@@ -9,6 +9,6 @@
     "android"
   ],
   "permissions": [
-    "core:default"
+    "biometric:default"
   ]
 }

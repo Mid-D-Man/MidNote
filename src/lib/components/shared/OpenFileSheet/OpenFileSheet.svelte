@@ -16,7 +16,7 @@
   const nf = new Intl.NumberFormat();
   const file = $derived(openWith.file);
   const isText = $derived(file !== null && (file.kind === "text" || file.kind === "docx" || file.kind === "pptx" || file.kind === "pdf"));
-  const kindLabel = $derived(file === null ? "" : file.kind === "docx" ? "Word document" : file.kind === "pptx" ? "PowerPoint presentation" : file.kind === "pdf" ? "PDF document" : "Text file");
+  const kindLabel = $derived(file === null ? "" : file.source === "selection" ? "Selected text" : file.kind === "docx" ? "Word document" : file.kind === "pptx" ? "PowerPoint presentation" : file.kind === "pdf" ? "PDF document" : "Text file");
   const words = $derived(file !== null && isText ? textStats(file.text).words : 0);
   const preview = $derived(file !== null && isText ? file.text.slice(0, 500) : "");
 
@@ -36,7 +36,7 @@
   }
 </script>
 
-<Sheet bind:open={() => openWith.busy || openWith.file !== null, (v) => { if (!v) dismissOpenFile(); }} side="bottom" title="Open file">
+<Sheet bind:open={() => openWith.busy || openWith.file !== null, (v) => { if (!v) dismissOpenFile(); }} side="bottom" title={file?.source === "selection" ? "Selected text" : "Open file"}>
   <div class="of">
     {#if openWith.busy && !file}
       <div class="reading" role="status">
@@ -45,8 +45,12 @@
       </div>
     {:else if file}
       <div class="head">
-        <span class="name" aria-label="File name">{file.name ?? "Unnamed file"}</span>
-        <span class="size">{formatSize(file.size)}</span>
+        {#if file.source === "selection"}
+          <span class="name" aria-label="File name">Selected text</span>
+        {:else}
+          <span class="name" aria-label="File name">{file.name ?? "Unnamed file"}</span>
+          <span class="size">{formatSize(file.size)}</span>
+        {/if}
       </div>
 
       {#if isText}
@@ -59,7 +63,7 @@
         <pre class="preview" aria-label="Preview">{preview}{file.text.length > preview.length ? "…" : ""}</pre>
         {#if file.cut}
           <p class="warn" role="note">
-            This file is very long. Only the first {nf.format(file.text.length)} characters will go into the note.
+            {file.source === "selection" ? "This selection was cut short." : "This file is very long."} Only the first {nf.format(file.text.length)} characters will go into the note.
           </p>
         {/if}
         <div class="buttons">

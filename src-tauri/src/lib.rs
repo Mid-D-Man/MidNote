@@ -22,6 +22,10 @@ pub fn run() {
     #[cfg(mobile)]
     let builder = builder.plugin(tauri_plugin_deep_link::init());
 
+    // Round AD: the phone's own security prompt for opening locked notes. Mobile only, like tts and deep-link.
+    #[cfg(mobile)]
+    let builder = builder.plugin(tauri_plugin_biometric::init());
+
     builder
         .invoke_handler(tauri::generate_handler![
             commands::entries::get_all_entries,

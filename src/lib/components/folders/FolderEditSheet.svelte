@@ -7,7 +7,7 @@
   import TagSelector from "$lib/components/shared/TagSelector/TagSelector.svelte";
   import { entries, saveEntry } from "$lib/stores/entries.svelte";
   import { noteTags, todoTags, boardTags } from "$lib/stores/tags.svelte";
-  import { folderState, deleteFolder, requestMove, FOLDER_NAME_MAX } from "$lib/stores/folders.svelte";
+  import { folderState, deleteFolder, requestMove, renameFolder, FOLDER_NAME_MAX } from "$lib/stores/folders.svelte";
   import { descendantIds, effectiveTags } from "$lib/utils/folders";
   import { pushToast } from "$lib/stores/toast.svelte";
   import type { Folder } from "$lib/types/entry";
@@ -30,13 +30,8 @@
 
   function commitName() {
     if (!folder) return;
-    const next = name.trim();
-    if (!next) {
-      name = folder.title; // an empty name is not allowed: put the old one back
-      return;
-    }
-    if (next === folder.title) return;
-    saveEntry({ ...folder, title: next.slice(0, FOLDER_NAME_MAX) });
+    const r = renameFolder(folder.id, name);
+    if (!r.ok) name = folder.title; // an empty name is not allowed: put the old one back
   }
 
   function addTag(tag: string) {

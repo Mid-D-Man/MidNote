@@ -68,3 +68,10 @@ tauri-plugin-tts = "0.2"
 # as tts: a desktop `cargo check` never compiles it. Registered in lib.rs under #[cfg(mobile)];
 # permitted by capabilities/android-deep-link.json (platform: android).
 tauri-plugin-deep-link = "2"
+# Round AD: unlock locked notes with the phone's own security (fingerprint, face, or the PIN / pattern / password of the
+# phone). tauri-plugin-biometric shows Android's system prompt (it adds its own small Kotlin activity and the AndroidX biometric
+# library). It only answers "is this the person?": the app password never goes near it. Source read at 2.5.0 (needs Rust 1.90
+# and tauri 2.12, both met by CI's stable toolchain; there is no committed Cargo.lock). Mobile-only like tts and deep-link,
+# registered under #[cfg(mobile)] in lib.rs, permitted by capabilities/android-biometric.json (platform: android). The page
+# calls it raw (utils/phoneAuth.ts: plugin:biometric|status and |authenticate), so there is no npm package.
+tauri-plugin-biometric = "2"
