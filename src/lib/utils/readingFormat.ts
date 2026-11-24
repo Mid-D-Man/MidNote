@@ -10,7 +10,7 @@
 import { parseMarkdown, type Block, type Inline } from "$lib/utils/markdown";
 import { noteHtmlToMarkdown } from "$lib/utils/noteMarkdown";
 import { normalizeLang } from "$lib/utils/codeHighlight";
-import { docxBlocks, pdfBlocks, pptxBlocks } from "$lib/utils/readingDocs";
+import { docxBlocks, pdfBlocks, pptxBlocks, type DocImagePlace } from "$lib/utils/readingDocs";
 
 export type ReadingFormat = "markdown" | "plain" | "json" | "csv" | "pptx" | "pdf" | "docx" | `code:${string}`;
 
@@ -322,8 +322,11 @@ const MAX_PRETTY_JSON_CHARS = 1_500_000;
 
 const text = (v: string): Inline[] => [{ t: "text", v }];
 
-/** What the reading page draws for a note's saved HTML in the chosen format. */
-export function blocksForFormat(html: string, format: ReadingFormat): Block[] {
+/**
+ * What the reading page draws for a note's saved HTML in the chosen format. `images` are the pictures kept with a PowerPoint / PDF /
+ * Word note (they are drawn in place by those three formats and ignored by the others).
+ */
+export function blocksForFormat(html: string, format: ReadingFormat, images: readonly DocImagePlace[] = []): Block[] {
   if (format === "markdown") return parseMarkdown(noteHtmlToMarkdown(html, { markdown: true }), { autolink: true });
   if (format === "plain") return parseMarkdown(noteHtmlToMarkdown(html, { markdown: false }), { autolink: false });
   const raw = rawNoteText(html);
@@ -348,9 +351,9 @@ export function blocksForFormat(html: string, format: ReadingFormat): Block[] {
     if (truncated) out.push({ t: "para", c: text(`Showing the first ${rows.length} of ${total} rows.`) });
     return out;
   }
-  if (format === "pptx") return pptxBlocks(raw);
-  if (format === "pdf") return pdfBlocks(raw);
-  if (format === "docx") return docxBlocks(raw);
+  if (format === "pptx") return pptxBlocks(raw, images);
+  if (format === "pdf") return pdfBlocks(raw, images);
+  if (format === "docx") return docxBlocks(raw, images);
   const lang = codeLangOf(format);
   return [{ t: "code", lang: lang !== null && normalizeLang(lang) === lang ? lang : "", v: raw, numbered: true }];
 }

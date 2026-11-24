@@ -23,6 +23,8 @@ import { MAX_NOTE_CHARS, MAX_READ_BYTES, classifyIncoming, clampForNote, isConte
 import type { PickedFile } from "$lib/utils/backupFiles";
 import { parseTextLink, rememberTextLink, isTextLink, type TextLink } from "$lib/utils/textLinks";
 import { readAloud, readSelectionAloud } from "$lib/stores/readAloud.svelte";
+import { MAX_DOC_IMAGES, docxImages, pptxImages, type DocImage } from "$lib/utils/docImages";
+import { saveDocImages } from "$lib/utils/docImageStore";
 import { sendAppToBack } from "$lib/utils/nativeReader";
 
 export interface OpenFile {
@@ -44,6 +46,8 @@ export interface OpenFile {
   bytes: Uint8Array | null;
   /** "selection": text picked in another app's selection menu (not a file). */
   source?: "selection";
+  /** The pictures of a PowerPoint / Word / PDF file; they are kept on this phone with the note when it is made (utils/docImageStore.ts). */
+  images?: DocImage[];
 }
 
 export const openWith = $state({
@@ -71,20 +75,35 @@ function refused(name: string | null, size: number, message: string): OpenFile {
 const WORD_UNREADABLE = "That isn't a Word document that MidNote can read.";
 const PPTX_UNREADABLE = "That isn't a PowerPoint presentation that MidNote can read.";
 const PDF_UNREADABLE = "That isn't a PDF that MidNote can read.";
-const PDF_NO_TEXT = "This PDF has no text to read. It may be a scan.";
+const PDF_NO_TEXT = "This PDF has no text to read, and no pictures MidNote can show.";
 const PDF_UNDECODABLE = "The text in this PDF uses a font MidNote can't decode, so nothing readable came out.";
-const PPTX_NOTE = "Text and speaker notes only: pictures, charts and animations are left out.";
+const PPTX_NOTE = "Charts and animations are left out.";
 
 /** The text of a Word, PowerPoint or PDF file, as the file to show. Never throws: every way it can fail is a refused file with a plain message. */
 async function extractDocument(kind: "docx" | "pptx" | "pdf", name: string | null, bytes: Uint8Array): Promise<OpenFile> {
   const size = bytes.length;
-  const withText = (as: "docx" | "pptx" | "pdf", text: string, info: string, forceCut = false): OpenFile => {
+  const withText = (as: "docx" | "pptx" | "pdf", text: string, info: string, forceCut = false, images: DocImage[] = []): OpenFile => {
     const clamped = clampForNote(text);
-    return { ...blank(name, size), kind: as, text: clamped.text, chars: text.length, cut: clamped.cut || forceCut, info };
+    return { ...blank(name, size), kind: as, text: clamped.text, chars: text.length, cut: clamped.cut || forceCut, info, images };
   };
-  const slideInfo = (text: string) => {
+  // the pictures are a bonus: a file whose pictures can't be read still opens, with its text
+  const picturesOf = async (read: () => Promise<DocImage[]>): Promise<DocImage[]> => {
+    try {
+      return await read();
+    } catch (e) {
+      breadcrumb(`open with: pictures could not be read (${e instanceof Error ? e.message.slice(0, 80) : "error"})`);
+      return [];
+    }
+  };
+  const pictureCount = (images: DocImage[]) => {
+    if (images.length === 0) return "";
+    const n = `${images.length} picture${images.length === 1 ? "" : "s"}`;
+    return images.length >= MAX_DOC_IMAGES ? `the first ${n}` : n;
+  };
+  const slideInfo = (text: string, images: DocImage[]) => {
     const n = (text.match(/^Slide \d+$/gm) ?? []).length;
-    return `${n} slide${n === 1 ? "" : "s"}. ${PPTX_NOTE}`;
+    const pics = pictureCount(images);
+    return `${n} slide${n === 1 ? "" : "s"}${pics ? `, ${pics}` : ""}. ${PPTX_NOTE}`;
   };
   try {
     if (kind === "pdf") {
@@ -92,15 +111,17 @@ async function extractDocument(kind: "docx" | "pptx" | "pdf", name: string | nul
       if (r === null) return refused(name, size, PDF_UNREADABLE);
       if (r.text.trim() === "") return refused(name, size, r.garbled ? PDF_UNDECODABLE : PDF_NO_TEXT);
       const parts = [`${r.pages} page${r.pages === 1 ? "" : "s"}${r.truncated ? `, the first ${r.pagesRead} read` : ""}`];
-      parts.push("Text only: pictures and drawings are left out");
+      if (r.scanned) parts.push(`No text found, so the pages are kept as pictures (${pictureCount(r.pictures)})`);
+      else parts.push(r.pictures.length > 0 ? `${pictureCount(r.pictures)}. Drawings are left out` : "Text only: pictures and drawings are left out");
       if (r.garbled) parts.push("some text uses a font MidNote can't decode, so parts are missing");
-      return withText("pdf", r.text, parts.join(". ") + ".", r.truncated);
+      return withText("pdf", r.text, parts.join(". ") + ".", r.truncated, r.pictures);
     }
     if (kind === "pptx") {
       const text = await pptxToText(bytes);
       if (text === null) return refused(name, size, PPTX_UNREADABLE);
       if (text.trim() === "") return refused(name, size, "That presentation has no text in it.");
-      return withText("pptx", text, slideInfo(text));
+      const images = await picturesOf(() => pptxImages(bytes));
+      return withText("pptx", text, slideInfo(text, images), false, images);
     }
     let text: string | null = null;
     try {
@@ -116,12 +137,14 @@ async function extractDocument(kind: "docx" | "pptx" | "pdf", name: string | nul
       const slides = await pptxToText(bytes);
       if (slides !== null) {
         if (slides.trim() === "") return refused(name, size, "That presentation has no text in it.");
-        return withText("pptx", slides, slideInfo(slides));
+        const images = await picturesOf(() => pptxImages(bytes));
+        return withText("pptx", slides, slideInfo(slides, images), false, images);
       }
     }
     if (text === null) return refused(name, size, WORD_UNREADABLE);
     if (text.trim() === "") return refused(name, size, "That document has no text in it.");
-    return withText("docx", text, "");
+    const images = await picturesOf(() => docxImages(bytes));
+    return withText("docx", text, pictureCount(images) ? `${pictureCount(images)}.` : "", false, images);
   } catch (e) {
     if (e instanceof PdfError || e instanceof ZipError) {
       breadcrumb(`open with: ${kind} refused (${e.kind})`);
@@ -274,8 +297,11 @@ export function createNoteFromOpenFile(): string | null {
   // (a Word / PowerPoint / PDF file is read as that: by what it was found to be, not by what its name says)
   const asFormat = f.kind === "docx" || f.kind === "pptx" || f.kind === "pdf" ? f.kind : formatFromExtension(f.name);
   if (asFormat) setReadingFormat(n.id, asFormat);
-  breadcrumb(`open with: note created from ${f.kind} file (${f.text.length} chars)`);
+  breadcrumb(`open with: note created from ${f.kind} file (${f.text.length} chars${f.images?.length ? `, ${f.images.length} pictures` : ""})`);
+  const pictures = f.images;
   openWith.file = null;
+  // the pictures are kept next to the note (not in it); the note is already made, so this only adds to it
+  if (pictures && pictures.length > 0) void saveDocImages(n.id, pictures);
   return n.id;
 }
 

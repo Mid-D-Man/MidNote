@@ -5,16 +5,18 @@
 // text back out, page by page, as plain text (with "Page N" above each page when there are several).
 //
 // WHAT COMES OUT: the text, in reading order for ordinary documents, with paragraphs joined and tables as rows with tabs between
-// columns. WHAT DOES NOT: pictures, drawings, charts; and a SCANNED PDF (pages that are pictures of text) has no text to read at
-// all unless an OCR layer was added when it was scanned: MidNote does not do OCR. Encrypted files are refused. Right-to-left and
+// columns; and the JPEG pictures on each page (a scan is usually one JPEG per page), which the Reading view shows under the page's
+// text. WHAT DOES NOT: drawings and charts, pictures in other packings (JPEG 2000, fax, CMYK), and the text of a SCANNED PDF
+// (pages that are pictures of text) unless an OCR layer was added when it was scanned: MidNote does not do OCR. Encrypted files are refused. Right-to-left and
 // complex scripts come out in the order the file draws them, which may not read correctly.
 //
 // DATA ONLY. Nothing in the file is run or opened: JavaScript, links, actions, forms and embedded files are never touched. All reads
 // are bounded (stream size, nesting, pages, output length).
 import { PdfDoc, PdfRef, PdfStream, type PdfValue } from "$lib/utils/pdfObjects";
 import { PdfError } from "$lib/utils/pdfFilters";
-import { FontCache, interpretContent, type Run } from "$lib/utils/pdfContent";
+import { FontCache, interpretContent, type PictureSink, type Run } from "$lib/utils/pdfContent";
 import { runsToText } from "$lib/utils/pdfLayout";
+import { Collector, MAX_DOC_IMAGES, type DocImage } from "$lib/utils/docImages";
 
 export { PdfError };
 
@@ -30,6 +32,10 @@ export interface PdfTextResult {
   truncated: boolean;
   /** Most of the characters had no text we could find (a font MidNote can't decode): what came out is mostly missing. */
   garbled: boolean;
+  /** The JPEG pictures, each on the page it is drawn on (`at` is the page number, as in "Page N"). */
+  pictures: DocImage[];
+  /** There is no text at all but there are pictures: a scan. The text then only holds the "Page N" lines the pictures hang on. */
+  scanned: boolean;
 }
 
 async function pageContent(doc: PdfDoc, page: Map<string, PdfValue>): Promise<Uint8Array | null> {
@@ -65,6 +71,8 @@ export async function pdfToText(bytes: Uint8Array, maxChars = 400_000): Promise<
   const pages = doc.pages(MAX_PDF_PAGES);
   const fonts = new FontCache(doc);
   const texts: { n: number; text: string }[] = [];
+  const found = new Collector();
+  const sink: PictureSink = { streams: [], seen: new Set<number>(), max: MAX_DOC_IMAGES * 2 };
   let chars = 0;
   let codes = 0;
   let unmapped = 0;
@@ -86,8 +94,9 @@ export async function pdfToText(bytes: Uint8Array, maxChars = 400_000): Promise<
     }
     if (!content) continue;
     const runs: Run[] = [];
+    sink.streams = [];
     try {
-      await interpretContent(content, pages[i].resources, { doc, fonts, out: runs });
+      await interpretContent(content, pages[i].resources, { doc, fonts, out: runs, pictures: found.full ? undefined : sink });
     } catch (e) {
       if (e instanceof PdfError && e.kind === "too-large") throw e;
     }
@@ -95,12 +104,25 @@ export async function pdfToText(bytes: Uint8Array, maxChars = 400_000): Promise<
       codes += r.codes;
       unmapped += r.unmapped;
     }
+    let pictured = false;
+    for (const stream of sink.streams) {
+      if (found.full) break;
+      try {
+        const jpeg = await doc.streamBytes(stream, true);
+        if (jpeg && found.add(jpeg, "page", i + 1)) pictured = true;
+      } catch (e) {
+        if (e instanceof PdfError && e.kind === "too-large") throw e; // (one damaged picture is skipped)
+      }
+    }
     const text = runsToText(runs).trim();
-    if (text !== "") {
+    if (text !== "" || pictured) {
       texts.push({ n: i + 1, text });
       chars += text.length;
     }
   }
-  const body = texts.length > 1 ? texts.map((t) => `Page ${t.n}\n${t.text}`).join("\n\n") : texts.length === 1 ? texts[0].text : "";
-  return { text: body.replace(/\n{3,}/g, "\n\n"), pages: pages.length, pagesRead, truncated, garbled: codes >= 20 && unmapped / codes > 0.6 };
+  // with pictures, every page that has text or a picture keeps its "Page N" line (even a single page): the pictures hang on it
+  const marked = texts.length > 1 || found.out.length > 0;
+  const body = texts.length === 0 ? "" : marked ? texts.map((t) => `Page ${t.n}${t.text === "" ? "" : `\n${t.text}`}`).join("\n\n") : texts[0].text;
+  const scanned = found.out.length > 0 && texts.every((t) => t.text === "");
+  return { text: body.replace(/\n{3,}/g, "\n\n"), pages: pages.length, pagesRead, truncated, garbled: codes >= 20 && unmapped / codes > 0.6, pictures: found.out, scanned };
 }

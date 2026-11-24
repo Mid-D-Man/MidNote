@@ -10,6 +10,18 @@ import type { Block, Inline, ListItem } from "$lib/utils/markdown";
 
 const MAX_TABLE_COLUMNS = 40;
 
+/** Where a picture sits (the part of docImageStore's record the views need): after paragraph `at` ("line"), on slide `at`, on page `at`. */
+export interface DocImagePlace {
+  key: string;
+  kind: "slide" | "page" | "line";
+  at: number;
+}
+
+/** The picture blocks for one slide or page, in the order they were kept. */
+function picturesAt(images: readonly DocImagePlace[], kind: "slide" | "page", at: number): Block[] {
+  return images.filter((i) => i.kind === kind && i.at === at).map((i): Block => ({ t: "image", key: i.key, alt: `Picture on ${kind} ${at}` }));
+}
+
 const text = (v: string): Inline[] => [{ t: "text", v }];
 const para = (v: string): Block => ({ t: "para", c: text(v) });
 
@@ -134,7 +146,7 @@ function isLoneHeading(t: string, next: string | null): boolean {
  * paragraph (the layout already joined the wrapped ones, so a line break left in is a real one). Both: a run of two or more
  * lines with column gaps is a table, bullets and numbers are lists, a line of dashes is a rule.
  */
-function flow(lines: string[], mode: "docx" | "pdf", headings = true): Block[] {
+function flow(lines: string[], mode: "docx" | "pdf", headings = true, firstMayBeTitle = true): Block[] {
   const out: Block[] = [];
   const n = lines.length;
   const nextText = (from: number): string | null => {
@@ -191,7 +203,7 @@ function flow(lines: string[], mode: "docx" | "pdf", headings = true): Block[] {
       continue;
     }
     if (headings) {
-      const level = headingLevel(line, prevBlank, nextText(i + 1), out.length === 0);
+      const level = headingLevel(line, prevBlank, nextText(i + 1), firstMayBeTitle && out.length === 0);
       if (level !== 0) {
         out.push({ t: "heading", level, c: text(line) });
         i++;
@@ -222,30 +234,46 @@ function flow(lines: string[], mode: "docx" | "pdf", headings = true): Block[] {
 
 // ------------------------------------------------------------------------------------------------------------ Word
 
-/** A Word document's text: a paragraph per line, with tables, lists and guessed headings. */
-export function docxBlocks(raw: string): Block[] {
-  return flow(linesOf(raw), "docx");
+/**
+ * A Word document's text: a paragraph per line, with tables, lists and guessed headings. A picture comes right after the line of
+ * text it followed in the file (`at` counts the note's lines from 0), so the text is drawn in pieces between the pictures.
+ */
+export function docxBlocks(raw: string, images: readonly DocImagePlace[] = []): Block[] {
+  const lines = linesOf(raw);
+  const placed = images.filter((i) => i.kind === "line");
+  if (placed.length === 0) return flow(lines, "docx");
+  const clampAt = (at: number) => Math.max(0, Math.min(at, lines.length - 1));
+  const stops = [...new Set(placed.map((i) => clampAt(i.at)))].sort((a, b) => a - b);
+  const out: Block[] = [];
+  let from = 0;
+  for (const stop of stops) {
+    out.push(...flow(lines.slice(from, stop + 1), "docx", true, from === 0));
+    for (const i of placed) if (clampAt(i.at) === stop) out.push({ t: "image", key: i.key, alt: "Picture" });
+    from = stop + 1;
+  }
+  if (from < lines.length) out.push(...flow(lines.slice(from), "docx", true, false));
+  return out;
 }
 
 // ------------------------------------------------------------------------------------------------------------- PDF
 
 const PAGE_MARK = /^Page (\d{1,4})$/;
 
-/** A PDF's text: each "Page N" is a sheet (a single page has no marker and is one unlabelled sheet). */
-export function pdfBlocks(raw: string): Block[] {
+/** A PDF's text: each "Page N" is a sheet (a single page has no marker and is one unlabelled sheet), with the page's pictures after its text. */
+export function pdfBlocks(raw: string, images: readonly DocImagePlace[] = []): Block[] {
   const lines = linesOf(raw);
   const marks: { at: number; n: number }[] = [];
   lines.forEach((l, at) => {
     const m = PAGE_MARK.exec(l);
     if (m) marks.push({ at, n: Number(m[1]) });
   });
-  if (marks.length === 0) return [{ t: "section", kind: "page", label: "", c: flow(lines, "pdf") }];
+  if (marks.length === 0) return [{ t: "section", kind: "page", label: "", c: [...flow(lines, "pdf"), ...picturesAt(images, "page", 1)] }];
   const out: Block[] = [];
   const before = flow(lines.slice(0, marks[0].at), "pdf");
   if (before.length > 0) out.push({ t: "section", kind: "page", label: "", c: before });
   marks.forEach((mk, k) => {
     const end = k + 1 < marks.length ? marks[k + 1].at : lines.length;
-    out.push({ t: "section", kind: "page", label: `Page ${mk.n}`, c: flow(lines.slice(mk.at + 1, end), "pdf") });
+    out.push({ t: "section", kind: "page", label: `Page ${mk.n}`, c: [...flow(lines.slice(mk.at + 1, end), "pdf"), ...picturesAt(images, "page", mk.n)] });
   });
   return out;
 }
@@ -256,8 +284,8 @@ const SLIDE_MARK = /^Slide (\d{1,4})$/;
 const isPipeRow = (l: string): boolean => l.includes(" | ");
 const pipeCells = (l: string): string[] => l.split(" | ").map((c) => c.trim());
 
-/** One slide's lines (after its "Slide N" line): title, bullets, tables, then the speaker notes. */
-function slideBody(lines: string[]): Block[] {
+/** One slide's lines (after its "Slide N" line): title, bullets, tables, then its pictures, then the speaker notes. */
+function slideBody(lines: string[], pictures: Block[] = []): Block[] {
   const notesAt = lines.findIndex((l) => l === "Notes:");
   const body = notesAt >= 0 ? lines.slice(0, notesAt) : lines;
   const notes = notesAt >= 0 ? lines.slice(notesAt + 1) : [];
@@ -291,6 +319,7 @@ function slideBody(lines: string[]): Block[] {
     }
   }
   flush();
+  out.push(...pictures);
   if (notes.some((l) => l.trim() !== "")) {
     out.push({ t: "quote", c: [{ t: "para", c: [{ t: "strong", c: text("Speaker notes") }] }, ...flow(notes, "docx", false)] });
   }
@@ -298,19 +327,19 @@ function slideBody(lines: string[]): Block[] {
   return out;
 }
 
-/** A presentation's text: each "Slide N" is a card with its title, bullets, tables and speaker notes. */
-export function pptxBlocks(raw: string): Block[] {
+/** A presentation's text: each "Slide N" is a card with its title, bullets, tables, pictures and speaker notes. */
+export function pptxBlocks(raw: string, images: readonly DocImagePlace[] = []): Block[] {
   const lines = linesOf(raw);
   const marks: { at: number; n: number }[] = [];
   lines.forEach((l, at) => {
     const m = SLIDE_MARK.exec(l);
     if (m) marks.push({ at, n: Number(m[1]) });
   });
-  if (marks.length === 0) return [{ t: "section", kind: "slide", label: "", c: slideBody(lines) }];
+  if (marks.length === 0) return [{ t: "section", kind: "slide", label: "", c: slideBody(lines, picturesAt(images, "slide", 1)) }];
   const out: Block[] = flow(lines.slice(0, marks[0].at), "docx", false);
   marks.forEach((mk, k) => {
     const end = k + 1 < marks.length ? marks[k + 1].at : lines.length;
-    out.push({ t: "section", kind: "slide", label: `Slide ${mk.n} of ${marks.length}`, c: slideBody(lines.slice(mk.at + 1, end)) });
+    out.push({ t: "section", kind: "slide", label: `Slide ${mk.n} of ${marks.length}`, c: slideBody(lines.slice(mk.at + 1, end), picturesAt(images, "slide", mk.n)) });
   });
   return out;
 }

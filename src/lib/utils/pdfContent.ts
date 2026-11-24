@@ -66,12 +66,21 @@ const MAX_DEPTH = 8;
 /** A TJ adjustment (thousandths of the font size) beyond which the gap is a word space, not kerning. */
 const TJ_SPACE = 150;
 
+/** Where the pictures a page draws are noted (each picture object once for the whole document). */
+export interface PictureSink {
+  streams: PdfStream[];
+  /** Object numbers already noted (on this page or an earlier one): a logo on every page is kept once. */
+  seen: Set<number>;
+  max: number;
+}
+
 export interface InterpretOptions {
   doc: PdfDoc;
   fonts: FontCache;
   out: Run[];
   depth?: number;
   visited?: Set<number>;
+  pictures?: PictureSink;
 }
 
 const num = (v: PdfValue | undefined): number => (typeof v === "number" && Number.isFinite(v) ? v : 0);
@@ -165,6 +174,15 @@ export async function interpretContent(data: Uint8Array, resources: PdfValue, o:
           const id = ref instanceof PdfRef ? ref.num : -1;
           if (id >= 0 && visited.has(id)) break;
           const xo = doc.resolve(ref);
+          if (xo instanceof PdfStream && doc.nameOf(xo.dict.get("Subtype") ?? null) === "Image") {
+            const pics = o.pictures;
+            // a picture is noted once; a stencil mask and a CMYK picture (its colours come out wrong in a browser) are not pictures to show
+            if (pics && pics.streams.length < pics.max && !(id >= 0 && pics.seen.has(id)) && xo.dict.get("ImageMask") !== true && doc.nameOf(xo.dict.get("ColorSpace") ?? null) !== "DeviceCMYK") {
+              if (id >= 0) pics.seen.add(id);
+              pics.streams.push(xo);
+            }
+            break;
+          }
           if (!(xo instanceof PdfStream) || doc.nameOf(xo.dict.get("Subtype") ?? null) !== "Form") break;
           if (id >= 0) visited.add(id);
           try {
@@ -173,7 +191,7 @@ export async function interpretContent(data: Uint8Array, resources: PdfValue, o:
               const mat = doc.arrayOf(xo.dict.get("Matrix") ?? null);
               const fm: M = mat && mat.length >= 6 ? [num(mat[0]), num(mat[1]), num(mat[2]), num(mat[3]), num(mat[4]), num(mat[5])] : IDENT;
               const inner = xo.dict.get("Resources");
-              await interpretContent(body, inner !== undefined ? inner : resources, { doc, fonts, out, depth: depth + 1, visited }, { ...gs, ctm: mul(fm, gs.ctm) });
+              await interpretContent(body, inner !== undefined ? inner : resources, { doc, fonts, out, depth: depth + 1, visited, pictures: o.pictures }, { ...gs, ctm: mul(fm, gs.ctm) });
             }
           } catch (e) {
             // a form whose stream is damaged is skipped: the rest of the page is still read (only "too large" stops everything)

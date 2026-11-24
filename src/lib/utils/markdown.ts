@@ -44,7 +44,9 @@ export type Block =
   | { t: "hr" }
   | { t: "table"; align: Align[]; head: Inline[][]; rows: Inline[][][] }
   /** A framed part of a document: a slide of a presentation or a page of a PDF (utils/readingDocs.ts). `label` may be empty. */
-  | { t: "section"; kind: "slide" | "page"; label: string; c: Block[] };
+  | { t: "section"; kind: "slide" | "page"; label: string; c: Block[] }
+  /** A picture kept with a note on this phone (utils/docImageStore.ts); `key` says which. */
+  | { t: "image"; key: string; alt: string };
 
 export interface ParseOptions {
   /** Turn bare https:// addresses into links. */

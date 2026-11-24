@@ -3,7 +3,11 @@
 // WHAT IS IN IT: every note, todo and board (including the ones in Trash, and
 // locked ones — those stay locked: their encrypted payload is saved as it is),
 // the known tags, the uploaded theme backgrounds and icon badges, the imported
-// fonts (the font files themselves) and the look-and-feel settings.
+// fonts (the font files themselves), the pictures that came with PowerPoint / Word / PDF
+// notes (docImages) and the look-and-feel settings.
+//
+// PICTURES OF LOCKED NOTES are only in a password-protected backup (.mdix.enc): the plain .mdix
+// is readable text, and a locked note's pictures are not locked on the phone.
 //
 // WHY: fonts, themes and icons live only on this phone (IndexedDB). A reinstall
 // or a new phone would lose them.
@@ -19,6 +23,7 @@
 //                       the one on the phone is kept; ids not on the phone are added
 //   themes, icons       added when their id isn't here
 //   fonts               added when neither the id nor the name is here
+//   docImages           a note's pictures are added when the note has none on the phone
 //   tags                added
 //   settings            applied (the backup's look-and-feel replaces the phone's)
 //
@@ -26,6 +31,7 @@
 // so all of it can be exercised in Node.
 import type { CustomIcon, CustomTheme, Entry } from "$lib/types/entry";
 import { readMdix, writeMdix } from "./backupMdix";
+import { sniffImageMime } from "./imageSniff";
 
 export const BACKUP_APP = "midnote-backup";
 export const BACKUP_FORMAT = 2;
@@ -61,7 +67,38 @@ export interface BackupCounts {
   themes: number;
   icons: number;
   fonts: number;
+  /** Pictures of PowerPoint / Word / PDF notes in the file, and how many were left out to keep the file a sensible size. */
+  pictures: number;
+  picturesLeftOut: number;
 }
+
+/** One picture of a document note, as the file carries it. */
+export interface BackupDocImage {
+  noteId: string;
+  kind: "slide" | "page" | "line";
+  /** The slide / page number, or the line of the note's text the picture follows. */
+  at: number;
+  mime: string;
+  /** The picture file, base64. */
+  data: string;
+}
+
+/** A picture as the phone keeps it (the source of a backup). */
+export interface BackupSourceDocImage {
+  noteId: string;
+  kind: "slide" | "page" | "line";
+  at: number;
+  mime: string;
+  bytes: Uint8Array;
+}
+
+/** The most picture bytes one backup carries (before base64 makes them a third bigger): a backup is built in the phone's memory. */
+export const BACKUP_PICTURES_MAX_BYTES = 40 * 1024 * 1024;
+/** A picture's base64 text longer than this is not a picture MidNote kept (it keeps at most 3 MB each). */
+const MAX_PICTURE_B64_CHARS = 4_300_000;
+const MAX_BACKUP_PICTURES = 6000;
+const PICTURE_KINDS = ["slide", "page", "line"] as const;
+const SAFE_NOTE_ID = /^[A-Za-z0-9_-]{1,64}$/;
 
 export interface BackupFile {
   app: typeof BACKUP_APP;
@@ -73,6 +110,7 @@ export interface BackupFile {
   themes: CustomTheme[];
   icons: CustomIcon[];
   fonts: BackupFont[];
+  docImages: BackupDocImage[];
   settings: Record<string, string>;
 }
 
@@ -92,6 +130,8 @@ export interface BackupSource {
   themes(): CustomTheme[];
   icons(): CustomIcon[];
   fonts(): Promise<BackupSourceFont[]>;
+  /** The pictures of these notes (stopping at `maxBytes`), and how many that left out. */
+  docImages(noteIds: string[], maxBytes: number): Promise<{ images: BackupSourceDocImage[]; leftOut: number }>;
   /** localStorage-style read: the raw string, or null. */
   setting(key: string): string | null;
 }
@@ -180,9 +220,18 @@ export function countEntries(entries: ReadonlyArray<{ type?: unknown; deletedAt?
   return c;
 }
 
-export async function buildBackup(src: BackupSource, now: Date = new Date()): Promise<BackupFile> {
+export interface BuildOptions {
+  /** The file will be password-protected: only then do the pictures of locked notes go in. */
+  encrypted?: boolean;
+}
+
+export async function buildBackup(src: BackupSource, now: Date = new Date(), opts: BuildOptions = {}): Promise<BackupFile> {
   const entries = src.entries();
   const fonts = await src.fonts();
+  // pictures belong to notes (a PowerPoint / Word / PDF file opened as a note); a locked note's go in only when the file is protected
+  const noteIds = entries.filter((e) => e.type === "regular" && (opts.encrypted === true || !e.encrypted)).map((e) => e.id);
+  const pics = noteIds.length > 0 ? await src.docImages(noteIds, BACKUP_PICTURES_MAX_BYTES) : { images: [], leftOut: 0 };
+  const docImages: BackupDocImage[] = pics.images.map((p) => ({ noteId: p.noteId, kind: p.kind, at: p.at, mime: p.mime, data: bytesToBase64(p.bytes) }));
   const settings: Record<string, string> = {};
   for (const key of BACKUP_SETTING_KEYS) {
     const v = src.setting(key);
@@ -195,12 +244,13 @@ export async function buildBackup(src: BackupSource, now: Date = new Date()): Pr
     app: BACKUP_APP,
     format: BACKUP_FORMAT,
     createdAt: now.toISOString(),
-    counts: { ...countEntries(entries), themes: themes.length, icons: icons.length, fonts: fonts.length },
+    counts: { ...countEntries(entries), themes: themes.length, icons: icons.length, fonts: fonts.length, pictures: docImages.length, picturesLeftOut: pics.leftOut },
     entries,
     tags: { notes: [...tags.notes], todos: [...tags.todos], boards: [...tags.boards] },
     themes: [...themes],
     icons: [...icons],
     fonts: fonts.map((f) => ({ id: f.id, name: f.name, kind: f.kind, size: f.size, addedAt: f.addedAt, data: bytesToBase64(new Uint8Array(f.bytes)) })),
+    docImages,
     settings,
   };
 }
@@ -221,6 +271,7 @@ export function serializeBackup(file: BackupFile): string {
       ["themes", file.themes],
       ["icons", file.icons],
       ["fonts", file.fonts],
+      ["docImages", file.docImages],
       // setting keys contain ':' and '-', which are not field names: they travel as key/value pairs
       ["settings", Object.entries(file.settings).map(([key, value]) => ({ key, value }))],
     ],
@@ -277,6 +328,15 @@ export function parseBackup(text: string): ParseResult {
       addedAt: isStr(f.addedAt) ? f.addedAt : new Date(0).toISOString(),
       data: f.data as string,
     }));
+  // pictures of document notes: only what is plainly a picture record is kept (the bytes are checked again when they are restored)
+  const docImages: BackupDocImage[] = [];
+  for (const d of Array.isArray(raw.docImages) ? raw.docImages : []) {
+    if (docImages.length >= MAX_BACKUP_PICTURES) break;
+    if (!isObj(d) || !isStr(d.noteId) || !SAFE_NOTE_ID.test(d.noteId) || !isStr(d.data) || d.data === "" || d.data.length > MAX_PICTURE_B64_CHARS) continue;
+    const kind = PICTURE_KINDS.find((k) => k === d.kind);
+    if (!kind || !isStr(d.mime) || typeof d.at !== "number" || !Number.isFinite(d.at) || d.at < 0 || !Number.isInteger(d.at)) continue;
+    docImages.push({ noteId: d.noteId, kind, at: d.at, mime: d.mime, data: d.data });
+  }
   const settings: Record<string, string> = {};
   // format 2 stores settings as [{ key, value }]; format 1 as an object
   const settingsIn: Record<string, unknown> = {};
@@ -294,12 +354,20 @@ export function parseBackup(text: string): ParseResult {
     app: BACKUP_APP,
     format: raw.format,
     createdAt: isStr(raw.createdAt) && !Number.isNaN(Date.parse(raw.createdAt)) ? raw.createdAt : new Date(0).toISOString(),
-    counts: { ...countEntries(entries as Array<{ type?: unknown; deletedAt?: unknown }>), themes: themes.length, icons: icons.length, fonts: fonts.length },
+    counts: {
+      ...countEntries(entries as Array<{ type?: unknown; deletedAt?: unknown }>),
+      themes: themes.length,
+      icons: icons.length,
+      fonts: fonts.length,
+      pictures: docImages.length,
+      picturesLeftOut: isObj(raw.counts) && typeof raw.counts.picturesLeftOut === "number" && raw.counts.picturesLeftOut > 0 ? Math.floor(raw.counts.picturesLeftOut) : 0,
+    },
     entries,
     tags: { notes: strList(t.notes), todos: strList(t.todos), boards: strList(t.boards) },
     themes,
     icons,
     fonts,
+    docImages,
     settings,
   };
   return { ok: true, backup };
@@ -314,6 +382,8 @@ export interface RestoreExisting {
   fontIds: ReadonlySet<string>;
   /** lower-cased */
   fontNames: ReadonlySet<string>;
+  /** Ids of the notes that already have pictures on the phone (their pictures are not touched). */
+  docImageNoteIds?: ReadonlySet<string>;
 }
 
 export interface RestorePlan {
@@ -326,6 +396,8 @@ export interface RestorePlan {
   themes: CustomTheme[];
   icons: CustomIcon[];
   fonts: BackupFont[];
+  /** Pictures to put back, grouped by note: only notes that will exist and have no pictures on the phone. */
+  docImages: { noteId: string; items: BackupDocImage[] }[];
   keptMedia: number;
   tags: BackupFile["tags"];
   settings: Record<string, string>;
@@ -341,6 +413,7 @@ export function planRestore(backup: BackupFile, existing: RestoreExisting, norma
     themes: [],
     icons: [],
     fonts: [],
+    docImages: [],
     keptMedia: 0,
     tags: backup.tags,
     settings: backup.settings,
@@ -358,6 +431,16 @@ export function planRestore(backup: BackupFile, existing: RestoreExisting, norma
     else if (Date.parse(e.lastModified) > (have.get(e.id) as number)) plan.updateEntries.push(e);
     else plan.keptEntries++;
   }
+  // a note's pictures come back only for a note that will exist afterwards (on the phone, or restored from this file) and has none now
+  const groups = new Map<string, BackupDocImage[]>();
+  for (const d of backup.docImages) {
+    if (!seen.has(d.noteId) && !have.has(d.noteId)) continue;
+    if (existing.docImageNoteIds?.has(d.noteId)) continue;
+    const g = groups.get(d.noteId);
+    if (g) g.push(d);
+    else groups.set(d.noteId, [d]);
+  }
+  for (const [noteId, items] of groups) plan.docImages.push({ noteId, items });
   for (const t of backup.themes) (existing.themeIds.has(t.id) ? plan.keptMedia++ : plan.themes.push(t));
   for (const i of backup.icons) (existing.iconIds.has(i.id) ? plan.keptMedia++ : plan.icons.push(i));
   for (const f of backup.fonts) {
@@ -369,6 +452,16 @@ export function planRestore(backup: BackupFile, existing: RestoreExisting, norma
 
 // ------------------------------------------------------------------ applying
 
+/** A picture ready to keep: its bytes are checked to be a real picture, and `key` is "<note id>/<number>". */
+export interface RestoredDocImage {
+  key: string;
+  kind: "slide" | "page" | "line";
+  at: number;
+  mime: string;
+  size: number;
+  bytes: Uint8Array;
+}
+
 export interface RestoreSink {
   /** Save one entry exactly as given (its last-modified is NOT touched). Resolves when it is stored. */
   saveEntry(entry: Entry): Promise<void>;
@@ -376,6 +469,8 @@ export interface RestoreSink {
   addIcon(icon: CustomIcon): Promise<void>;
   /** "added" | "kept" | "failed" */
   addFont(font: BackupFont): Promise<"added" | "kept" | "failed">;
+  /** Keep a restored note's pictures. Throws if they can't be kept. */
+  addDocImages(noteId: string, images: RestoredDocImage[]): Promise<void>;
   /** Add a known tag. Return false when it was already there (so the report counts only the new ones). */
   addTag(kind: "notes" | "todos" | "boards", tag: string): boolean | void;
   setSetting(key: string, value: string): void;
@@ -392,6 +487,7 @@ export interface RestoreReport {
   themesAdded: number;
   iconsAdded: number;
   fontsAdded: number;
+  picturesAdded: number;
   mediaKept: number;
   mediaFailed: number;
   tagsAdded: number;
@@ -410,12 +506,13 @@ export async function applyRestore(plan: RestorePlan, sink: RestoreSink, onProgr
     themesAdded: 0,
     iconsAdded: 0,
     fontsAdded: 0,
+    picturesAdded: 0,
     mediaKept: plan.keptMedia,
     mediaFailed: 0,
     tagsAdded: 0,
     settingsApplied: 0,
   };
-  const total = plan.themes.length + plan.icons.length + plan.fonts.length + plan.addEntries.length + plan.updateEntries.length;
+  const total = plan.themes.length + plan.icons.length + plan.fonts.length + plan.docImages.length + plan.addEntries.length + plan.updateEntries.length;
   let done = 0;
   const step = async () => {
     done++;
@@ -448,6 +545,30 @@ export async function applyRestore(plan: RestorePlan, sink: RestoreSink, onProgr
       if (out === "added") r.fontsAdded++;
       else if (out === "kept") r.mediaKept++;
       else r.mediaFailed++;
+    } catch {
+      r.mediaFailed++;
+    }
+    await step();
+  }
+
+  for (const group of plan.docImages) {
+    try {
+      // what is kept is what the bytes really are (not what the file says they are), and a picture that can't be decoded is dropped
+      const items: RestoredDocImage[] = [];
+      for (const d of group.items) {
+        let bytes: Uint8Array;
+        try {
+          bytes = base64ToBytes(d.data);
+        } catch {
+          continue;
+        }
+        const mime = sniffImageMime(bytes);
+        if (mime) items.push({ key: `${group.noteId}/${items.length + 1}`, kind: d.kind, at: d.at, mime, size: bytes.length, bytes });
+      }
+      if (items.length > 0) {
+        await sink.addDocImages(group.noteId, items);
+        r.picturesAdded += items.length;
+      }
     } catch {
       r.mediaFailed++;
     }
@@ -508,6 +629,7 @@ export function describeReport(r: RestoreReport): string[] {
   if (r.themesAdded) media.push(`${r.themesAdded} theme${r.themesAdded === 1 ? "" : "s"}`);
   if (r.iconsAdded) media.push(`${r.iconsAdded} icon${r.iconsAdded === 1 ? "" : "s"}`);
   if (r.fontsAdded) media.push(`${r.fontsAdded} font${r.fontsAdded === 1 ? "" : "s"}`);
+  if (r.picturesAdded) media.push(`${r.picturesAdded} document picture${r.picturesAdded === 1 ? "" : "s"}`);
   if (media.length) lines.push(`Added ${media.join(", ")}.`);
   if (r.settingsApplied) lines.push("Look and feel settings applied — restart the app to see them.");
   if (r.entriesInvalid) lines.push(`${r.entriesInvalid} item${r.entriesInvalid === 1 ? " in the file was" : "s in the file were"} unreadable and skipped.`);

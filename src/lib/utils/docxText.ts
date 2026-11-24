@@ -156,8 +156,21 @@ function flattenTableRows(xml: string): string {
   });
 }
 
+/** A picture in word/document.xml: the relationship id it points to, and the (last) line of the text it comes after. */
+export interface DocxImageRef {
+  rid: string;
+  afterLine: number;
+}
+
+const BLIP = /<a:blip\b[^>]*?\br:embed="([^"]+)"|<v:imagedata\b[^>]*?\br:id="([^"]+)"/g;
+
 /** The visible text of a word/document.xml: one line per paragraph (a table row is one line, tabs between its cells); tabs and line breaks kept. */
 export function documentXmlToText(xml: string): string {
+  return documentXmlToTextAndImages(xml).text;
+}
+
+/** The text as above, and where the pictures are: each one is anchored to the line of text it follows (counted in the lines of the returned text). */
+export function documentXmlToTextAndImages(xml: string): { text: string; refs: DocxImageRef[] } {
   // Word writes a text box twice (the modern form and a fallback copy for old readers): keep one
   // An empty paragraph can be written self-closing (<w:p/>): turn it into <w:p></w:p> so it still counts as a (blank) line
   const withParagraphs = xml
@@ -165,6 +178,8 @@ export function documentXmlToText(xml: string): string {
     .replace(/<w:p(?:\s[^>]*)?\/>/g, "<w:p></w:p>");
   const paragraphs = flattenTableRows(withParagraphs).split("</w:p>");
   const lines: string[] = [];
+  const refs: DocxImageRef[] = [];
+  let lineCount = 0; // lines written so far, counting the ones a line break inside a paragraph makes
   // the last piece is whatever follows the final paragraph (section settings): not text
   for (let i = 0; i < paragraphs.length - 1; i++) {
     let line = "";
@@ -177,9 +192,18 @@ export function documentXmlToText(xml: string): string {
       else line += "\n";
     }
     lines.push(line);
+    const lastLine = lineCount + (line.split("\n").length - 1);
+    BLIP.lastIndex = 0;
+    let b: RegExpExecArray | null;
+    while ((b = BLIP.exec(paragraphs[i])) !== null) refs.push({ rid: (b[1] ?? b[2]) as string, afterLine: lastLine });
+    lineCount = lastLine + 1;
   }
   while (lines.length > 0 && lines[lines.length - 1].trim() === "") lines.pop();
-  return lines.join("\n");
+  const text = lines.join("\n");
+  const total = text === "" ? 0 : text.split("\n").length;
+  // a picture after the last line of text (or in a document with no text) belongs to the last line
+  for (const r of refs) r.afterLine = Math.max(0, Math.min(r.afterLine, total - 1));
+  return { text, refs };
 }
 
 /** The text of a Word document, or null when it isn't one. */

@@ -569,6 +569,7 @@
           html={readingHtml}
           pageKey={`${note.id}:${currentPageIndex}`}
           format={readingFormat}
+          noteId={note.id}
           {bodyStyle}
           fontSize={fontSize.value}
           onEdit={toggleReading}

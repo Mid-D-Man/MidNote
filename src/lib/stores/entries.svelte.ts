@@ -6,6 +6,7 @@ import * as storage from "$lib/storage";
 import { buildSampleEntries, decideSeeding, SAMPLES_DECIDED_KEY, SAMPLES_DECIDED_VALUE } from "$lib/utils/sampleEntries";
 import { untrack } from "svelte";
 import { cancelReminderSilently, syncReminderSilently, refreshReminderTitle } from "$lib/utils/reminders";
+import { deleteDocImages } from "$lib/utils/docImageStore";
 
 // Starts empty rather than seeded synchronously at module-evaluation
 // time (as it did back when storage.ts was pure localStorage) — real
@@ -138,6 +139,7 @@ export function restoreEntry(id: string) {
 export function purgeEntry(id: string) {
   storage.deleteEntry(id);
   cancelReminderSilently(id); // already cancelled at trash time; harmless and makes this path safe on its own
+  void deleteDocImages(id); // the pictures a PowerPoint / Word note came with (kept apart from the note)
   refresh();
 }
 

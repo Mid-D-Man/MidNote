@@ -38,13 +38,13 @@ export function resolvePartName(fromPart: string, target: string): string {
   return parts.join("/");
 }
 
-interface Rel {
+export interface Rel {
   id: string;
   type: string;
   target: string;
 }
 
-function parseRels(xml: string): Rel[] {
+export function parseRels(xml: string): Rel[] {
   const rels: Rel[] = [];
   const re = /<Relationship\b[^>]*>/g;
   let m: RegExpExecArray | null;

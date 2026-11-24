@@ -4,6 +4,7 @@
   import type { Block } from "$lib/utils/markdown";
   import ReadingInline from "./ReadingInline.svelte";
   import CodeBlock from "./CodeBlock.svelte";
+  import ReadingImage from "./ReadingImage.svelte";
   import ReadingBlocks from "./ReadingBlocks.svelte";
 
   let { blocks }: { blocks: Block[] } = $props();
@@ -33,6 +34,8 @@
         {/if}
       {/each}
     </svelte:element>
+  {:else if b.t === "image"}
+    <ReadingImage imageKey={b.key} alt={b.alt} />
   {:else if b.t === "section"}
     <section class="rv-section {b.kind}">
       {#if b.label}<p class="rv-section-label">{b.label}</p>{/if}

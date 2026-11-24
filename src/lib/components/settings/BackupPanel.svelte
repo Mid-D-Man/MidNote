@@ -2,7 +2,8 @@
   // Round 45 — Settings -> Backup & restore.
   //
   //   Back up everything   one .mdix file (plain DixScript text): notes, todos, boards (and Trash),
-  //                        tags, themes, icons, imported fonts and look-and-feel settings
+  //                        tags, themes, icons, imported fonts, the pictures of PowerPoint / Word / PDF
+  //                        notes and look-and-feel settings
   //                        (utils/backup.ts + backupMdix.ts have the format and its rules).
   //                        With "Protect with a password" it saves midnote-backup-DATE.mdix.enc and
   //                        its key file midnote-backup-DATE.mdix.key instead (utils/backupFiles.ts).
@@ -19,7 +20,8 @@
   import Button from "$lib/components/ui/Button/Button.svelte";
   import Switch from "$lib/components/ui/Switch/Switch.svelte";
   import { askPassword } from "$lib/stores/lockPrompt.svelte";
-  import { beginGlobalBusy, endGlobalBusy } from "$lib/stores/globalBusy.svelte";
+  import { runBusy, setGlobalBusyLabel } from "$lib/stores/globalBusy.svelte";
+  import { exportDocImages, noteIdsWithDocImages, restoreDocImages } from "$lib/utils/docImageStore";
   import { entries, refresh } from "$lib/stores/entries.svelte";
   import { sync as syncTags } from "$lib/stores/tags.svelte";
   import { customThemes, restoreCustomTheme } from "$lib/stores/customThemes.svelte";
@@ -113,20 +115,7 @@
     notice = null;
     report = null;
     try {
-      const file = await buildBackup({
-        entries: () => storage.loadEntries(),
-        tags: () => storage.loadKnownTags(),
-        themes: () => customThemes.map((t) => ({ ...t })),
-        icons: () => customIcons.map((i) => ({ ...i })),
-        fonts: () => exportCustomFonts(),
-        setting: (k) => {
-          try {
-            return localStorage.getItem(k);
-          } catch {
-            return null;
-          }
-        },
-      });
+      // the password first: whether the file is protected decides whether the pictures of locked notes go in
       let password: string | undefined;
       if (protect) {
         if (!cryptoAvailable()) {
@@ -144,13 +133,34 @@
         }
         password = p;
       }
-      if (password) beginGlobalBusy("Encrypting…");
-      let out;
-      try {
-        out = await makeBackupFiles(file, { password });
-      } finally {
-        if (password) endGlobalBusy();
-      }
+      const file = await runBusy(
+        "Gathering your backup…",
+        () =>
+          buildBackup(
+            {
+              entries: () => storage.loadEntries(),
+              tags: () => storage.loadKnownTags(),
+              themes: () => customThemes.map((t) => ({ ...t })),
+              icons: () => customIcons.map((i) => ({ ...i })),
+              fonts: () => exportCustomFonts(),
+              docImages: async (ids, max) => {
+                const r = await exportDocImages(ids, max);
+                return { images: r.images.map((i) => ({ noteId: i.noteId, kind: i.meta.kind, at: i.meta.at, mime: i.meta.mime, bytes: i.bytes })), leftOut: r.leftOut };
+              },
+              setting: (k) => {
+                try {
+                  return localStorage.getItem(k);
+                } catch {
+                  return null;
+                }
+              },
+            },
+            new Date(),
+            { encrypted: password !== undefined }
+          )
+      );
+      // encrypting is slow on purpose (Argon2id): its spinner shows at once; writing a plain file only shows one if it takes a moment
+      const out = await runBusy(password ? "Encrypting…" : "Writing the backup…", () => makeBackupFiles(file, { password }), { delayMs: password ? 0 : 250 });
       const total = out.reduce((n, f) => n + f.bytes.length, 0);
       const saved = await downloadFiles(out.map((f) => ({ name: f.name, blob: new Blob([f.bytes as BlobPart], { type: f.type }) })));
       if (saved > 0) {
@@ -161,11 +171,13 @@
           /* not worth failing the backup over */
         }
         lastBackup = iso;
-        breadcrumb(`backup: saved ${out.length} file${out.length === 1 ? "" : "s"} ${formatSize(total)}${password ? " (encrypted)" : ""} (${file.counts.notes}n ${file.counts.todos}t ${file.counts.boards}b ${file.counts.themes}th ${file.counts.icons}ic ${file.counts.fonts}f)`);
+        breadcrumb(`backup: saved ${out.length} file${out.length === 1 ? "" : "s"} ${formatSize(total)}${password ? " (encrypted)" : ""} (${file.counts.notes}n ${file.counts.todos}t ${file.counts.boards}b ${file.counts.themes}th ${file.counts.icons}ic ${file.counts.fonts}f ${file.counts.pictures}pic${file.counts.picturesLeftOut ? ` +${file.counts.picturesLeftOut} left out` : ""})`);
         if (saved < out.length) {
           pushToast({ title: "Only part of the backup was saved", description: "A password-protected backup needs both the .mdix.enc file and its .mdix.key file. Back up again and save both." });
         } else {
-          pushToast({ title: "Backup saved", description: password ? `${formatSize(total)} — keep the backup AND its key file, and remember the password.` : `${formatSize(total)} — keep it somewhere safe.` });
+          const left = file.counts.picturesLeftOut;
+          const leftNote = left > 0 ? ` ${left} document picture${left === 1 ? " was" : "s were"} left out to keep it a sensible size.` : "";
+          pushToast({ title: "Backup saved", description: (password ? `${formatSize(total)} — keep the backup AND its key file, and remember the password.` : `${formatSize(total)} — keep it somewhere safe.`) + leftNote });
         }
       } else {
         pushToast({ title: "Backup not saved", description: "The save was cancelled." });
@@ -203,13 +215,7 @@
         breadcrumb("backup: password prompt cancelled");
         return null;
       }
-      beginGlobalBusy("Unlocking…");
-      let r;
-      try {
-        r = await openClassified(c, p);
-      } finally {
-        endGlobalBusy();
-      }
+      const r = await runBusy("Unlocking…", () => openClassified(c, p), { delayMs: 0 });
       if (r.ok) return r.backup;
       if ("wrongPassword" in r) {
         breadcrumb("backup: wrong password or key file");
@@ -237,7 +243,7 @@
       }
       backup = await openWithPassword(c);
     } else {
-      const r = await openClassified(c, null);
+      const r = await runBusy("Reading the backup…", () => openClassified(c, null));
       if (!r.ok) {
         notice = { kind: "error", text: r.message };
         return;
@@ -245,7 +251,8 @@
       backup = r.backup;
     }
     if (!backup) return;
-    pending = { backup, plan: planRestore(backup, snapshot(), storage.normalizeEntry) };
+    const docImageNoteIds = backup.docImages.length > 0 ? await noteIdsWithDocImages() : new Set<string>();
+    pending = { backup, plan: planRestore(backup, { ...snapshot(), docImageNoteIds }, storage.normalizeEntry) };
   }
 
   async function handlePicked(e: Event) {
@@ -319,9 +326,15 @@
   }
 
   const mediaToAdd = $derived(pending ? pending.plan.themes.length + pending.plan.icons.length + pending.plan.fonts.length : 0);
+  const picturesToAdd = $derived(pending ? pending.plan.docImages.reduce((n, g) => n + g.items.length, 0) : 0);
   const planSize = $derived(
     pending
-      ? pending.plan.addEntries.length + pending.plan.updateEntries.length + pending.plan.themes.length + pending.plan.icons.length + pending.plan.fonts.length
+      ? pending.plan.addEntries.length +
+          pending.plan.updateEntries.length +
+          pending.plan.themes.length +
+          pending.plan.icons.length +
+          pending.plan.fonts.length +
+          pending.plan.docImages.length
       : 0
   );
 
@@ -330,6 +343,7 @@
       saveEntry: async (entry) => {
         await storage.upsertEntry(entry, { touch: false }); // keep its own last-modified
       },
+      addDocImages: (noteId, images) => restoreDocImages(noteId, images.map((i) => ({ meta: { key: i.key, kind: i.kind, at: i.at, mime: i.mime, size: i.size }, bytes: i.bytes }))),
       addTheme: (t) => restoreCustomTheme(t),
       addIcon: (i) => restoreCustomIcon(i),
       addFont: async (f) => {
@@ -349,11 +363,20 @@
   async function handleRestore() {
     if (!pending || busy) return;
     const { plan } = pending;
-    breadcrumb(`backup: restoring (${plan.addEntries.length} add, ${plan.updateEntries.length} update, ${plan.themes.length}th ${plan.icons.length}ic ${plan.fonts.length}f)`);
+    breadcrumb(`backup: restoring (${plan.addEntries.length} add, ${plan.updateEntries.length} update, ${plan.themes.length}th ${plan.icons.length}ic ${plan.fonts.length}f ${plan.docImages.length} picture notes)`);
     busy = "restoring";
     progress = { done: 0, total: planSize };
     try {
-      const r = await applyRestore(plan, makeSink(), (done, total) => (progress = { done, total }));
+      // the spinner shows at once, and its words follow the count
+      const r = await runBusy(
+        "Restoring…",
+        () =>
+          applyRestore(plan, makeSink(), (done, total) => {
+            progress = { done, total };
+            setGlobalBusyLabel(`Restoring… ${done} / ${total}`);
+          }),
+        { delayMs: 0 }
+      );
       refresh();
       syncTags();
       // Reminders live in the phone's alarm clock, not in the file: set them again for what came back.
@@ -436,6 +459,7 @@
           pending.backup.counts.themes ? plural(pending.backup.counts.themes, "theme") : "",
           pending.backup.counts.icons ? plural(pending.backup.counts.icons, "icon") : "",
           pending.backup.counts.fonts ? plural(pending.backup.counts.fonts, "font") : "",
+          pending.backup.counts.pictures ? plural(pending.backup.counts.pictures, "document picture") : "",
         ]
           .filter(Boolean)
           .join(" · ")}.
@@ -447,6 +471,9 @@
           {pending.plan.addEntries.length} to add · {pending.plan.updateEntries.length} to update · {pending.plan.keptEntries} already here
           {#if mediaToAdd > 0}
             · {mediaToAdd} theme/icon/font{mediaToAdd === 1 ? "" : "s"} to add
+          {/if}
+          {#if picturesToAdd > 0}
+            · {picturesToAdd} document picture{picturesToAdd === 1 ? "" : "s"} to add
           {/if}
         </p>
         <p class="line">The newer copy is kept. Nothing is deleted.</p>

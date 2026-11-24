@@ -408,8 +408,11 @@ export class PdfDoc {
     return r instanceof PdfName ? r.name : null;
   }
 
-  /** The decoded bytes of a stream (filters undone). Null when the value isn't a stream or its packing is one we can't undo (pictures). */
-  async streamBytes(v: PdfValue): Promise<Uint8Array | null> {
+  /**
+   * The decoded bytes of a stream (filters undone). Null when the value isn't a stream or its packing is one we can't undo (pictures).
+   * With `jpegOk`, a stream whose LAST filter is DCTDecode gives the JPEG file itself (a JPEG is already a picture a browser can draw).
+   */
+  async streamBytes(v: PdfValue, jpegOk = false): Promise<Uint8Array | null> {
     const s = this.resolve(v);
     if (!(s instanceof PdfStream)) return null;
     let data: Uint8Array = this.bytes.subarray(s.start, s.end);
@@ -440,6 +443,7 @@ export class PdfDoc {
       else if (name === "ASCII85Decode") data = ascii85Decode(data);
       else if (name === "RunLengthDecode") data = runLengthDecode(data);
       else if (name === "Crypt") continue;
+      else if (jpegOk && name === "DCTDecode" && idx === filters.length - 1) break; // the bytes now are a JPEG file
       else return null; // DCTDecode, JPXDecode, CCITTFaxDecode, JBIG2Decode: pictures, not text
     }
     return data;

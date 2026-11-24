@@ -3,7 +3,9 @@
   // It draws from the note's saved HTML: noteHtmlToMarkdown (the lines and the editor's own formatting) -> parseMarkdown
   // (a tree) -> real elements. Nothing is ever put on the page as HTML, and the note itself is never changed or saved here.
   // Colours, sizes and fonts chosen in the editor are not shown: this page has its own look.
+  import { onMount } from "svelte";
   import { FORMAT_OPTIONS, blocksForFormat, formatLabel, type ReadingFormat } from "$lib/utils/readingFormat";
+  import { loadDocImageMeta, type DocImageMeta } from "$lib/utils/docImageStore";
   import { noteFont } from "$lib/stores/settings.svelte";
   import { codeZoom, previewCodeZoom, saveCodeZoom, setCodeZoom } from "$lib/stores/readingView.svelte";
   import { ZOOM_MAX, ZOOM_MIN, blocksHaveCode, stepZoom, zoomPercent } from "$lib/utils/codeZoom";
@@ -16,6 +18,7 @@
     html,
     pageKey,
     format,
+    noteId = "",
     bodyStyle = "",
     fontSize = 16,
     onEdit,
@@ -28,6 +31,8 @@
     pageKey: string;
     /** How the note is read: Markdown, plain text, JSON, a table, or code in some language (utils/readingFormat.ts). */
     format: ReadingFormat;
+    /** The note, so the pictures that came with a PowerPoint / PDF / Word file can be found and drawn in place. */
+    noteId?: string;
     bodyStyle?: string;
     fontSize?: number;
     onEdit: () => void;
@@ -35,7 +40,12 @@
     barHeight?: number;
   } = $props();
 
-  const blocks = $derived(blocksForFormat(html, format));
+  // the pictures a document note came with (kept on this phone, not in the note); looked up once when the view opens
+  let pictures = $state<DocImageMeta[]>([]);
+  onMount(() => {
+    if (noteId) void loadDocImageMeta(noteId).then((m) => (pictures = m));
+  });
+  const blocks = $derived(blocksForFormat(html, format, pictures));
   const signature = $derived(`${pageKey}|${format}|${html.length}`);
   // code, JSON and tables use the full width; prose keeps a comfortable reading column
   const wide = $derived(format === "json" || format === "csv" || format.startsWith("code:"));
@@ -256,6 +266,24 @@
     border: solid #fff;
     border-width: 0 2px 2px 0;
     transform: rotate(45deg);
+  }
+  .doc :global(.rv-img) {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    margin: 0.8em auto;
+    border-radius: var(--radius-sm);
+  }
+  .doc :global(.rv-img-wait) {
+    min-height: 96px;
+    margin: 0.8em 0;
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+  }
+  .doc :global(.rv-img-missing) {
+    margin: 0.8em 0;
+    font-size: 0.8em;
+    color: var(--text-faint);
   }
   /* a slide of a presentation / a page of a PDF: a framed card with a small label on top */
   .doc :global(.rv-section) {
