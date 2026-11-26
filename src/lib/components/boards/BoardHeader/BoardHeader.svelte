@@ -15,6 +15,8 @@
   import Button from "$lib/components/ui/Button/Button.svelte";
   import Spinner from "$lib/components/ui/Spinner/Spinner.svelte";
   import Sheet from "$lib/components/ui/Sheet/Sheet.svelte";
+  import { actionOrder } from "$lib/stores/actionOrder.svelte";
+  import { orderFor, BOARD_ACTIONS } from "$lib/utils/actionOrder";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog/ConfirmDialog.svelte";
   import TagSelector from "$lib/components/shared/TagSelector/TagSelector.svelte";
   import ThemeSectionsSheet from "$lib/components/shared/ThemeSectionsSheet/ThemeSectionsSheet.svelte";
@@ -42,7 +44,8 @@
     board: Board;
     availableTags: string[];
     onTagsChange: (tags: string[]) => void;
-    onSave: () => void;
+    /** Saves. Returns true when something changed since the editor opened; `true` as the argument is the Save button itself. */
+    onSave: (explicit?: boolean) => boolean | void;
     // Silent save (no toast/spinner) for the title field's onblur — see
     // the title <input> below. Separate from onSave, which is the
     // explicit Save button and deliberately DOES show one.
@@ -98,15 +101,17 @@
   async function handleSave() {
     breadcrumb("board header: Save tapped");
     isSaving = true;
-    onSave();
+    onSave(true);
     pushToast({ title: "Board saved", description: "Your board has been saved successfully." });
     setTimeout(() => (isSaving = false), 400);
   }
 
   function handleBack() {
     breadcrumb("board header: Back tapped");
-    onSave();
+    const changed = onSave();
     onBack();
+    // leaving saves too: say so when it saved something new (looking at an entry and going back says nothing)
+    if (changed === true) pushToast({ title: "Saved", description: "Your changes were saved.", durationMs: 2000 });
   }
 
   function handleDeleteTapped() {
@@ -267,6 +272,9 @@
     }
     reminderOpen = true;
   }
+
+  // the rows of the Actions sheet, in the order chosen in Settings (the default order otherwise)
+  const actionRows = $derived(orderFor(BOARD_ACTIONS, actionOrder.value));
 </script>
 
 <header class="editor-header" style={headerStyle}>
@@ -338,34 +346,44 @@
 <ExportAsSheet bind:open={exportAsOpen} entry={board} />
 <ReminderSheet bind:open={reminderOpen} entry={board} />
 
-<Sheet bind:open={moreOpen} side="bottom" title="Actions">
-  <div class="action-list">
+<!-- The rows of this sheet are snippets, drawn in the order the user chose (Settings -> Actions; utils/actionOrder.ts) -->
+{#snippet row_pin()}
     <button class="action-row" onclick={handleTogglePin} aria-label={board.isPinned ? "Unpin board" : "Pin board"}>
       <svg viewBox="0 0 24 24" width="18" height="18" fill={board.isPinned ? "currentColor" : "none"} stroke="currentColor" stroke-width="2">
         <path d="M12 17v5" /><path d="M9 3h6l-1 7 3 3H7l3-3z" />
       </svg>
       <span>{board.isPinned ? "Unpin" : "Pin to top"}</span>
     </button>
-    <!-- Round 39: no Comments row here. Comments are a note feature (one list per page);
-         a board has no pages. Existing comments in saved boards stay in storage, hidden. -->
+{/snippet}
+
+{#snippet row_export()}
     <button class="action-row" onclick={handleOpenExportAs} aria-label="Export as">
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><polyline points="14 3 14 8 19 8" /><line x1="9" y1="14" x2="15" y2="14" /><line x1="9" y1="17.5" x2="13" y2="17.5" />
       </svg>
       <span>Export as…</span>
     </button>
+{/snippet}
+
+{#snippet row_reminder()}
     <button class="action-row" onclick={handleOpenReminder} aria-label="Reminder">
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.7 21a2 2 0 0 1-3.4 0" />
       </svg>
       <span>{reminderDueAt(board) ? `Reminder · ${formatReminderWhen(reminderDueAt(board) as string)}` : "Reminder"}</span>
     </button>
+{/snippet}
+
+{#snippet row_readAloud()}
     <button class="action-row" onclick={handleReadAloud} aria-label={isReading ? "Stop reading" : "Read aloud"}>
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
         <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><path d="M15.5 8.5a5 5 0 0 1 0 7" /><path d="M19 5a10 10 0 0 1 0 14" />
       </svg>
       <span>{isReading ? "Stop reading" : "Read aloud"}</span>
     </button>
+{/snippet}
+
+{#snippet row_share()}
     <button class="action-row" onclick={handleShare} aria-label="Share">
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
         <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" />
@@ -373,12 +391,18 @@
       </svg>
       <span>Share</span>
     </button>
+{/snippet}
+
+{#snippet row_duplicate()}
     <button class="action-row" onclick={handleDuplicate}>
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
         <rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
       </svg>
       <span>Duplicate</span>
     </button>
+{/snippet}
+
+{#snippet row_copy()}
     <button class="action-row" onclick={handleCopyContents}>
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
@@ -386,6 +410,9 @@
       </svg>
       <span>Copy contents</span>
     </button>
+{/snippet}
+
+{#snippet row_theme()}
     <button class="action-row" onclick={handleOpenThemeSheet}>
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
         <circle cx="12" cy="12" r="9" /><path d="M12 3a6 6 0 0 0 0 12 3 3 0 0 1 0 6 9 9 0 1 1 0-18z" />
@@ -393,6 +420,23 @@
       </svg>
       <span>Theme</span>
     </button>
+{/snippet}
+
+<Sheet bind:open={moreOpen} side="bottom" title="Actions">
+  <div class="action-list">
+    <!-- Round 39: no Comments row here. Comments are a note feature (one list per page);
+         a board has no pages. Existing comments in saved boards stay in storage, hidden. -->
+    {#each actionRows as id (id)}
+      {#if id === "pin"}{@render row_pin()}
+      {:else if id === "export"}{@render row_export()}
+      {:else if id === "reminder"}{@render row_reminder()}
+      {:else if id === "readAloud"}{@render row_readAloud()}
+      {:else if id === "share"}{@render row_share()}
+      {:else if id === "duplicate"}{@render row_duplicate()}
+      {:else if id === "copy"}{@render row_copy()}
+      {:else if id === "theme"}{@render row_theme()}
+      {/if}
+    {/each}
   </div>
 </Sheet>
 

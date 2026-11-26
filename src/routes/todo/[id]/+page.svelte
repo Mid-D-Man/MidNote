@@ -8,6 +8,7 @@
   import TodoStepsSection from "$lib/components/todos/TodoStepsSection/TodoStepsSection.svelte";
   import TodoAnnotationsSidebar from "$lib/components/todos/TodoAnnotationsSidebar/TodoAnnotationsSidebar.svelte";
   import { saveEntry } from "$lib/stores/entries.svelte";
+  import { changedSince, snapshotOf } from "$lib/utils/entryChanged";
   import { todoTags, sync as syncTags } from "$lib/stores/tags.svelte";
   import { createTodo, getEntry, generateId } from "$lib/storage";
   import { breadcrumb } from "$lib/debug/log.svelte";
@@ -63,6 +64,7 @@
         // Round 47: opened from inside a folder (?folder=...): file the new entry there. Untracked on
         // purpose - this effect must not re-run (and reset the editor) every time an entry changes.
         todo = createTodo(untrack(() => parentFromUrl($page.url)));
+        openedSnapshot = null;
         // untrack is load-bearing here, not cosmetic — this is the exact
         // bug that caused the hang. load() runs inside the $effect below,
         // which also WRITES `todo` (the reassignment above). Reading
@@ -79,6 +81,7 @@
       const existing = getEntry(id);
       if (existing && existing.type === "todo") {
         todo = existing;
+        openedSnapshot = snapshotOf(existing);
         currentCategory = untrack(() => todo.categories[0]) ?? "Steps";
         breadcrumb(
           `todo: loaded ${id}, ${untrack(() => todo.steps.length)} steps, ${untrack(() => todo.categories.length)} categories`
@@ -93,9 +96,16 @@
     }
   }
 
-  function persist() {
-    if (!todo.title.trim() && todo.steps.length === 0) return;
+  // the todo as it was when it was opened (or when the Save button last said "Saved"): leaving says "Saved" if it has changed since
+  let openedSnapshot: string | null = null;
+
+  /** Saves the todo. True when it has changed since it was opened (so leaving can say "Saved"); `explicit` is the Save button. */
+  function persist(explicit?: boolean): boolean {
+    if (!todo.title.trim() && todo.steps.length === 0) return false;
+    const changed = changedSince(openedSnapshot, todo);
     saveEntry(todo);
+    if (explicit === true) openedSnapshot = snapshotOf(todo);
+    return changed;
   }
 
   function setTags(tags: string[]) {
@@ -323,7 +333,7 @@
       <input
         type="text"
         bind:value={todo.title}
-        onblur={persist}
+        onblur={() => persist()}
         placeholder="Todo title..."
         class="todo-title"
       />

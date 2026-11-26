@@ -160,6 +160,20 @@
           <span>Tags</span>
         </button>
       {/if}
+      {#if onCopy}
+        <button class="menu-item" aria-label="Copy content" onclick={() => pick(onCopy, "copy content")}>
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+          </svg>
+          <span>Copy content</span>
+        </button>
+      {/if}
+      <button class="menu-item" onclick={() => pick(onDownload, "download")}>
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M5 21h14" />
+        </svg>
+        <span>Download</span>
+      </button>
       <button class="menu-item" onclick={() => pick(onToggleStrikethrough, "strikethrough")}>
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
           <line x1="4" y1="12" x2="20" y2="12" />
@@ -188,14 +202,6 @@
           <span>Move to folder</span>
         </button>
       {/if}
-      {#if onCopy}
-        <button class="menu-item" aria-label="Copy content" onclick={() => pick(onCopy, "copy content")}>
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-          </svg>
-          <span>Copy content</span>
-        </button>
-      {/if}
       {#if onShare}
         <button class="menu-item" aria-label="Share" onclick={() => pick(onShare, "share")}>
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
@@ -205,12 +211,6 @@
           <span>Share</span>
         </button>
       {/if}
-      <button class="menu-item" onclick={() => pick(onDownload, "download")}>
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M5 21h14" />
-        </svg>
-        <span>Download</span>
-      </button>
       <button
         class="menu-item danger"
         onclick={handleDeleteTapped}

@@ -8,6 +8,8 @@
   import Button from "$lib/components/ui/Button/Button.svelte";
   import Spinner from "$lib/components/ui/Spinner/Spinner.svelte";
   import Sheet from "$lib/components/ui/Sheet/Sheet.svelte";
+  import { actionOrder } from "$lib/stores/actionOrder.svelte";
+  import { orderFor, NOTE_ACTIONS } from "$lib/utils/actionOrder";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog/ConfirmDialog.svelte";
   import TagSelector from "$lib/components/shared/TagSelector/TagSelector.svelte";
   import { pushToast } from "$lib/stores/toast.svelte";
@@ -57,7 +59,8 @@
     note: Note;
     availableTags: string[];
     onTagsChange: (tags: string[]) => void;
-    onSave: () => void;
+    /** Saves. Returns true when something changed since the editor opened; `true` as the argument is the Save button itself. */
+    onSave: (explicit?: boolean) => boolean | void;
     onBack: () => void;
     // Page switching itself lives in the route page (it owns the actual
     // content-binding logic — see note/[id]/+page.svelte's
@@ -224,15 +227,17 @@
   async function handleSave() {
     breadcrumb("note header: Save tapped");
     isSaving = true;
-    onSave();
+    onSave(true);
     pushToast({ title: "Note saved", description: "Your note has been saved successfully." });
     setTimeout(() => (isSaving = false), 400);
   }
 
   function handleBack() {
     breadcrumb("note header: Back tapped");
-    onSave();
+    const changed = onSave();
     onBack();
+    // leaving saves too: say so when it saved something new (looking at an entry and going back says nothing)
+    if (changed === true) pushToast({ title: "Saved", description: "Your changes were saved.", durationMs: 2000 });
   }
 
   // BUGFIX (data-safety) — same reasoning/fix as CardOverflowMenu's
@@ -460,6 +465,9 @@
     }
     reminderOpen = true;
   }
+
+  // the rows of the Actions sheet, in the order chosen in Settings (the default order otherwise)
+  const actionRows = $derived(orderFor(NOTE_ACTIONS, actionOrder.value));
 </script>
 
 <header class="editor-header" style={headerStyle}>
@@ -515,68 +523,98 @@
 <ExportAsSheet bind:open={exportAsOpen} entry={note} />
 <ReminderSheet bind:open={reminderOpen} entry={note} />
 
-<Sheet bind:open={moreOpen} side="bottom" title="Actions">
-  <div class="action-list">
+<!-- The rows of this sheet are snippets, drawn in the order the user chose (Settings -> Actions; utils/actionOrder.ts) -->
+{#snippet row_reading()}
     <button class="action-row" onclick={handleReadingView} aria-label={reading ? "Back to editing" : "Reading view"}>
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         {#if reading}<path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />{:else}<path d="M2 5.5A1.5 1.5 0 0 1 3.5 4H9a3 3 0 0 1 3 3v13a2.5 2.5 0 0 0-2.5-2.5H3.5A1.5 1.5 0 0 1 2 16Z" /><path d="M22 5.5A1.5 1.5 0 0 0 20.5 4H15a3 3 0 0 0-3 3v13a2.5 2.5 0 0 1 2.5-2.5h6A1.5 1.5 0 0 0 22 16Z" />{/if}
       </svg>
       <span>{reading ? "Back to editing" : "Reading view"}</span>
     </button>
+{/snippet}
+
+{#snippet row_pin()}
     <button class="action-row" onclick={handleTogglePin} aria-label={note.isPinned ? "Unpin note" : "Pin note"}>
       <svg viewBox="0 0 24 24" width="18" height="18" fill={note.isPinned ? "currentColor" : "none"} stroke="currentColor" stroke-width="2">
         <path d="M12 17v5" /><path d="M9 3h6l-1 7 3 3H7l3-3z" />
       </svg>
       <span>{note.isPinned ? "Unpin" : "Pin to top"}</span>
     </button>
+{/snippet}
+
+{#snippet row_comments()}
     <button class="action-row" onclick={handleOpenComments} aria-label="Comments">
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z" />
       </svg>
       <span>Comments{pageCommentCount > 0 ? ` (${pageCommentCount})` : ""}</span>
     </button>
+{/snippet}
+
+{#snippet row_export()}
     <button class="action-row" onclick={handleOpenExportAs} aria-label="Export as">
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><polyline points="14 3 14 8 19 8" /><line x1="9" y1="14" x2="15" y2="14" /><line x1="9" y1="17.5" x2="13" y2="17.5" />
       </svg>
       <span>Export as…</span>
     </button>
+{/snippet}
+
+{#snippet row_reminder()}
     <button class="action-row" onclick={handleOpenReminder} aria-label="Reminder">
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.7 21a2 2 0 0 1-3.4 0" />
       </svg>
       <span>{reminderDueAt(note) ? `Reminder · ${formatReminderWhen(reminderDueAt(note) as string)}` : "Reminder"}</span>
     </button>
+{/snippet}
+
+{#snippet row_find()}
     <button class="action-row" onclick={handleFindReplace} aria-label="Find and replace">
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
         <circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.5" y2="16.5" />
       </svg>
       <span>Find &amp; replace</span>
     </button>
+{/snippet}
+
+{#snippet row_select()}
     <button class="action-row" onclick={handleSelectRange} aria-label="Select text between two texts">
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M4 7V5h3M17 5h3v2M20 17v2h-3M7 19H4v-2" /><line x1="8" y1="12" x2="16" y2="12" /><polyline points="13 9 16 12 13 15" />
       </svg>
       <span>Select text…</span>
     </button>
+{/snippet}
+
+{#snippet row_wordCount()}
     <button class="action-row" onclick={handleOpenWordCount} aria-label="Word count">
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M4 7h16M4 12h10M4 17h13" /><path d="M18 14l2 2 3-4" />
       </svg>
       <span>Word count</span>
     </button>
+{/snippet}
+
+{#snippet row_askAi()}
     <button class="action-row" onclick={handleAskAi} aria-label="Ask AI">
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M18 6l-2.5 2.5M8.5 15.5 6 18" />
       </svg>
       <span>Ask AI</span>
     </button>
+{/snippet}
+
+{#snippet row_readAloud()}
     <button class="action-row" onclick={handleReadAloud} aria-label={isReading ? "Stop reading" : "Read aloud"}>
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
         <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><path d="M15.5 8.5a5 5 0 0 1 0 7" /><path d="M19 5a10 10 0 0 1 0 14" />
       </svg>
       <span>{isReading ? "Stop reading" : "Read aloud"}</span>
     </button>
+{/snippet}
+
+{#snippet row_share()}
     <button class="action-row" onclick={handleShare} aria-label="Share">
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
         <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" />
@@ -584,12 +622,18 @@
       </svg>
       <span>Share</span>
     </button>
+{/snippet}
+
+{#snippet row_duplicate()}
     <button class="action-row" onclick={handleDuplicate}>
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
         <rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
       </svg>
       <span>Duplicate</span>
     </button>
+{/snippet}
+
+{#snippet row_copy()}
     <button class="action-row" onclick={handleCopyContents}>
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
@@ -597,6 +641,9 @@
       </svg>
       <span>Copy contents</span>
     </button>
+{/snippet}
+
+{#snippet row_theme()}
     <button class="action-row" onclick={handleOpenThemeSheet}>
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
         <circle cx="12" cy="12" r="9" /><path d="M12 3a6 6 0 0 0 0 12 3 3 0 0 1 0 6 9 9 0 1 1 0-18z" />
@@ -604,12 +651,37 @@
       </svg>
       <span>Theme</span>
     </button>
+{/snippet}
+
+{#snippet row_pages()}
     <button class="action-row" onclick={handleOpenPages} aria-label="Pages">
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" />
       </svg>
       <span>Pages{note.pages.length > 0 ? ` (${1 + note.pages.length})` : ""}</span>
     </button>
+{/snippet}
+
+<Sheet bind:open={moreOpen} side="bottom" title="Actions">
+  <div class="action-list">
+    {#each actionRows as id (id)}
+      {#if id === "reading"}{@render row_reading()}
+      {:else if id === "pin"}{@render row_pin()}
+      {:else if id === "comments"}{@render row_comments()}
+      {:else if id === "export"}{@render row_export()}
+      {:else if id === "reminder"}{@render row_reminder()}
+      {:else if id === "find"}{@render row_find()}
+      {:else if id === "select"}{@render row_select()}
+      {:else if id === "wordCount"}{@render row_wordCount()}
+      {:else if id === "askAi"}{@render row_askAi()}
+      {:else if id === "readAloud"}{@render row_readAloud()}
+      {:else if id === "share"}{@render row_share()}
+      {:else if id === "duplicate"}{@render row_duplicate()}
+      {:else if id === "copy"}{@render row_copy()}
+      {:else if id === "theme"}{@render row_theme()}
+      {:else if id === "pages"}{@render row_pages()}
+      {/if}
+    {/each}
   </div>
 </Sheet>
 

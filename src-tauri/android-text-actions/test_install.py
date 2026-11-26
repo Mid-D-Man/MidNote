@@ -49,7 +49,7 @@ def slurp(path):
         return f.read()
 
 
-def make_project(root, package="com.midmanstudio.midnote", extra_manifest="", main_text=None, extra_main=False):
+def make_project(root, package="com.midmanstudio.midnote", extra_manifest="", main_text=None, extra_main=False, with_reader=False):
     main = os.path.join(root, "app", "src", "main")
     pkg_dir = os.path.join(main, "java", *package.split("."))
     os.makedirs(pkg_dir)
@@ -57,6 +57,10 @@ def make_project(root, package="com.midmanstudio.midnote", extra_manifest="", ma
         f.write(MANIFEST % extra_manifest)
     with open(os.path.join(pkg_dir, "MainActivity.kt"), "w", encoding="utf-8") as f:
         f.write(main_text if main_text is not None else MAIN_ACTIVITY % package)
+    if with_reader:
+        # the read-aloud service's Kotlin is in the build (src-tauri/android-reader/install.py puts it next to MainActivity.kt)
+        with open(os.path.join(pkg_dir, "ReaderBridge.kt"), "w", encoding="utf-8") as f:
+            f.write("package %s\n" % package)
     if extra_main:
         other = os.path.join(main, "java", "other")
         os.makedirs(other)
@@ -181,7 +185,7 @@ class InstallerTest(unittest.TestCase):
         text = slurp(kt).replace("class ProcessTextNoteActivity", "class SomethingElse")
         with open(kt, "w", encoding="utf-8") as f:
             f.write(text)
-        main, pkg_dir = make_project(self.gen)
+        main, pkg_dir = make_project(self.gen, with_reader=True)
         before = tree_files(main)
         r = run_installer(self.gen, script_dir=folder)
         self.assertEqual(r.returncode, 1)
@@ -195,10 +199,49 @@ class InstallerTest(unittest.TestCase):
         text = slurp(kt) + "\nval x = R.string.app_name\n"
         with open(kt, "w", encoding="utf-8") as f:
             f.write(text)
-        make_project(self.gen)
+        make_project(self.gen, with_reader=True)
         r = run_installer(self.gen, script_dir=folder)
         self.assertEqual(r.returncode, 1)
         self.assertIn("R.*", r.stderr)
+
+    def test_with_the_reader_in_the_build_read_aloud_runs_without_opening_the_app(self):
+        main, pkg_dir = make_project(self.gen, with_reader=True)
+        r = run_installer(self.gen)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("without opening MidNote", r.stdout)
+        kt = slurp(os.path.join(pkg_dir, "ProcessTextActivities.kt"))
+        self.assertIn("ReaderHub.start", kt)
+        self.assertIn("ReaderPrefs.load", kt)
+        self.assertIn("object SelectionReader", kt)
+        # the Read aloud activity never launches the app; only Make a note does
+        read = kt[kt.index("class ProcessTextReadActivity") : kt.index("class ProcessTextNoteActivity")]
+        self.assertNotIn("startActivity", read)
+        self.assertNotIn("getLaunchIntentForPackage", read)
+        note = kt[kt.index("class ProcessTextNoteActivity") :]
+        self.assertIn("startActivity(launch)", note)
+
+    def test_without_the_reader_the_older_activities_are_installed(self):
+        main, pkg_dir = make_project(self.gen)
+        r = run_installer(self.gen)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("Read aloud opens MidNote", r.stdout)
+        kt = slurp(os.path.join(pkg_dir, "ProcessTextActivities.kt"))
+        self.assertNotIn("ReaderHub", kt)
+        self.assertNotIn("ReaderPrefs", kt)
+        self.assertIn("class ProcessTextReadActivity", kt)
+        self.assertIn("class ProcessTextNoteActivity", kt)
+        self.assertIn("startActivity(launch)", kt)
+        # whichever variant is chosen, the file is called ProcessTextActivities.kt and the .txt is not copied
+        self.assertFalse(os.path.exists(os.path.join(pkg_dir, "ProcessTextActivities.forward.txt")))
+
+    def test_both_shipped_variants_are_balanced_and_define_both_activities(self):
+        for name in ("ProcessTextActivities.kt", "ProcessTextActivities.forward.txt"):
+            kt = slurp(os.path.join(HERE, "kotlin", name))
+            self.assertEqual(kt.count("{"), kt.count("}"), name)
+            self.assertEqual(len(re.findall(r"^package ", kt, re.MULTILINE)), 1, name)
+            self.assertIn("class ProcessTextReadActivity", kt, name)
+            self.assertIn("class ProcessTextNoteActivity", kt, name)
+            self.assertNotIn("setResult", kt, name)
 
     def test_the_shipped_kotlin_is_what_it_should_be(self):
         kt = slurp(os.path.join(HERE, "kotlin", "ProcessTextActivities.kt"))

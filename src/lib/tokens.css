@@ -45,6 +45,9 @@
   --danger-wash: rgba(229, 72, 77, 0.12);
   --success: #4fae7a;
   --success-wash: rgba(79, 174, 122, 0.12);
+
+  /* Pressed feedback: a slight lift on dark surfaces (see "Press feedback" below) */
+  --press-filter: brightness(1.18);
 }
 
 [data-theme="light"] {
@@ -72,6 +75,9 @@
   --danger-wash: rgba(209, 61, 66, 0.10);
   --success: #3f9468;
   --success-wash: rgba(63, 148, 104, 0.10);
+
+  /* ...and a slight dip on light ones */
+  --press-filter: brightness(0.92);
 }
 
 :root {
@@ -93,6 +99,28 @@
 
 * {
   box-sizing: border-box;
+}
+
+/*
+  Press feedback. Android's own tap flash is a rectangle drawn over the element's box: it ignores the element's rounded
+  corners (pills, circles, cards). It is turned off here (the property is inherited, so one rule on the root covers
+  everything) and every tappable thing shows a pressed state of its own: a filter on the element itself, which follows its
+  exact shape, whatever that is, and never changes its layout.
+
+  :where() keeps these rules at zero specificity, so a component that styles its own :active (or sets its own filter or
+  transition) simply wins. Disabled things don't react.
+*/
+html {
+  -webkit-tap-highlight-color: transparent;
+}
+
+:where(button, [role="button"], [role="tab"], a[href], summary):where(:not(:disabled, [aria-disabled="true"])) {
+  transition: filter 0.12s ease;
+}
+
+:where(button, [role="button"], [role="tab"], a[href], summary):where(:not(:disabled, [aria-disabled="true"])):active {
+  filter: var(--press-filter);
+  transition: none; /* the press itself is instant; only letting go fades */
 }
 
 html,

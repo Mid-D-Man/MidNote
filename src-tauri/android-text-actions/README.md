@@ -2,6 +2,13 @@
 
 Select text in any app, open its "..." menu: **MidNote: Read aloud** and **MidNote: Make a note**.
 
+**Read aloud runs without opening MidNote.** The activity cuts the selection into spoken pieces (`SelectionReader`) and starts the
+read-aloud service (`ReaderHub.start`, `src-tauri/android-reader`) directly: you get the reading-aloud notification and the app
+stays closed. It speaks with the voice, speed and pitch last used in the app (`ReaderPrefs`, remembered natively whenever the app
+starts a reading or changes those settings; the engine's default voice at normal speed before the first time). `install.py` installs
+this form only when the reader's Kotlin (`ReaderBridge.kt`) is in the build; otherwise it installs `kotlin/ProcessTextActivities.forward.txt`,
+the older activities that hand the text to the app. Kotlin tests for the splitter: `sh test/run_kotlin_tests.sh` (needs `kotlinc`).
+
 How it works (and why it is built this way):
 
 - Android lists every activity with an intent-filter for `android.intent.action.PROCESS_TEXT` in that menu, one entry per

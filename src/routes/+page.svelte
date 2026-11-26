@@ -44,7 +44,8 @@
   // from whatever was last shown instead — see settings.svelte.ts's
   // loadLastActiveView/setLastActiveView.
   let activeView = $state<ActiveView>(loadLastActiveView());
-  let selectedTag = $state<string | null>(null);
+  // the tags the list is filtered by: an entry has to carry ALL of them (its own and its folders')
+  let pickedTags = $state<string[]>([]);
   let searchQuery = $state("");
   let sortBy = $state<"recent" | "alphabetical" | "bookmarked">("recent");
 
@@ -85,19 +86,6 @@
   const itemNoun = $derived(activeView === "notes" ? "Note" : activeView === "todos" ? "Todo" : "Board");
   const newRoute = $derived(activeView === "notes" ? "/note/new" : activeView === "todos" ? "/todo/new" : "/board/new");
 
-  const filteredItems = $derived(
-    // Round 47: a tag filter matches an entry's EFFECTIVE tags - its own plus those of the folders it sits in.
-    (selectedTag ? displayItems.filter((i) => effectiveTags(folderState.view, i.id).all.includes(selectedTag!)) : displayItems).filter((i) => {
-      const q = searchQuery.toLowerCase();
-      if (!q) return true;
-      // note.content is HTML now (see NoteContent.svelte) — strip tags
-      // before searching, or e.g. searching "strong" would false-match
-      // every bolded note.
-      const haystack = i.title + " " + (i.type === "regular" ? stripHtml(i.content) : "");
-      return haystack.toLowerCase().includes(q);
-    })
-  );
-
   // Round 47: tags an entry carries only because of the folders above it (shown quieter on its card),
   // and the ones among them the tag filter row doesn't already offer.
   function inheritedOf(id: string): string[] {
@@ -111,6 +99,33 @@
     }
     return out;
   });
+
+  // the picked tags that still have a chip to switch them off again (a tag whose chip went away, e.g. its folder lost it, is dropped
+  // from the filter instead of leaving a list nothing can match and no way to clear it)
+  const selectedTags = $derived(pickedTags.filter((t) => tagList.includes(t) || inheritedChipTags.includes(t)));
+  function toggleTag(tag: string) {
+    pickedTags = pickedTags.includes(tag) ? pickedTags.filter((t) => t !== tag) : [...pickedTags, tag];
+  }
+
+  const filteredItems = $derived(
+    // Round 47: a tag filter matches an entry's EFFECTIVE tags - its own plus those of the folders it sits in. With several tags
+    // picked, an entry has to carry every one of them.
+    (selectedTags.length > 0
+      ? displayItems.filter((i) => {
+          const have = effectiveTags(folderState.view, i.id).all;
+          return selectedTags.every((t) => have.includes(t));
+        })
+      : displayItems
+    ).filter((i) => {
+      const q = searchQuery.toLowerCase();
+      if (!q) return true;
+      // note.content is HTML now (see NoteContent.svelte) — strip tags
+      // before searching, or e.g. searching "strong" would false-match
+      // every bolded note.
+      const haystack = i.title + " " + (i.type === "regular" ? stripHtml(i.content) : "");
+      return haystack.toLowerCase().includes(q);
+    })
+  );
 
   const sortedItems = $derived.by(() => {
     const base = [...filteredItems].sort((a, b) => {
@@ -200,7 +215,7 @@
   function switchView(view: ActiveView) {
     activeView = view;
     setLastActiveView(view);
-    selectedTag = null;
+    pickedTags = [];
     sortBy = "recent";
     exitSelectMode();
   }
@@ -262,7 +277,7 @@
 
   function handleRemoveTag(tag: string) {
     if (activeView !== "folders" && !isBuiltIn(tag)) unregisterTag(activeView, tag);
-    if (selectedTag === tag) selectedTag = null;
+    pickedTags = pickedTags.filter((t) => t !== tag);
   }
 
   function handleAiNoteCreated(note: { title: string; content: string; html: string }): string {
@@ -553,14 +568,23 @@
         {#if activeView === "folders"}
           <FoldersView />
         {:else}
-        <div class="controls">
+        <!-- the search bar comes first and runs the full width; the sort order and layout toggle sit under it, then the tag filter -->
+        <div class="search-row">
+          <svg class="search-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <circle cx="11" cy="11" r="7" /><line x1="16.5" y1="16.5" x2="21" y2="21" />
+          </svg>
           <input
             class="search"
-            type="text"
+            type="search"
+            enterkeyhint="search"
+            autocomplete="off"
+            aria-label="Search {activeView}"
             placeholder="Search {activeView}..."
             bind:value={searchQuery}
           />
-          <select class="sort" bind:value={sortBy}>
+        </div>
+        <div class="controls">
+          <select class="sort" aria-label="Sort order" bind:value={sortBy}>
             <option value="recent">Recent</option>
             <option value="alphabetical">A-Z</option>
             <option value="bookmarked">Bookmarked</option>
@@ -605,16 +629,16 @@
           </div>
           <div class="tag-chips">
             {#each tagList as tag (tag)}
-              <div class="chip" class:selected={selectedTag === tag}>
-                <button onclick={() => (selectedTag = selectedTag === tag ? null : tag)}>{tag}</button>
+              <div class="chip" class:selected={selectedTags.includes(tag)}>
+                <button onclick={() => toggleTag(tag)} aria-label={`Filter by ${tag}`} aria-pressed={selectedTags.includes(tag)}>{tag}</button>
                 {#if !isBuiltIn(tag)}
                   <button class="remove" onclick={() => handleRemoveTag(tag)} aria-label="Remove {tag}">×</button>
                 {/if}
               </div>
             {/each}
             {#each inheritedChipTags as tag (tag)}
-              <div class="chip inherited" class:selected={selectedTag === tag}>
-                <button onclick={() => (selectedTag = selectedTag === tag ? null : tag)} aria-label={`Filter by ${tag} (from a folder)`}>{tag}</button>
+              <div class="chip inherited" class:selected={selectedTags.includes(tag)}>
+                <button onclick={() => toggleTag(tag)} aria-label={`Filter by ${tag} (from a folder)`} aria-pressed={selectedTags.includes(tag)}>{tag}</button>
               </div>
             {/each}
           </div>
@@ -630,7 +654,7 @@
 
         <div class="swipe-area" {...swipeAreaHandlers}>
           <div class="section-header">
-            <h2>All {itemNoun}s{selectedTag ? ` — ${selectedTag}` : ""}</h2>
+            <h2>All {itemNoun}s{selectedTags.length > 0 ? ` — ${selectedTags.join(", ")}` : ""}</h2>
             {#if !selectMode}
               <Button onclick={() => goto(newRoute)}>
                 + New {itemNoun}
@@ -1013,21 +1037,45 @@
     gap: var(--space-5);
     min-width: 0;
   }
+  .search-row {
+    position: relative;
+    width: 100%;
+    min-width: 0;
+  }
+  .search-icon {
+    position: absolute;
+    left: var(--space-3);
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-faint);
+    pointer-events: none;
+  }
   .controls {
     display: flex;
+    align-items: center;
     gap: var(--space-3);
     min-width: 0;
   }
+  .controls .view-toggle {
+    margin-left: auto;
+  }
   .search {
-    flex: 1;
+    display: block;
+    width: 100%;
     min-width: 0;
+    min-height: 44px;
     font-family: var(--font-sans);
-    font-size: 14px;
+    font-size: 15px;
     color: var(--text-hi);
     background: var(--surface);
     border: 1px solid var(--hairline);
-    border-radius: var(--radius-sm);
-    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-md);
+    padding: var(--space-2) var(--space-3) var(--space-2) 40px;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+  .search::-webkit-search-cancel-button {
+    -webkit-appearance: none;
   }
   .sort {
     flex-shrink: 0;
@@ -1434,6 +1482,9 @@
     .sort {
       max-width: none;
       flex: 1 1 auto;
+    }
+    .controls .view-toggle {
+      margin-left: 0;
     }
     .section-header h2 {
       font-size: 17px;

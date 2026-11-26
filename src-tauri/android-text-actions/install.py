@@ -28,6 +28,10 @@ A = "{%s}" % ANDROID_NS
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 KOTLIN_FILE = "ProcessTextActivities.kt"
+# "Read aloud" runs without opening the app when the read-aloud service's Kotlin (ReaderBridge.kt: ReaderHub, ReaderPrefs) is next to
+# MainActivity.kt; without it the activities are the older ones that hand the text to the app instead
+KOTLIN_FORWARD_ONLY = "ProcessTextActivities.forward.txt"
+READER_FILE = "ReaderBridge.kt"
 # (class name in the manifest, label shown in the menu)
 ACTIVITIES = [
     (".ProcessTextReadActivity", "MidNote: Read aloud"),
@@ -87,10 +91,12 @@ def package_of(kotlin_path):
 
 def install_kotlin(main_activity):
     package = package_of(main_activity)
-    src = read(os.path.join(HERE, "kotlin", KOTLIN_FILE))
+    headless = os.path.exists(os.path.join(os.path.dirname(main_activity), READER_FILE))
+    print("  read aloud     : " + ("starts the reader without opening MidNote" if headless else "the reader is not in the build: Read aloud opens MidNote"))
+    src = read(os.path.join(HERE, "kotlin", KOTLIN_FILE if headless else KOTLIN_FORWARD_ONLY))
     out, n = re.subn(r"^package\s+[A-Za-z0-9_.]+\s*$", "package " + package, src, count=1, flags=re.MULTILINE)
     if n != 1:
-        fail("kotlin/%s has no package line to rewrite" % KOTLIN_FILE)
+        fail("kotlin/%s has no package line to rewrite" % (KOTLIN_FILE if headless else KOTLIN_FORWARD_ONLY))
     target = os.path.join(os.path.dirname(main_activity), KOTLIN_FILE)
     if not os.path.exists(target):
         CREATED.append(target)

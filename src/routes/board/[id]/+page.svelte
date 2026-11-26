@@ -15,6 +15,7 @@
   import BoardHeader from "$lib/components/boards/BoardHeader/BoardHeader.svelte";
   import Spinner from "$lib/components/ui/Spinner/Spinner.svelte";
   import { saveEntry } from "$lib/stores/entries.svelte";
+  import { changedSince, snapshotOf } from "$lib/utils/entryChanged";
   import { boardTags } from "$lib/stores/tags.svelte";
   import { createBoard, getEntry } from "$lib/storage";
   import { breadcrumb } from "$lib/debug/log.svelte";
@@ -65,6 +66,7 @@
         // Round 47: opened from inside a folder (?folder=...): file the new entry there. Untracked on
         // purpose - this effect must not re-run (and reset the editor) every time an entry changes.
         board = createBoard(untrack(() => parentFromUrl($page.url)));
+        openedSnapshot = null;
         syncToken = untrack(() => syncToken) + 1;
         breadcrumb("board: created new");
         return;
@@ -72,6 +74,7 @@
       const existing = getEntry(id);
       if (existing && existing.type === "board") {
         board = existing;
+        openedSnapshot = snapshotOf(existing);
         syncToken = untrack(() => syncToken) + 1;
         breadcrumb(`board: loaded ${id}, ${existing.nodes.length} nodes, ${existing.edges.length} edges`);
       } else {
@@ -87,9 +90,16 @@
   // Mirrors the todo route's persist(): don't write an untouched blank
   // board to storage just because someone tapped "+ New Board" and
   // backed straight out, or the list would fill with empty boards.
-  function persist() {
-    if (!board.title.trim() && board.nodes.length === 0) return;
+  // the board as it was when it was opened (or when the Save button last said "Saved"): leaving says "Saved" if it has changed since
+  let openedSnapshot: string | null = null;
+
+  /** Saves the board. True when it has changed since it was opened (so leaving can say "Saved"); `explicit` is the Save button. */
+  function persist(explicit?: boolean): boolean {
+    if (!board.title.trim() && board.nodes.length === 0) return false;
+    const changed = changedSince(openedSnapshot, board);
     saveEntry(board);
+    if (explicit === true) openedSnapshot = snapshotOf(board);
+    return changed;
   }
 
   function handleCanvasChange(next: { nodes: BoardNode[]; edges: BoardEdge[]; viewport: BoardViewport | null }) {

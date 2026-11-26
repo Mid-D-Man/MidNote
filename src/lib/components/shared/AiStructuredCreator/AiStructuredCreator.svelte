@@ -13,7 +13,7 @@
   import Card from "$lib/components/ui/Card/Card.svelte";
   import Input from "$lib/components/ui/Input/Input.svelte";
   import Button from "$lib/components/ui/Button/Button.svelte";
-  import Spinner from "$lib/components/ui/Spinner/Spinner.svelte";
+  import ThinkingIndicator from "$lib/components/ui/ThinkingIndicator/ThinkingIndicator.svelte";
   import AuthDialog, { type AuthMode } from "$lib/components/layout/AuthDialog/AuthDialog.svelte";
   import { account } from "$lib/stores/account.svelte";
   import { ai, initAi, runAi } from "$lib/stores/ai.svelte";
@@ -160,9 +160,12 @@
     </div>
 
     <Button disabled={loading || !prompt.trim()} onclick={() => void generate(prompt)} class="generate-btn" aria-label={`Generate ${noun} with AI`}>
-      {#if loading}<Spinner />{/if}
       {loading ? "Generating..." : `Generate ${noun === "todo" ? "Todo" : "Board"}`}
     </Button>
+
+    {#if loading}
+      <ThinkingIndicator words={noun === "todo" ? ["Thinking", "Planning the steps", "Ordering them"] : ["Thinking", "Laying out the boxes", "Connecting the ideas"]} />
+    {/if}
 
     {#if notice}
       <p class="notice error" role="alert">{notice}</p>

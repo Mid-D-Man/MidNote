@@ -32,6 +32,7 @@
   import { getReadingFormat, setReadingFormat } from "$lib/stores/readingView.svelte";
   import { detectFormat, rawNoteText, type ReadingFormat } from "$lib/utils/readingFormat";
   import { saveEntry } from "$lib/stores/entries.svelte";
+  import { changedSince, snapshotOf } from "$lib/utils/entryChanged";
   import { noteTags, sync as syncTags } from "$lib/stores/tags.svelte";
   import { fontSize } from "$lib/stores/settings.svelte";
   import { createNote, getEntry, generateId } from "$lib/storage";
@@ -290,12 +291,14 @@
         // Round 47: opened from inside a folder (?folder=...): file the new entry there. Untracked on
         // purpose - this effect must not re-run (and reset the editor) every time an entry changes.
         note = createNote(untrack(() => parentFromUrl($page.url)));
+        openedSnapshot = null;
         syncToken = untrack(() => syncToken) + 1;
         return;
       }
       const existing = getEntry(id);
       if (existing && existing.type === "regular") {
         note = existing;
+        openedSnapshot = snapshotOf(existing);
         syncToken = untrack(() => syncToken) + 1;
         breadcrumb(`note: loaded ${id}`);
       } else {
@@ -308,7 +311,11 @@
     }
   }
 
-  function persist() {
+  // the note as it was when it was opened (or when the Save button last said "Saved"): leaving says "Saved" if it has changed since
+  let openedSnapshot: string | null = null;
+
+  /** Saves the note. True when it has changed since it was opened (so leaving can say "Saved"); `explicit` is the Save button. */
+  function persist(explicit?: boolean): boolean {
     // note.content's default is "<div><br></div>", not "" (see
     // storage.ts) — stripHtml it before checking emptiness, or a
     // never-touched new note would look non-empty and get saved anyway.
@@ -316,8 +323,11 @@
     // page 2+ (title and page 1 both still empty) is NOT actually empty,
     // and skipping the save here would silently discard it.
     const hasAnyContent = stripHtml(note.content) || note.pages.some((p) => stripHtml(p.content));
-    if (!note.title.trim() && !hasAnyContent) return;
+    if (!note.title.trim() && !hasAnyContent) return false;
+    const changed = changedSince(openedSnapshot, note);
     saveEntry(note);
+    if (explicit === true) openedSnapshot = snapshotOf(note); // the Save button has just said so
+    return changed;
   }
 
   function setTags(tags: string[]) {

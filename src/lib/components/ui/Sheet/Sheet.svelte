@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
+  import { blockedByScroll, closingDistance, shouldClose, startsClosingDrag, type ScrollInfo } from "$lib/utils/sheetDrag";
 
   let {
     open = $bindable(false),
@@ -7,6 +8,7 @@
     title = "",
     onBack,
     lift = false,
+    backIcon,
     children,
   }: {
     open?: boolean;
@@ -20,17 +22,36 @@
     // rounded corners all round) instead of sitting on it. For menus whose last rows were hard to hit down at the edge of
     // the screen (where the phone's navigation bar / gesture area is). Bottom sheets only; others ignore it.
     lift?: boolean;
+    /** Replaces the arrow in the Back button (e.g. the menu's cross, which is the burger icon turned over). */
+    backIcon?: Snippet;
     children: Snippet;
   } = $props();
 
-  // Swipe-to-close. Grabbed only from the header/drag-handle, never the
-  // scrollable body — so it can never fight with scrolling a long list
-  // of settings/menu items, and never misfires while tapping a button
-  // inside the sheet. A sheet with no title and no drag-handle (bottom
-  // always has one; left/right only get one from a title) has no grab
-  // region and falls back to tap-the-scrim-to-close only — true of
-  // every Sheet actually used in this app today (all pass a title), so
-  // this isn't a live gap, just an honest boundary if that changes.
+  // Opening and closing are animated: the sheet slides in from its edge and back out, the dim layer fades. Closing keeps the sheet
+  // in the page for a moment (`closing`) so it can slide away; then it is removed.
+  const EXIT_MS = 200;
+  let rendered = $state(open);
+  let closing = $state(false);
+  $effect(() => {
+    if (open) {
+      rendered = true;
+      closing = false;
+      return;
+    }
+    if (!rendered) return;
+    closing = true;
+    const timer = setTimeout(() => {
+      rendered = false;
+      closing = false;
+    }, EXIT_MS);
+    return () => clearTimeout(timer);
+  });
+
+  // Swipe-to-close. A sheet is dragged back toward the edge it came from (down, or left/right for a side menu) and closes when it
+  // is pulled far enough or flicked fast enough. The drag can start ANYWHERE on the sheet, not only on its handle: with a finger it
+  // is read from touch events (so it can decide, per gesture, between closing the sheet and scrolling a list), with a mouse from
+  // the handle and the header. A drag that starts on a list scrolled away from its top, or on something that scrolls sideways,
+  // is left to that scrolling. The rules are in utils/sheetDrag.ts.
   let sheetEl = $state<HTMLDivElement | null>(null);
   let dragPx = $state(0);
   let dragging = $state(false);
@@ -38,19 +59,30 @@
   let grabTime = 0;
   let sheetSize = 0;
 
-  const CLOSE_DISTANCE_RATIO = 0.3;
-  const CLOSE_VELOCITY_PX_MS = 0.5;
-
-  // Which direction along the relevant axis counts as "closing," i.e.
-  // back toward the edge each side slides in from.
-  const closingSign = $derived(side === "left" ? -1 : 1);
-
   const dragTransform = $derived(
-    side === "bottom" ? `translateY(${dragPx}px)` : side === "left" ? `translateX(${-dragPx}px)` : `translateX(${dragPx}px)`,
+    closing
+      ? side === "bottom"
+        ? "translateY(100%)"
+        : side === "left"
+          ? "translateX(-100%)"
+          : "translateX(100%)"
+      : side === "bottom"
+        ? `translateY(${dragPx}px)`
+        : side === "left"
+          ? `translateX(${-dragPx}px)`
+          : `translateX(${dragPx}px)`,
   );
 
+  function finishDrag() {
+    if (!dragging) return;
+    dragging = false;
+    if (shouldClose(dragPx, sheetSize, performance.now() - grabTime)) open = false;
+    dragPx = 0;
+  }
+
+  // --- mouse (and any non-touch pointer): from the drag handle and the header
   function onGrabPointerDown(e: PointerEvent) {
-    if (!sheetEl) return;
+    if (!sheetEl || e.pointerType === "touch") return; // a finger is handled by the touch events below
     // A press on the header's own buttons (Back) is a tap, not the start of a
     // swipe: capturing the pointer would swallow its click.
     if ((e.target as Element | null)?.closest("button")) return;
@@ -63,26 +95,95 @@
   }
 
   function onGrabPointerMove(e: PointerEvent) {
-    if (!dragging) return;
-    const delta = side === "bottom" ? e.clientY - grabStart.y : e.clientX - grabStart.x;
-    const signed = delta * closingSign;
+    if (!dragging || e.pointerType === "touch") return;
     // Only track movement in the closing direction — dragging the other
     // way just holds it at 0 (fully open), not "extra open."
-    dragPx = Math.max(0, signed);
+    dragPx = closingDistance(side, e.clientX - grabStart.x, e.clientY - grabStart.y);
   }
 
-  function onGrabPointerUp() {
-    if (!dragging) return;
-    dragging = false;
-    const elapsed = Math.max(1, performance.now() - grabTime);
-    const velocity = dragPx / elapsed;
-    const pastDistance = sheetSize > 0 && dragPx / sheetSize > CLOSE_DISTANCE_RATIO;
-    const pastVelocity = velocity > CLOSE_VELOCITY_PX_MS;
-    if (pastDistance || pastVelocity) {
-      open = false;
-    }
-    dragPx = 0;
+  function onGrabPointerUp(e: PointerEvent) {
+    if (e.pointerType === "touch") return;
+    finishDrag();
   }
+
+  // --- a finger: from anywhere on the sheet
+  function scrollChain(from: EventTarget | null, root: HTMLElement): ScrollInfo[] {
+    const chain: ScrollInfo[] = [];
+    let el = from instanceof Element ? from : null;
+    while (el && el !== root) {
+      const cs = getComputedStyle(el);
+      chain.push({
+        overflowX: cs.overflowX,
+        overflowY: cs.overflowY,
+        scrollTop: el.scrollTop,
+        scrollHeight: el.scrollHeight,
+        clientHeight: el.clientHeight,
+        scrollWidth: el.scrollWidth,
+        clientWidth: el.clientWidth,
+      });
+      el = el.parentElement;
+    }
+    return chain;
+  }
+
+  $effect(() => {
+    const root = sheetEl;
+    if (!root) return;
+    let touch: { x: number; y: number; target: EventTarget | null; active: boolean; blocked: boolean } | null = null;
+    const onStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1) {
+        touch = null;
+        return;
+      }
+      const t = e.touches[0];
+      touch = { x: t.clientX, y: t.clientY, target: e.target, active: false, blocked: false };
+      grabTime = performance.now();
+      sheetSize = side === "bottom" ? root.offsetHeight : root.offsetWidth;
+    };
+    const onMove = (e: TouchEvent) => {
+      if (!touch || e.touches.length !== 1) return;
+      const t = e.touches[0];
+      const dx = t.clientX - touch.x;
+      const dy = t.clientY - touch.y;
+      if (!touch.active) {
+        if (touch.blocked || !startsClosingDrag(side, dx, dy)) return;
+        // the gesture is toward the edge: but if it began on a list that can still scroll that way, it belongs to the list
+        if (blockedByScroll(side, scrollChain(touch.target, root))) {
+          touch.blocked = true;
+          return;
+        }
+        touch.active = true;
+        dragging = true;
+        grabTime = performance.now();
+      }
+      if (e.cancelable) e.preventDefault(); // the page must not scroll while the sheet follows the finger
+      dragPx = closingDistance(side, dx, dy);
+    };
+    const onEnd = () => {
+      const was = touch?.active ?? false;
+      touch = null;
+      if (was) finishDrag();
+    };
+    const onCancel = () => {
+      const was = touch?.active ?? false;
+      touch = null;
+      if (was) {
+        dragging = false;
+        dragPx = 0;
+      }
+    };
+    // not passive: onMove has to be able to stop the page scrolling
+    root.addEventListener("touchstart", onStart, { passive: true });
+    root.addEventListener("touchmove", onMove, { passive: false });
+    root.addEventListener("touchend", onEnd);
+    root.addEventListener("touchcancel", onCancel);
+    return () => {
+      root.removeEventListener("touchstart", onStart);
+      root.removeEventListener("touchmove", onMove);
+      root.removeEventListener("touchend", onEnd);
+      root.removeEventListener("touchcancel", onCancel);
+    };
+  });
 
   // BUGFIX: the scrim below used to call `() => (open = false)` directly,
   // with no guard at all. On a real touchscreen, the SAME tap that
@@ -113,9 +214,9 @@
   }
 </script>
 
-{#if open}
-  <div class="scrim" onclick={handleScrimClick} role="presentation"></div>
-  <div class="sheet {side}" class:dragging class:lifted={lift && side === "bottom"} bind:this={sheetEl} style="transform: {dragTransform}">
+{#if rendered}
+  <div class="scrim" class:closing onclick={handleScrimClick} role="presentation"></div>
+  <div class="sheet {side}" class:dragging class:closing class:lifted={lift && side === "bottom"} bind:this={sheetEl} style="transform: {dragTransform}">
     {#if side === "bottom"}
       <div
         class="drag-handle-wrap"
@@ -139,9 +240,13 @@
       >
         {#if onBack}
           <button type="button" class="back" aria-label="Back" onclick={() => onBack?.()}>
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-              <line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" />
-            </svg>
+            {#if backIcon}
+              {@render backIcon()}
+            {:else}
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" />
+              </svg>
+            {/if}
           </button>
         {/if}
         <h2>{title}</h2>
@@ -159,6 +264,47 @@
     inset: 0;
     background: rgba(4, 6, 16, 0.6);
     z-index: 40;
+    animation: fade-in 0.2s ease-out;
+    transition: opacity 0.2s ease;
+  }
+  .scrim.closing {
+    opacity: 0;
+    pointer-events: none;
+  }
+  /* a sheet on its way out takes no more taps */
+  .sheet.closing {
+    pointer-events: none;
+  }
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes slide-in-left {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(0);
+    }
+  }
+  @keyframes slide-in-right {
+    from {
+      transform: translateX(100%);
+    }
+    to {
+      transform: translateX(0);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .scrim,
+    .sheet {
+      animation: none !important;
+      transition: none !important;
+    }
   }
   .sheet {
     position: fixed;
@@ -169,6 +315,7 @@
     flex-direction: column;
     box-shadow: 0 0 32px rgba(0, 0, 0, 0.4);
     transition: transform 0.2s ease;
+    will-change: transform;
     /* BUGFIX: a sheet always renders on its own plain --surface
        background, never on a themed entry's or the landing page's
        photo — but `position: fixed` only escapes LAYOUT, not the CSS
@@ -202,10 +349,12 @@
   .sheet.left {
     left: 0;
     border-right: 1px solid var(--hairline);
+    animation: slide-in-left 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
   }
   .sheet.right {
     right: 0;
     border-left: 1px solid var(--hairline);
+    animation: slide-in-right 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
   }
 
   /* Bottom — modeled on the Notion reference: rises from the bottom
@@ -291,6 +440,8 @@
   .sheet-body {
     padding: var(--space-4);
     overflow-y: auto;
+    /* a list that reaches its end stays put instead of passing the gesture on to the page behind the sheet */
+    overscroll-behavior: contain;
     flex: 1;
   }
 </style>

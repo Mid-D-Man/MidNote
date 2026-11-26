@@ -996,6 +996,37 @@ if (STEPS.length > 0 && errors.length === 0) {
       el.dispatchEvent(make("pointerdown"));
       await new Promise((r) => setTimeout(r, 700));
       el.dispatchEvent(make("pointerup"));
+    } else if (step.touchDrag) {
+      // A finger dragging on an element: touchstart, a few touchmoves, then (after an optional hold) touchend. jsdom has no
+      // real touch input, so the events are plain Events carrying the `touches` list the page reads.
+      const { selector, dx = 0, dy = 0, steps = 4, holdMs = 0 } = step.touchDrag;
+      const el = target.querySelector(selector);
+      if (!el) {
+        errors.push(new Error(`${where}: nothing matched ${selector} to drag.`));
+        break;
+      }
+      const startX = 100;
+      const startY = 300;
+      const fire = (type, x, y, ending = false) => {
+        const ev = new w.Event(type, { bubbles: true, cancelable: true });
+        const touch = { clientX: x, clientY: y, identifier: 1, target: el };
+        Object.defineProperty(ev, "touches", { value: ending ? [] : [touch] });
+        Object.defineProperty(ev, "changedTouches", { value: [touch] });
+        el.dispatchEvent(ev);
+        return ev;
+      };
+      fire("touchstart", startX, startY);
+      let prevented = false;
+      for (let i = 1; i <= steps; i++) {
+        const ev = fire("touchmove", startX + (dx * i) / steps, startY + (dy * i) / steps);
+        prevented = prevented || ev.defaultPrevented;
+      }
+      if (holdMs > 0) await new Promise((r) => setTimeout(r, holdMs));
+      fire("touchend", startX + dx, startY + dy, true);
+      if (step.touchDrag.expectPrevented !== undefined && prevented !== step.touchDrag.expectPrevented) {
+        errors.push(new Error(`${where}: the drag ${prevented ? "stopped" : "did not stop"} the page scrolling (expected ${step.touchDrag.expectPrevented ? "it to" : "it not to"}).`));
+        break;
+      }
     } else if (step.selectText) {
       // Round F: a REAL partial selection in the editor. jsdom cannot drag a selection, so this sets ProseMirror's own
       // selection through the Tiptap instance (which Tiptap keeps on the editor's DOM element). { from, to? } are texts
@@ -1089,6 +1120,13 @@ if (STEPS.length > 0 && errors.length === 0) {
       const got = (el.textContent ?? "").trim();
       if (got !== step.expectSelectorText.text) {
         errors.push(new Error(`${where}: ${step.expectSelectorText.selector} reads ${JSON.stringify(got)} but should read ${JSON.stringify(step.expectSelectorText.text)}`));
+        break;
+      }
+    } else if (step.expectSelectorTexts) {
+      // The EXACT trimmed texts of every element matching a selector, in page order.
+      const got = [...target.querySelectorAll(step.expectSelectorTexts.selector)].map((e) => (e.textContent ?? "").trim());
+      if (JSON.stringify(got) !== JSON.stringify(step.expectSelectorTexts.texts)) {
+        errors.push(new Error(`${where}: ${step.expectSelectorTexts.selector} reads ${JSON.stringify(got)} but should read ${JSON.stringify(step.expectSelectorTexts.texts)}`));
         break;
       }
     } else if (step.press) {

@@ -105,6 +105,42 @@ object ReaderHub {
     }
 }
 
+/**
+ * The voice, speed and pitch last used, kept on the phone so a reading that starts without the app's page (the text-selection
+ * "Read aloud", src-tauri/android-text-actions) sounds the same as the ones started inside the app.
+ */
+object ReaderPrefs {
+    class Saved(val voiceId: String, val rate: Float, val pitch: Float)
+
+    private const val FILE = "midnote_reader"
+
+    fun remember(context: Context, voiceId: String, rate: Float, pitch: Float) {
+        try {
+            context.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit()
+                .putString("voice", voiceId)
+                .putFloat("rate", rate)
+                .putFloat("pitch", pitch)
+                .apply()
+        } catch (e: Exception) {
+            Log.w("MidNoteReader", "voice settings not remembered", e)
+        }
+    }
+
+    /** What was last used; the engine's own voice at normal speed and pitch when nothing was. */
+    fun load(context: Context): Saved {
+        return try {
+            val p = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+            Saved(
+                p.getString("voice", "") ?: "",
+                ReaderWire.parseFloat(p.getFloat("rate", 1.0f).toString(), 1.0f, 0.1f, 4.0f),
+                ReaderWire.parseFloat(p.getFloat("pitch", 1.0f).toString(), 1.0f, 0.1f, 4.0f)
+            )
+        } catch (e: Exception) {
+            Saved("", 1.0f, 1.0f)
+        }
+    }
+}
+
 class ReaderBridge(private val context: Context) {
 
     @JavascriptInterface
@@ -117,18 +153,10 @@ class ReaderBridge(private val context: Context) {
             ReaderHub.publish(ReaderState(ReaderStatus.IDLE, null, "", 0, 0, "There is nothing to read."))
             return
         }
-        ReaderHub.start(
-            context,
-            ReaderHub.Request(
-                id,
-                title,
-                list,
-                index,
-                voiceId,
-                ReaderWire.parseFloat(rate, 1.0f, 0.1f, 4.0f),
-                ReaderWire.parseFloat(pitch, 1.0f, 0.1f, 4.0f)
-            )
-        )
+        val rateValue = ReaderWire.parseFloat(rate, 1.0f, 0.1f, 4.0f)
+        val pitchValue = ReaderWire.parseFloat(pitch, 1.0f, 0.1f, 4.0f)
+        ReaderPrefs.remember(context, voiceId, rateValue, pitchValue)
+        ReaderHub.start(context, ReaderHub.Request(id, title, list, index, voiceId, rateValue, pitchValue))
     }
 
     @JavascriptInterface
@@ -157,6 +185,7 @@ class ReaderBridge(private val context: Context) {
     fun settings(voiceId: String, rate: String, pitch: String) {
         val r = ReaderWire.parseFloat(rate, 1.0f, 0.1f, 4.0f)
         val p = ReaderWire.parseFloat(pitch, 1.0f, 0.1f, 4.0f)
+        ReaderPrefs.remember(context, voiceId, r, p)
         ReaderHub.main.post { ReaderHub.service?.applySettings(voiceId, r, p) }
     }
 

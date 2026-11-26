@@ -1,6 +1,7 @@
 <script lang="ts">
   import Button from "$lib/components/ui/Button/Button.svelte";
   import Sheet from "$lib/components/ui/Sheet/Sheet.svelte";
+  import BurgerIcon from "$lib/components/ui/BurgerIcon/BurgerIcon.svelte";
   import AuthDialog, { type AuthMode } from "$lib/components/layout/AuthDialog/AuthDialog.svelte";
   import SettingsSheet from "$lib/components/layout/SettingsSheet/SettingsSheet.svelte";
   import TrashSheet from "$lib/components/layout/TrashSheet/TrashSheet.svelte";
@@ -58,11 +59,7 @@
 
 <header class="app-header" style={headerStyle}>
   <Button variant="ghost" size="icon" aria-label="Open menu" onclick={() => (menuOpen = true)}>
-    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
-      <line x1="3" y1="6" x2="21" y2="6" />
-      <line x1="3" y1="12" x2="21" y2="12" />
-      <line x1="3" y1="18" x2="21" y2="18" />
-    </svg>
+    <BurgerIcon open={menuOpen} />
   </Button>
 
   <h1><img src="/midnote-logo.svg" alt="" class="logo-mark" /> MidNote</h1>
@@ -74,7 +71,9 @@
   </Button>
 </header>
 
-<Sheet bind:open={menuOpen} side="left" title="Menu">
+<!-- The menu's Back button is the burger icon turned into a cross, where the burger was: tapping it closes the menu -->
+<Sheet bind:open={menuOpen} side="left" title="Menu" onBack={() => (menuOpen = false)}>
+  {#snippet backIcon()}<BurgerIcon playIn />{/snippet}
   <nav class="menu-nav">
     <Button variant="ghost" onclick={() => { menuOpen = false; trashOpen = true; }}>
       Trash

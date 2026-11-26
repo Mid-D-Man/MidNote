@@ -171,6 +171,8 @@ export type Incoming =
   | { kind: "refused"; name: string | null; message: string };
 
 const NOT_OPENABLE = "MidNote opens text files (notes, code, JSON, Markdown…), PDF files, Word documents (.docx), PowerPoint presentations (.pptx) and its own backups.";
+/** Names of programs and app packages: refused by name, before anything else is looked at. */
+const PROGRAM_NAME = /\.(apk|apks|xapk|aab|exe|msi|dll|so|dex|jar|class|iso|dmg|appimage)$/i;
 
 function isZip(b: Uint8Array): boolean {
   return b.length >= 4 && b[0] === 0x50 && b[1] === 0x4b && b[2] === 0x03 && b[3] === 0x04;
@@ -193,6 +195,9 @@ export function isKeyFileText(text: string, name: string | null): boolean {
 /** What a file's bytes are. Synchronous; a "docx", "pptx" or "pdf" still needs its text pulled out (docxText.ts, pptxText.ts, pdfText.ts). Never throws. */
 export function classifyIncoming(name: string | null, bytes: Uint8Array): Incoming {
   if (bytes.length === 0) return { kind: "refused", name, message: "That file is empty." };
+
+  // programs and app packages are never readable, whatever their bytes look like
+  if (name && PROGRAM_NAME.test(name)) return { kind: "refused", name, message: `That's a program or app package, not something MidNote can read. ${NOT_OPENABLE}` };
 
   if (isPdfBytes(bytes, name)) return { kind: "pdf", name };
 
