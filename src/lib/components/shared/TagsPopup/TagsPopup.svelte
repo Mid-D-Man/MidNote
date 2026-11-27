@@ -21,12 +21,15 @@
     availableTags,
     onAddTag,
     onRemoveTag,
+    onBack,
   }: {
     open?: boolean;
     tags: string[];
     availableTags: string[];
     onAddTag: (tag: string) => void;
     onRemoveTag: (tag: string) => void;
+    // Optional: shows a Back arrow that goes back to whatever opened this popup (the folder editor does).
+    onBack?: () => void;
   } = $props();
 
   let query = $state("");
@@ -56,7 +59,7 @@
   });
 </script>
 
-<Sheet bind:open side="bottom" title="Tags" lift>
+<Sheet bind:open side="bottom" title="Tags" lift {onBack}>
   <div class="popup">
     {#if tags.length > 0}
       <div class="group">

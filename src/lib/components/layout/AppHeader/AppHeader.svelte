@@ -71,8 +71,8 @@
   </Button>
 </header>
 
-<!-- The menu's Back button is the burger icon turned into a cross, where the burger was: tapping it closes the menu -->
-<Sheet bind:open={menuOpen} side="left" title="Menu" onBack={() => (menuOpen = false)}>
+<!-- The menu's Back button is the burger icon turned into a cross, where the burger was (same height and spot as the burger in the bar above): tapping it closes the menu -->
+<Sheet bind:open={menuOpen} side="left" title="Menu" onBack={() => (menuOpen = false)} matchAppHeader>
   {#snippet backIcon()}<BurgerIcon playIn />{/snippet}
   <nav class="menu-nav">
     <Button variant="ghost" onclick={() => { menuOpen = false; trashOpen = true; }}>
@@ -106,9 +106,7 @@
 
 <style>
   .app-header {
-    height: 15vh;
-    min-height: 80px;
-    max-height: 120px;
+    height: var(--app-header-height);
     border-bottom: 1px solid var(--hairline);
     background: var(--surface);
     padding: 0 var(--space-4);

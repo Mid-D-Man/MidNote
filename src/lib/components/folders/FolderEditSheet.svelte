@@ -2,9 +2,11 @@
   // One folder's settings (round 47): its name, its OWN tags, where it lives, and delete.
   // Tags set here are inherited by everything inside (utils/folders.ts effectiveTags); the
   // ones inherited from folders above are listed read-only, since they are changed there.
+  // The tags are picked in the same Tags popup the cards' ⋮ menu opens (search, create, one row per tag): the row below
+  // opens it, and its Back arrow returns here.
   import Sheet from "$lib/components/ui/Sheet/Sheet.svelte";
   import Button from "$lib/components/ui/Button/Button.svelte";
-  import TagSelector from "$lib/components/shared/TagSelector/TagSelector.svelte";
+  import TagsPopup from "$lib/components/shared/TagsPopup/TagsPopup.svelte";
   import { entries, saveEntry } from "$lib/stores/entries.svelte";
   import { noteTags, todoTags, boardTags } from "$lib/stores/tags.svelte";
   import { folderState, deleteFolder, requestMove, renameFolder, FOLDER_NAME_MAX } from "$lib/stores/folders.svelte";
@@ -17,10 +19,12 @@
   const folder = $derived(folderId ? (entries.find((e): e is Folder => e.type === "folder" && e.id === folderId) ?? null) : null);
   const tags = $derived(folder ? effectiveTags(folderState.view, folder.id) : null);
   const inside = $derived(folder ? descendantIds(folderState.view, folder.id).length : 0);
-  const suggestions = $derived([...new Set([...noteTags, ...todoTags, ...boardTags])]);
+  // every tag in use, plus this folder's own (so one taken off can be put back)
+  const suggestions = $derived([...new Set([...noteTags, ...todoTags, ...boardTags, ...(folder?.tags ?? [])])]);
 
   let name = $state("");
   let confirmDelete = $state(false);
+  let tagsOpen = $state(false);
   $effect(() => {
     if (open && folder) {
       name = folder.title;
@@ -41,6 +45,16 @@
   function removeTag(tag: string) {
     if (!folder) return;
     saveEntry({ ...folder, tags: folder.tags.filter((t) => t !== tag) });
+  }
+
+  // Sequential, not nested: the folder sheet goes down and the Tags popup comes up; Back swaps them again.
+  function openTags() {
+    open = false;
+    tagsOpen = true;
+  }
+  function backFromTags() {
+    tagsOpen = false;
+    open = true;
   }
 
   function moveFolder() {
@@ -69,7 +83,12 @@
 
       <div class="field">
         <span class="label">Tags — everything inside inherits these</span>
-        <TagSelector selectedTags={folder.tags} availableTags={suggestions} onAddTag={addTag} onRemoveTag={removeTag} />
+        <button type="button" class="tags-row" aria-label="Edit folder tags" onclick={openTags}>
+          <span class="tags-summary">
+            {#each folder.tags as t (t)}<span class="chip own">{t}</span>{:else}<span class="none">No tags yet</span>{/each}
+          </span>
+          <svg class="go" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="9 6 15 12 9 18" /></svg>
+        </button>
         {#if tags.inherited.length > 0}
           <p class="inherited">
             Also inherited from folders above:
@@ -96,6 +115,9 @@
   {/if}
 </Sheet>
 
+<!-- A sibling of the sheet, not inside it: a sheet's transform would make it the containing block of this one. -->
+<TagsPopup bind:open={tagsOpen} tags={folder?.tags ?? []} availableTags={suggestions} onAddTag={addTag} onRemoveTag={removeTag} onBack={backFromTags} />
+
 <style>
   .body {
     display: flex;
@@ -118,6 +140,45 @@
     border-radius: var(--radius-sm);
     color: var(--text-hi);
     font-size: 15px;
+  }
+  .tags-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    min-height: 48px;
+    padding: var(--space-2) var(--space-3);
+    width: 100%;
+    text-align: left;
+    font-family: inherit;
+    color: var(--text-hi);
+    background: var(--surface-raised);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+  }
+  .tags-summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+  .none {
+    font-size: 15px;
+    color: var(--text-faint);
+  }
+  .go {
+    flex-shrink: 0;
+    color: var(--text-faint);
+  }
+  .chip.own {
+    padding: 4px var(--space-3);
+    background: var(--accent-wash);
+    color: var(--accent);
+    font-size: 14px;
+    font-weight: 500;
+    overflow-wrap: anywhere;
   }
   .inherited {
     margin: var(--space-2) 0 0;

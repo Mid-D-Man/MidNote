@@ -95,6 +95,9 @@
   --space-4: 16px;
   --space-5: 24px;
   --space-6: 32px;
+
+  /* The top bar's height. The menu sheet's header uses the same value so its cross sits exactly where the burger was. */
+  --app-header-height: clamp(80px, 15vh, 120px);
 }
 
 * {
@@ -118,7 +121,14 @@ html {
   transition: filter 0.12s ease;
 }
 
-:where(button, [role="button"], [role="tab"], a[href], summary):where(:not(:disabled, [aria-disabled="true"])):active {
+/*
+  A tappable thing that CONTAINS a pressed tappable thing stays quiet (the :where(:not(:has(...))) part): :active also matches
+  every ancestor of the pressed element, and a filter on an ancestor makes it the containing block of any position:fixed
+  descendant. A card that holds the ⋮ menu's sheet got the filter while ⋮ was pressed (and for the 0.12s fade after), so the
+  sheet was laid out inside the card, squashed, before jumping to full size. Only tappable descendants count: a button whose
+  pressed part is its own icon or label still shows the press.
+*/
+:where(button, [role="button"], [role="tab"], a[href], summary):where(:not(:disabled, [aria-disabled="true"])):where(:not(:has(:where(button, [role="button"], [role="tab"], a[href], summary):active))):active {
   filter: var(--press-filter);
   transition: none; /* the press itself is instant; only letting go fades */
 }

@@ -9,6 +9,7 @@
     onBack,
     lift = false,
     backIcon,
+    matchAppHeader = false,
     children,
   }: {
     open?: boolean;
@@ -24,6 +25,8 @@
     lift?: boolean;
     /** Replaces the arrow in the Back button (e.g. the menu's cross, which is the burger icon turned over). */
     backIcon?: Snippet;
+    /** A side menu whose header lines up with the app's top bar: same height, and a 36px Back button in the spot of the burger button (so the cross sits exactly where the burger was). */
+    matchAppHeader?: boolean;
     children: Snippet;
   } = $props();
 
@@ -232,6 +235,7 @@
     {#if title}
       <div
         class="sheet-header"
+        class:match-app-header={matchAppHeader}
         role="presentation"
         onpointerdown={onGrabPointerDown}
         onpointermove={onGrabPointerMove}
@@ -432,6 +436,15 @@
   }
   .back:hover {
     background: var(--surface-raised, var(--surface));
+  }
+  /* The top bar's burger button is 36px, 16px in from the edge, centred in a bar --app-header-height tall. The header here is
+     the same bar: same height, same side padding, and the Back button with no pull-in, so its centre is the burger's centre. */
+  .sheet-header.match-app-header {
+    height: var(--app-header-height);
+    padding: 0 var(--space-4);
+  }
+  .sheet-header.match-app-header .back {
+    margin: 0;
   }
   .sheet-header h2 {
     font-family: var(--font-display);
