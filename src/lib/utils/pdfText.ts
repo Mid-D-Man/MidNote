@@ -4,8 +4,8 @@
 // including every piece of text and where it goes (see pdfObjects.ts, pdfContent.ts, pdfFonts.ts, pdfLayout.ts). This reads that
 // text back out, page by page, as plain text (with "Page N" above each page when there are several).
 //
-// WHAT COMES OUT: the text, in reading order for ordinary documents, with paragraphs joined and tables as rows with tabs between
-// columns; and the JPEG pictures on each page (a scan is usually one JPEG per page), which the Reading view shows under the page's
+// WHAT COMES OUT: the text, in reading order for ordinary documents, with paragraphs joined, tables drawn with lines as bar rows
+// ("| a | b |", empty cells kept; pdfTables.ts) and other tables as rows with tabs between columns; and the JPEG pictures on each page (a scan is usually one JPEG per page), which the Reading view shows under the page's
 // text. WHAT DOES NOT: drawings and charts, pictures in other packings (JPEG 2000, fax, CMYK), and the text of a SCANNED PDF
 // (pages that are pictures of text) unless an OCR layer was added when it was scanned: MidNote does not do OCR. Encrypted files are refused. Right-to-left and
 // complex scripts come out in the order the file draws them, which may not read correctly.
@@ -14,8 +14,8 @@
 // are bounded (stream size, nesting, pages, output length).
 import { PdfDoc, PdfRef, PdfStream, type PdfValue } from "$lib/utils/pdfObjects";
 import { PdfError } from "$lib/utils/pdfFilters";
-import { FontCache, interpretContent, type PictureSink, type Run } from "$lib/utils/pdfContent";
-import { runsToText } from "$lib/utils/pdfLayout";
+import { FontCache, interpretContent, type PictureSink, type Rule, type Run } from "$lib/utils/pdfContent";
+import { pageToText } from "$lib/utils/pdfTables";
 import { Collector, MAX_DOC_IMAGES, type DocImage } from "$lib/utils/docImages";
 
 export { PdfError };
@@ -94,9 +94,10 @@ export async function pdfToText(bytes: Uint8Array, maxChars = 400_000): Promise<
     }
     if (!content) continue;
     const runs: Run[] = [];
+    const rules: Rule[] = [];
     sink.streams = [];
     try {
-      await interpretContent(content, pages[i].resources, { doc, fonts, out: runs, pictures: found.full ? undefined : sink });
+      await interpretContent(content, pages[i].resources, { doc, fonts, out: runs, rules, pictures: found.full ? undefined : sink });
     } catch (e) {
       if (e instanceof PdfError && e.kind === "too-large") throw e;
     }
@@ -114,7 +115,7 @@ export async function pdfToText(bytes: Uint8Array, maxChars = 400_000): Promise<
         if (e instanceof PdfError && e.kind === "too-large") throw e; // (one damaged picture is skipped)
       }
     }
-    const text = runsToText(runs).trim();
+    const text = pageToText(runs, rules).trim();
     if (text !== "" || pictured) {
       texts.push({ n: i + 1, text });
       chars += text.length;

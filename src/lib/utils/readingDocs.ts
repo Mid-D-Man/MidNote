@@ -2,7 +2,8 @@
 // was read out of it (utils/pptxText.ts, pdfText.ts, docxText.ts). That text has a few conventions, and this file draws them:
 //   PowerPoint: "Slide N" starts a slide; the first line is its title; indentation (two spaces a level) is the bullet level; a
 //               line "a | b | c" is a table row; "Notes:" starts the speaker notes.
-//   PDF:        "Page N" starts a page (only when there are several); a blank line ends a paragraph; a tab is a gap between columns.
+//   PDF:        "Page N" starts a page (only when there are several); a blank line ends a paragraph; a tab is a gap between columns;
+//               a line "| a | b |" is a row of a table the PDF drew with lines (empty cells kept).
 //   Word:       one line is one paragraph; a tab is a gap between columns. Word's own styles are not in the text, so headings are
 //               GUESSED (headingLevel), conservatively: a wrong guess only makes a line bold and larger.
 // Everything is drawn as plain text blocks (never markup), so nothing in a file can do anything. Plain TypeScript, no DOM.
@@ -49,6 +50,11 @@ function cellsOf(line: string): string[] {
 }
 
 const isTabular = (line: string): boolean => cellsOf(line).length >= 2;
+
+// A PDF table drawn with lines comes out of utils/pdfTables.ts as bar rows, "| a | b |  | d |": one line a row, bars between the
+// cells, an empty cell is just "|  |". (The count of cells never changes, which is what keeps the columns lined up.)
+const isBarRow = (line: string): boolean => line.length >= 3 && line[0] === "|" && line[line.length - 1] === "|" && line.split("|").length >= 4;
+const barCells = (line: string): string[] => line.slice(1, -1).split("|").map((c) => c.trim());
 
 function tableBlock(rows: string[][]): Block {
   const width = Math.min(MAX_TABLE_COLUMNS, Math.max(1, ...rows.map((r) => r.length)));
@@ -162,6 +168,17 @@ function flow(lines: string[], mode: "docx" | "pdf", headings = true, firstMayBe
       i++;
       continue;
     }
+    if (isBarRow(line)) {
+      const rows: string[][] = [];
+      let j = i;
+      while (j < n && isBarRow(lines[j].trim())) rows.push(barCells(lines[j++].trim()));
+      if (rows.length >= 2) {
+        out.push(tableBlock(rows));
+        i = j;
+        prevBlank = false;
+        continue;
+      }
+    }
     if (isTabular(line)) {
       const rows: string[][] = [];
       let j = i;
@@ -221,7 +238,7 @@ function flow(lines: string[], mode: "docx" | "pdf", headings = true, firstMayBe
     let j = i + 1;
     while (j < n) {
       const t = lines[j].trim();
-      if (t === "" || BULLET.test(t) || NUMBER.test(t) || isTabular(t) || RULE.test(t) || (headings && headingLevel(t, false, null, false) > 0)) break;
+      if (t === "" || BULLET.test(t) || NUMBER.test(t) || isTabular(t) || isBarRow(t) || RULE.test(t) || (headings && headingLevel(t, false, null, false) > 0)) break;
       parts.push(t);
       j++;
     }
